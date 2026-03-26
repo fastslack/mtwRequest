@@ -1060,7 +1060,10 @@ name = "mtw-integrations"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "bytes",
+ "futures",
  "mtw-core",
+ "reqwest",
  "serde",
  "serde_json",
  "tokio",

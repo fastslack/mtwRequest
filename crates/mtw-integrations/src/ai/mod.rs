@@ -8,6 +8,7 @@ pub mod cohere;
 pub mod deepseek;
 pub mod google;
 pub mod huggingface;
+pub mod lmstudio;
 pub mod meta;
 pub mod mistral;
 pub mod ollama;
