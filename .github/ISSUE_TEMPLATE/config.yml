@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & Discussions
+    url: https://github.com/fastslack/mtwRequest/discussions
+    about: Ask questions and discuss ideas
+  - name: Documentation
+    url: https://github.com/fastslack/mtwRequest/tree/main/docs
+    about: Check the docs before opening an issue

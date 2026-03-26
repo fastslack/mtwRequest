@@ -1,0 +1,26 @@
+[package]
+name = "mtw-binding-node"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["fastslack"]
+description = "NAPI-RS bindings for mtwRequest — Node.js native addon"
+repository = "https://github.com/fastslack/mtwRequest"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# napi = { version = "2", features = ["async", "napi8"] }
+# napi-derive = "2"
+mtw-protocol = { path = "../../crates/mtw-protocol" }
+mtw-core = { path = "../../crates/mtw-core" }
+mtw-transport = { path = "../../crates/mtw-transport" }
+mtw-router = { path = "../../crates/mtw-router" }
+mtw-ai = { path = "../../crates/mtw-ai" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+
+[build-dependencies]
+# napi-build = "2"

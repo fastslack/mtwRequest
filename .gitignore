@@ -1,0 +1,62 @@
+# =============================================================================
+# mtwRequest .gitignore
+# =============================================================================
+
+# Rust
+/target/
+
+# Node.js
+node_modules/
+dist/
+*.tsbuildinfo
+.turbo/
+
+# Python
+*.pyc
+*.pyo
+__pycache__/
+*.egg-info/
+.venv/
+venv/
+
+# PHP
+vendor/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+*.swp
+*.swo
+*~
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Testing / Coverage
+coverage/
+*.lcov
+tarpaulin-report.html
+
+# Logs
+*.log
+
+# Build artifacts
+*.so
+*.dylib
+*.dll
+*.wasm
+!bindings/wasm/pkg/
+
+# NAPI-RS
+bindings/node/*.node
+
+# Claude Code
+.claude/settings.local.json

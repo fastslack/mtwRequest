@@ -1,0 +1,23 @@
+[package]
+name = "mtw-binding-python"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["fastslack"]
+description = "PyO3 bindings for mtwRequest — Python native extension"
+repository = "https://github.com/fastslack/mtwRequest"
+
+[lib]
+name = "mtw_request"
+crate-type = ["cdylib"]
+
+[dependencies]
+# pyo3 = { version = "0.22", features = ["extension-module"] }
+mtw-protocol = { path = "../../crates/mtw-protocol" }
+mtw-core = { path = "../../crates/mtw-core" }
+mtw-transport = { path = "../../crates/mtw-transport" }
+mtw-router = { path = "../../crates/mtw-router" }
+mtw-ai = { path = "../../crates/mtw-ai" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }

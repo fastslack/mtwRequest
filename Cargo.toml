@@ -1,0 +1,74 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/mtw-protocol",
+    "crates/mtw-core",
+    "crates/mtw-codec",
+    "crates/mtw-transport",
+    "crates/mtw-router",
+    "crates/mtw-ai",
+    "crates/mtw-auth",
+    "crates/mtw-state",
+    "crates/mtw-integrations",
+    "crates/mtw-registry",
+    "crates/mtw-sdk",
+    "crates/mtw-test",
+    "crates/mtw-http",
+    "crates/mtw-exchange",
+    "examples",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["fastslack"]
+repository = "https://github.com/fastslack/mtwRequest"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+futures = "0.3"
+pin-project-lite = "0.2"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# WebSocket
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+
+# Utilities
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+ulid = "1"
+dashmap = "6"
+bytes = "1"
+toml = "0.8"
+
+# Auth
+jsonwebtoken = "9"
+
+# Internal crates
+mtw-protocol = { path = "crates/mtw-protocol" }
+mtw-core = { path = "crates/mtw-core" }
+mtw-codec = { path = "crates/mtw-codec" }
+mtw-transport = { path = "crates/mtw-transport" }
+mtw-router = { path = "crates/mtw-router" }
+mtw-ai = { path = "crates/mtw-ai" }
+mtw-auth = { path = "crates/mtw-auth" }
+mtw-state = { path = "crates/mtw-state" }
+mtw-integrations = { path = "crates/mtw-integrations" }
+mtw-registry = { path = "crates/mtw-registry" }
+mtw-sdk = { path = "crates/mtw-sdk" }
+mtw-test = { path = "crates/mtw-test" }
+mtw-http = { path = "crates/mtw-http" }
+mtw-exchange = { path = "crates/mtw-exchange" }
+reqwest = { version = "0.12", features = ["json", "gzip", "brotli", "stream"] }
+
+# Crypto auth
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"

@@ -1,0 +1,66 @@
+{
+  "name": "@mtw/svelte",
+  "version": "0.1.0",
+  "description": "Svelte stores for mtwRequest real-time framework",
+  "license": "MIT",
+  "author": "fastslack",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fastslack/mtwRequest",
+    "directory": "packages/svelte"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "svelte": "./dist/index.js",
+  "exports": {
+    ".": {
+      "svelte": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean --external svelte",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch --external svelte",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@mtw/client": "workspace:*"
+  },
+  "peerDependencies": {
+    "svelte": ">=4.0.0"
+  },
+  "devDependencies": {
+    "svelte": "^5.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0"
+  },
+  "keywords": [
+    "mtw",
+    "mtwRequest",
+    "svelte",
+    "stores",
+    "websocket",
+    "real-time",
+    "ai",
+    "agent"
+  ]
+}

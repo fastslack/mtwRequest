@@ -1,0 +1,23 @@
+[package]
+name = "mtw-binding-wasm"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["fastslack"]
+description = "WASM bindings for mtwRequest — browser WebAssembly module"
+repository = "https://github.com/fastslack/mtwRequest"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# wasm-bindgen = "0.2"
+# wasm-bindgen-futures = "0.4"
+# js-sys = "0.3"
+# web-sys = { version = "0.3", features = ["WebSocket", "MessageEvent", "console"] }
+mtw-protocol = { path = "../../crates/mtw-protocol" }
+mtw-core = { path = "../../crates/mtw-core" }
+mtw-transport = { path = "../../crates/mtw-transport" }
+mtw-router = { path = "../../crates/mtw-router" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

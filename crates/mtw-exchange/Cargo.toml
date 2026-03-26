@@ -1,0 +1,31 @@
+[package]
+name = "mtw-exchange"
+description = "Exchange and broker connectivity for mtwRequest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+mtw-core = { workspace = true }
+mtw-protocol = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+dashmap = { workspace = true }
+thiserror = { workspace = true }
+reqwest = { workspace = true }
+tokio-tungstenite = { workspace = true }
+ulid = { workspace = true }
+
+# Crypto auth
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+
+[dev-dependencies]
+tokio = { workspace = true }
+tracing-subscriber = { workspace = true }
+toml = { workspace = true }

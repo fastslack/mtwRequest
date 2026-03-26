@@ -1,0 +1,44 @@
+name: Feature Request
+description: Suggest a new feature for mtwRequest
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Feature Description
+      description: A clear description of the feature you'd like
+    validations:
+      required: true
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use Case
+      description: What problem does this solve? Why do you need it?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed
+    attributes:
+      label: Proposed Solution
+      description: How do you think this should work? (API examples welcome)
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Other approaches you've considered
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - Core (new crate or core change)
+        - Module (could be a community module)
+        - Frontend SDK
+        - Binding (Node.js/Python/PHP/WASM)
+        - Documentation
+        - Tooling (CLI, dev experience)

@@ -1,0 +1,35 @@
+mtwRequest
+Copyright 2026 fastslack
+
+This product includes software developed by fastslack.
+https://github.com/fastslack/mtwRequest
+
+=======================================================================
+
+ATTRIBUTION REQUIREMENT
+
+If you use mtwRequest in your project, product, or service, you MUST
+include the following attribution in a visible and accessible location:
+
+  "Powered by mtwRequest (https://github.com/fastslack/mtwRequest)"
+
+This attribution must appear in at least ONE of the following:
+
+  1. In the application's "About" page, credits, or similar section
+  2. In the project's README or documentation
+  3. In the application's footer, settings, or info screen
+  4. In the NOTICE file distributed with the software
+
+This requirement applies to both open source and proprietary/commercial
+uses of mtwRequest, as per Section 4(d) of the Apache License 2.0.
+
+=======================================================================
+
+Third-party components and their licenses:
+
+- tokio (MIT) - https://github.com/tokio-rs/tokio
+- tungstenite (MIT/Apache-2.0) - https://github.com/snapview/tungstenite-rs
+- serde (MIT/Apache-2.0) - https://github.com/serde-rs/serde
+- reqwest (MIT/Apache-2.0) - https://github.com/seanmonstar/reqwest
+- jsonwebtoken (MIT) - https://github.com/Keats/jsonwebtoken
+- dashmap (MIT) - https://github.com/xacrimon/dashmap

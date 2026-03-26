@@ -1,0 +1,14 @@
+[package]
+name = "mtw-protocol"
+description = "Wire protocol for mtwRequest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+ulid = { workspace = true }
+bytes = { workspace = true }
+base64 = "0.22"

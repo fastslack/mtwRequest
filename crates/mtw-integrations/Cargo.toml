@@ -1,0 +1,16 @@
+[package]
+name = "mtw-integrations"
+description = "Third-party API integrations, AI model providers, OAuth2, and RSS support for mtwRequest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+mtw-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

@@ -1,0 +1,14 @@
+[package]
+name = "mtw-registry"
+description = "Marketplace client and module resolver for mtwRequest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+mtw-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
