@@ -8,14 +8,13 @@
 import { writable, get, type Readable, type Writable } from 'svelte/store';
 import {
   MtwAgentClient,
-  type AgentChunk,
   type AgentResponse,
   type AgentOptions,
   type AgentContextMessage,
   type AgentToolCall,
   type ToolHandler,
   type MtwError,
-} from '@mtw/client';
+} from '@matware/mtw-request-ts-client';
 import type { ConnectionStore } from './connection';
 
 // ---------------------------------------------------------------------------

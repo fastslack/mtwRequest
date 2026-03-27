@@ -33,4 +33,4 @@ export type {
   ChannelMember,
   MtwError,
   ToolHandler,
-} from '@mtw/client';
+} from '@matware/mtw-request-ts-client';

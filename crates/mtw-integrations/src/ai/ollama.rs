@@ -1,6 +1,12 @@
 //! Ollama (local models) AI provider integration.
+//!
+//! Includes real HTTP chat, streaming (newline-delimited JSON, not SSE),
+//! embeddings, and model management.
 
+use bytes::Bytes;
+use futures::stream::{BoxStream, StreamExt};
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 use super::{AiProviderInfo, AiProviderStatus, ModelInfo};
 
@@ -130,22 +136,254 @@ impl OllamaProvider {
         models::ALL
     }
 
-    /// Check if the Ollama server is reachable.
+    /// Check if the Ollama server is reachable by listing local models.
     pub async fn validate(&mut self) -> Result<(), String> {
-        // TODO: GET /api/tags to list locally available models
-        self.status = AiProviderStatus::Ready;
-        Ok(())
+        let url = format!("{}/tags", self.config.base_url);
+        let client = reqwest::Client::new();
+        match client.get(&url).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                self.status = AiProviderStatus::Ready;
+                Ok(())
+            }
+            Ok(resp) => {
+                let msg = format!("Ollama returned status {}", resp.status());
+                self.status = AiProviderStatus::Unavailable(msg.clone());
+                Err(msg)
+            }
+            Err(e) => {
+                let msg = format!("Cannot reach Ollama: {}", e);
+                self.status = AiProviderStatus::Unavailable(msg.clone());
+                Err(msg)
+            }
+        }
+    }
+
+    fn http_client(&self) -> reqwest::Client {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(self.config.timeout_secs))
+            .build()
+            .unwrap_or_default()
+    }
+
+    fn resolve_model(&self, model: &str) -> String {
+        if model.is_empty() {
+            self.config.default_model.clone()
+        } else {
+            model.to_string()
+        }
+    }
+
+    /// Send a chat request (non-streaming).
+    pub async fn chat(
+        &self,
+        model: &str,
+        messages: Vec<Value>,
+        temperature: Option<f32>,
+    ) -> Result<Value, String> {
+        let mut body = json!({
+            "model": self.resolve_model(model),
+            "messages": messages,
+            "stream": false,
+        });
+
+        if let Some(temp) = temperature {
+            body["options"] = json!({ "temperature": temp });
+        }
+
+        let url = format!("{}/chat", self.config.base_url);
+        let response = self
+            .http_client()
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("Ollama request failed: {}", e))?;
+
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let body = response.text().await.unwrap_or_default();
+            return Err(format!("Ollama returned {}: {}", status, body));
+        }
+
+        response
+            .json::<Value>()
+            .await
+            .map_err(|e| format!("Failed to parse Ollama response: {}", e))
+    }
+
+    /// Stream a chat response. Ollama uses newline-delimited JSON (not SSE).
+    pub fn stream_chat(
+        &self,
+        model: &str,
+        messages: Vec<Value>,
+        temperature: Option<f32>,
+    ) -> BoxStream<'static, Result<OllamaStreamDelta, String>> {
+        let mut body = json!({
+            "model": self.resolve_model(model),
+            "messages": messages,
+            "stream": true,
+        });
+
+        if let Some(temp) = temperature {
+            body["options"] = json!({ "temperature": temp });
+        }
+
+        let url = format!("{}/chat", self.config.base_url);
+        let client = self.http_client();
+
+        let stream = futures::stream::once(async move {
+            client
+                .post(&url)
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| format!("Ollama stream request failed: {}", e))
+        })
+        .filter_map(|result| async {
+            match result {
+                Ok(resp) if resp.status().is_success() => Some(resp.bytes_stream()),
+                Ok(resp) => {
+                    tracing::error!("Ollama stream returned status {}", resp.status());
+                    None
+                }
+                Err(e) => {
+                    tracing::error!("Ollama stream error: {}", e);
+                    None
+                }
+            }
+        })
+        .flatten()
+        .map(parse_ollama_ndjson_chunk)
+        .filter_map(|r| async { r });
+
+        Box::pin(stream)
+    }
+
+    /// Generate embeddings (one input at a time via /api/embed).
+    pub async fn embed(
+        &self,
+        model: &str,
+        input: Vec<String>,
+    ) -> Result<Vec<Vec<f64>>, String> {
+        let mut all_embeddings = Vec::new();
+
+        for text in &input {
+            let body = json!({
+                "model": self.resolve_model(model),
+                "input": text,
+            });
+
+            let url = format!("{}/embed", self.config.base_url);
+            let response: Value = self
+                .http_client()
+                .post(&url)
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| format!("Ollama embed request failed: {}", e))?
+                .json()
+                .await
+                .map_err(|e| format!("Failed to parse embed response: {}", e))?;
+
+            if let Some(embeddings) = response["embeddings"].as_array() {
+                for emb in embeddings {
+                    if let Some(arr) = emb.as_array() {
+                        let vec: Vec<f64> = arr.iter().filter_map(|v| v.as_f64()).collect();
+                        all_embeddings.push(vec);
+                    }
+                }
+            }
+        }
+
+        Ok(all_embeddings)
     }
 
     /// List locally available models.
     pub async fn list_local_models(&self) -> Result<Vec<String>, String> {
-        // TODO: GET /api/tags
-        Err("list_local_models not yet implemented".to_string())
+        let url = format!("{}/tags", self.config.base_url);
+        let response: Value = self
+            .http_client()
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Ollama list models failed: {}", e))?
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse models response: {}", e))?;
+
+        let models = response["models"]
+            .as_array()
+            .unwrap_or(&vec![])
+            .iter()
+            .filter_map(|m| m["name"].as_str().map(|s| s.to_string()))
+            .collect();
+        Ok(models)
     }
 
     /// Pull a model from the Ollama registry.
-    pub async fn pull_model(&self, _model: &str) -> Result<(), String> {
-        // TODO: POST /api/pull
-        Err("pull_model not yet implemented".to_string())
+    pub async fn pull_model(&self, model: &str) -> Result<(), String> {
+        let body = json!({ "name": model });
+        let url = format!("{}/pull", self.config.base_url);
+
+        let response = self
+            .http_client()
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("Ollama pull request failed: {}", e))?;
+
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let body = response.text().await.unwrap_or_default();
+            return Err(format!("Ollama pull returned {}: {}", status, body));
+        }
+
+        Ok(())
     }
+}
+
+/// A parsed streaming delta from an Ollama newline-delimited JSON response.
+#[derive(Debug, Clone)]
+pub struct OllamaStreamDelta {
+    /// Text content delta.
+    pub delta: String,
+    /// Whether the stream is done.
+    pub done: bool,
+}
+
+/// Parse Ollama newline-delimited JSON chunks.
+/// Unlike OpenAI/Anthropic SSE, Ollama sends plain JSON objects separated by newlines.
+fn parse_ollama_ndjson_chunk(
+    result: Result<Bytes, reqwest::Error>,
+) -> Option<Result<OllamaStreamDelta, String>> {
+    let bytes = match result {
+        Ok(b) => b,
+        Err(e) => return Some(Err(format!("Stream read error: {}", e))),
+    };
+    let text = String::from_utf8_lossy(&bytes);
+
+    let mut delta = String::new();
+    let mut done = false;
+
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Ok(parsed) = serde_json::from_str::<Value>(line) {
+            if let Some(content) = parsed["message"]["content"].as_str() {
+                delta.push_str(content);
+            }
+            if parsed["done"].as_bool().unwrap_or(false) {
+                done = true;
+            }
+        }
+    }
+
+    if delta.is_empty() && !done {
+        return None;
+    }
+
+    Some(Ok(OllamaStreamDelta { delta, done }))
 }

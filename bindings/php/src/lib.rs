@@ -9,7 +9,7 @@
 //
 // PHP usage with FFI:
 //   $ffi = FFI::cdef(file_get_contents("mtw_request.h"), "libmtw_binding_php.so");
-//   $client = $ffi->mtw_connect("ws://localhost:8080/ws", "token");
+//   $client = $ffi->mtw_connect("ws://localhost:7741/ws", "token");
 //   $ffi->mtw_send($client, "chat.general", "hello");
 //   $ffi->mtw_destroy_client($client);
 //
@@ -140,7 +140,7 @@ fn string_to_cstr(s: &str) -> *mut c_char {
 ///   MtwClient* mtw_connect(const char* url, const char* token);
 ///
 /// Parameters:
-///   - url:   WebSocket endpoint URL (e.g. "ws://localhost:8080/ws")
+///   - url:   WebSocket endpoint URL (e.g. "ws://localhost:7741/ws")
 ///   - token: Authentication token, or NULL for unauthenticated
 ///
 /// Returns:

@@ -1,5 +1,5 @@
 {
-  "name": "@mtw/svelte",
+  "name": "@matware/mtw-request-svelte",
   "version": "0.1.0",
   "description": "Svelte stores for mtwRequest real-time framework",
   "license": "MIT",
@@ -42,7 +42,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@mtw/client": "workspace:*"
+    "@matware/mtw-request-ts-client": "file:../client"
   },
   "peerDependencies": {
     "svelte": ">=4.0.0"

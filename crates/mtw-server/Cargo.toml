@@ -1,0 +1,26 @@
+[package]
+name = "mtw-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "mtwRequest server binary — real-time WebSocket framework"
+
+[[bin]]
+name = "mtw-server"
+path = "src/main.rs"
+
+[dependencies]
+mtw-core = { workspace = true }
+mtw-protocol = { workspace = true }
+mtw-transport = { workspace = true }
+mtw-router = { workspace = true }
+mtw-codec = { workspace = true }
+mtw-store = { workspace = true }
+mtw-bridge = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+seahash = { workspace = true }

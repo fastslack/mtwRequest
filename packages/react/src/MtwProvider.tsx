@@ -24,7 +24,7 @@ import {
   type ConnMetadata,
   type DisconnectInfo,
   type MtwError,
-} from '@mtw/client';
+} from '@matware/mtw-request-ts-client';
 
 // ---------------------------------------------------------------------------
 // Context types
@@ -125,7 +125,7 @@ export function MtwProvider({
 
   // Build connect options
   const connectOptions: ConnectOptions = options ?? {
-    url: url ?? 'ws://localhost:8080/ws',
+    url: url ?? 'ws://localhost:7741/ws',
     auth,
   };
   const connectOptionsRef = useRef(connectOptions);

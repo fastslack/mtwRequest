@@ -9,12 +9,15 @@ members = [
     "crates/mtw-ai",
     "crates/mtw-auth",
     "crates/mtw-state",
+    "crates/mtw-store",
+    "crates/mtw-bridge",
     "crates/mtw-integrations",
     "crates/mtw-registry",
     "crates/mtw-sdk",
     "crates/mtw-test",
     "crates/mtw-http",
     "crates/mtw-exchange",
+    "crates/mtw-server",
     "examples",
 ]
 
@@ -65,8 +68,24 @@ mtw-registry = { path = "crates/mtw-registry" }
 mtw-sdk = { path = "crates/mtw-sdk" }
 mtw-test = { path = "crates/mtw-test" }
 mtw-http = { path = "crates/mtw-http" }
+mtw-store = { path = "crates/mtw-store" }
+mtw-bridge = { path = "crates/mtw-bridge" }
 mtw-exchange = { path = "crates/mtw-exchange" }
 reqwest = { version = "0.12", features = ["json", "gzip", "brotli", "stream"] }
+
+# SQLite
+rusqlite = { version = "0.31", features = ["bundled", "serde_json"] }
+r2d2 = "0.8"
+r2d2_sqlite = "0.24"
+
+# MessagePack (bridge protocol)
+rmp-serde = "1"
+
+# Fast hashing (data change detection)
+seahash = "4"
+
+# Temp dirs for tests
+tempfile = "3"
 
 # Crypto auth
 hmac = "0.12"

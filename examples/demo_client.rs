@@ -13,7 +13,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_env_filter("info")
         .init();
 
-    let url = "ws://127.0.0.1:8080";
+    let url = "ws://127.0.0.1:7741";
     tracing::info!("connecting to {}...", url);
 
     let (ws_stream, _) = tokio_tungstenite::connect_async(url).await?;

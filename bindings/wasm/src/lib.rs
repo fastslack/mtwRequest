@@ -11,7 +11,7 @@
 // JS usage (after wasm-pack):
 //   import init, { MtwClient, MtwChannel, MtwAgent } from '@mtw/wasm';
 //   await init();
-//   const client = await MtwClient.connect("ws://localhost:8080/ws", "token");
+//   const client = await MtwClient.connect("ws://localhost:7741/ws", "token");
 //
 // When wasm-bindgen and web-sys are available as dependencies, uncomment
 // the attribute macros. The code compiles as a design reference in the
@@ -30,7 +30,7 @@ use std::collections::HashMap;
 // ---------------------------------------------------------------------------
 //
 // JS usage:
-//   const client = await MtwClient.connect("ws://localhost:8080/ws");
+//   const client = await MtwClient.connect("ws://localhost:7741/ws");
 //   await client.send("chat.general", "hello");
 //   const channel = await client.subscribe("chat.general");
 //   const agent = client.createAgent("assistant");
@@ -76,7 +76,7 @@ impl MtwClient {
     /// client.
     ///
     /// Example:
-    ///   const client = await MtwClient.connect("ws://localhost:8080/ws", "my-token");
+    ///   const client = await MtwClient.connect("ws://localhost:7741/ws", "my-token");
     // #[wasm_bindgen(constructor)]
     pub fn connect(url: String, token: Option<String>) -> Self {
         // In real implementation:

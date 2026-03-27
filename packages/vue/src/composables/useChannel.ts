@@ -18,7 +18,7 @@ import {
   type ChannelMember,
   type SubscribeOptions,
   type MtwError,
-} from '@mtw/client';
+} from '@matware/mtw-request-ts-client';
 import { useMtwInject } from './useMtw';
 
 export interface UseChannelOptions extends SubscribeOptions {
@@ -63,7 +63,7 @@ export function useChannel(
   channelName: string | Ref<string>,
   options: UseChannelOptions = {},
 ): UseChannelReturn {
-  const { autoSubscribe = true, maxMessages = 100, ...subscribeOptions } = options;
+  const { autoSubscribe = true, maxMessages = 100 } = options;
   const ctx = useMtwInject();
 
   const subscribed = ref(false);

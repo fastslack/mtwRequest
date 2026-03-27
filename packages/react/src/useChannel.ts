@@ -11,9 +11,8 @@ import type {
   ChannelMember,
   SubscribeOptions,
   MtwError,
-  Payload,
-} from '@mtw/client';
-import { MtwChannel, textPayload, jsonPayload } from '@mtw/client';
+} from '@matware/mtw-request-ts-client';
+import { MtwChannel } from '@matware/mtw-request-ts-client';
 import { useMtwContext } from './MtwProvider';
 
 export interface UseChannelOptions extends SubscribeOptions {
@@ -23,7 +22,7 @@ export interface UseChannelOptions extends SubscribeOptions {
   maxMessages?: number;
 }
 
-export interface UseChannelReturn<T = unknown> {
+export interface UseChannelReturn {
   /** Whether the channel subscription is active. */
   subscribed: boolean;
   /** Messages received on this channel. */
@@ -66,11 +65,11 @@ export interface UseChannelReturn<T = unknown> {
  *     );
  *   }
  */
-export function useChannel<T = unknown>(
+export function useChannel(
   channelName: string,
   options: UseChannelOptions = {},
-): UseChannelReturn<T> {
-  const { autoSubscribe = true, maxMessages = 100, ...subscribeOptions } = options;
+): UseChannelReturn {
+  const { autoSubscribe = true, maxMessages = 100 } = options;
   const ctx = useMtwContext();
 
   const [subscribed, setSubscribed] = useState(false);

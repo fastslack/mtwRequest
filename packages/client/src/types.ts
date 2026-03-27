@@ -314,6 +314,7 @@ export class MtwError extends Error {
 
 /** Events emitted by MtwConnection. */
 export interface ConnectionEvents {
+  [key: string]: (...args: any[]) => void;
   connected: (metadata: ConnMetadata) => void;
   disconnected: (info: DisconnectInfo) => void;
   reconnecting: (attempt: number) => void;

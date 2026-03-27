@@ -5,16 +5,14 @@
 // Svelte store for channel subscriptions and messaging.
 // =============================================================================
 
-import { writable, get, type Readable, type Writable } from 'svelte/store';
+import { writable, type Readable, type Writable } from 'svelte/store';
 import {
   MtwChannel,
-  type MtwConnection,
   type MtwMessage,
   type ChannelMember,
   type SubscribeOptions,
   type MtwError,
-  type Payload,
-} from '@mtw/client';
+} from '@matware/mtw-request-ts-client';
 import type { ConnectionStore } from './connection';
 
 // ---------------------------------------------------------------------------
@@ -63,7 +61,7 @@ export interface ChannelStore extends Readable<ChannelStoreState> {
  *     const chat = createChannelStore(connection, 'chat.general');
  *
  *     onMount(async () => {
- *       await connection.connect({ url: 'ws://localhost:8080/ws' });
+ *       await connection.connect({ url: 'ws://localhost:7741/ws' });
  *       await chat.join();
  *     });
  *   </script>

@@ -258,6 +258,6 @@
       <section name="[orchestrator]">strategy (channel-based, ai-router, pipeline, fan-out)</section>
     </sections>
     <env-vars>Use ${ENV_VAR} syntax in TOML string values for environment variable expansion</env-vars>
-    <defaults>host=0.0.0.0, port=8080, max_connections=10000, transport=websocket, ws_path=/ws, ping_interval=30, codec=json</defaults>
+    <defaults>host=0.0.0.0, port=7741, max_connections=10000, transport=websocket, ws_path=/ws, ping_interval=30, codec=json</defaults>
   </configuration>
 </project>

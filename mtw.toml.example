@@ -1,0 +1,73 @@
+# mtwRequest Server Configuration
+# Docs: https://github.com/fastslack/mtwRequest
+#
+# Copy this file to mtw.toml and adjust paths for your environment:
+#   cp mtw.toml.example mtw.toml
+
+[server]
+host = "0.0.0.0"
+port = 7741
+max_connections = 10000
+
+[transport]
+default = "websocket"
+
+[transport.websocket]
+path = "/ws"
+ping_interval = 30
+max_message_size = "10MB"
+
+[codec]
+default = "json"
+
+# ── Data Store ──────────────────────────────────────────────
+# Connect to any SQLite database — just set the path.
+# mtwRequest reads directly (fast), writes go through the bridge.
+[store]
+path = "${MTW_STORE_PATH:-./data/app.db}"
+
+# Bridge — delegates writes to an external service via Unix socket
+[store.bridge]
+socket = "${MTW_BRIDGE_SOCKET:-/tmp/mtw-bridge.sock}"
+
+# ── Channels ────────────────────────────────────────────────
+# Dashboard real-time channels (subscribe from frontend)
+[[channels]]
+name = "dashboard"
+history = 1
+
+[[channels]]
+name = "agenda"
+history = 1
+
+[[channels]]
+name = "calendar"
+history = 1
+
+[[channels]]
+name = "analytics"
+history = 1
+
+[[channels]]
+name = "agents"
+history = 10
+
+[[channels]]
+name = "agents.flow"
+history = 50
+
+[[channels]]
+name = "notifications"
+auth = false
+history = 20
+
+[[channels]]
+name = "chat.*"
+auth = false
+max_members = 100
+history = 50
+
+[[channels]]
+name = "system"
+auth = true
+history = 10

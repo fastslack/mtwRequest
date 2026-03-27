@@ -11,9 +11,8 @@ import {
   type ConnectOptions,
   type ConnectionState,
   type ConnMetadata,
-  type DisconnectInfo,
   type MtwError,
-} from '@mtw/client';
+} from '@matware/mtw-request-ts-client';
 
 // ---------------------------------------------------------------------------
 // Store types
@@ -57,7 +56,7 @@ export interface ConnectionStore extends Readable<ConnectionStoreState> {
  *     const connection = createConnectionStore();
  *
  *     onMount(async () => {
- *       await connection.connect({ url: 'ws://localhost:8080/ws' });
+ *       await connection.connect({ url: 'ws://localhost:7741/ws' });
  *     });
  *
  *     onDestroy(() => {

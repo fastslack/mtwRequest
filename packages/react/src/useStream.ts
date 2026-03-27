@@ -7,8 +7,8 @@
 // =============================================================================
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import type { MtwMessage, Payload, Unsubscribe, MtwError } from '@mtw/client';
-import { MtwChannel } from '@mtw/client';
+import type { MtwMessage, Unsubscribe, MtwError } from '@matware/mtw-request-ts-client';
+import { MtwChannel } from '@matware/mtw-request-ts-client';
 import { useMtwContext } from './MtwProvider';
 
 export interface UseStreamOptions {
