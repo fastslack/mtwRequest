@@ -1,6 +1,6 @@
 {
   "name": "@matware/mtw-request-react",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "React hooks and components for mtwRequest real-time framework",
   "license": "MIT",
   "author": "fastslack",
@@ -37,7 +37,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@matware/mtw-request-ts-client": "file:../client"
+    "@matware/mtw-request-ts-client": "^0.2.0"
   },
   "peerDependencies": {
     "react": ">=18.0.0"

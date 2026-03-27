@@ -1284,6 +1284,7 @@ name = "mtw-transport"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "bytes",
  "dashmap",
  "futures",
  "mtw-codec",

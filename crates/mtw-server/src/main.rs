@@ -277,6 +277,17 @@ async fn handle_message(
             transport.send(conn_id, response).await?;
         }
 
+        MsgType::Connect => {
+            // Client handshake — respond with ack containing conn_id
+            let ack = MtwMessage::new(
+                MsgType::Ack,
+                Payload::Json(serde_json::json!({ "conn_id": conn_id })),
+            )
+            .with_ref(&msg.id);
+            transport.send(conn_id, ack).await?;
+            tracing::debug!(conn_id = %conn_id, "connect handshake completed");
+        }
+
         MsgType::Ping => {
             let pong = MtwMessage::new(MsgType::Pong, Payload::None).with_ref(&msg.id);
             transport.send(conn_id, pong).await?;
