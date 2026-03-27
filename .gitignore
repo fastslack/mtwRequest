@@ -10,6 +10,7 @@ node_modules/
 dist/
 *.tsbuildinfo
 .turbo/
+bun.lockb
 
 # Python
 *.pyc

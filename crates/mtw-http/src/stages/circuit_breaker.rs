@@ -297,8 +297,8 @@ mod tests {
             "api.example.com"
         );
         assert_eq!(
-            CircuitBreakerStage::extract_host("http://localhost:8080/test"),
-            "localhost:8080"
+            CircuitBreakerStage::extract_host("http://localhost:7741/test"),
+            "localhost:7741"
         );
     }
 }

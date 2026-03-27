@@ -26,7 +26,7 @@ use std::collections::HashMap;
 //   import mtw_request
 //
 //   async def main():
-//       client = await mtw_request.connect("ws://localhost:8080/ws", token="...")
+//       client = await mtw_request.connect("ws://localhost:7741/ws", token="...")
 //       channel = await client.subscribe("chat.general")
 //       await client.send("chat.general", "hello")
 //       agent = client.create_agent("assistant")
@@ -39,7 +39,7 @@ use std::collections::HashMap;
 /// automatic reconnection, ping/pong keep-alive, and message dispatch.
 ///
 /// Example:
-///     client = await MtwClient.connect("ws://localhost:8080/ws", token="secret")
+///     client = await MtwClient.connect("ws://localhost:7741/ws", token="secret")
 ///     print(client.connected)  # True
 ///     await client.close()
 // #[pyclass]
@@ -56,7 +56,7 @@ impl MtwClient {
     /// Connect to an mtwRequest server.
     ///
     /// Args:
-    ///     url: WebSocket endpoint URL (e.g. "ws://localhost:8080/ws")
+    ///     url: WebSocket endpoint URL (e.g. "ws://localhost:7741/ws")
     ///     token: Optional authentication token
     ///     api_key: Optional API key for authentication
     ///     reconnect: Whether to auto-reconnect on disconnect (default: True)
@@ -386,7 +386,7 @@ impl MtwAgent {
 //     /// Pythonic top-level API:
 //     ///
 //     ///   import mtw_request
-//     ///   client = await mtw_request.connect("ws://localhost:8080/ws")
+//     ///   client = await mtw_request.connect("ws://localhost:7741/ws")
 //     #[pyfn(m)]
 //     fn connect(
 //         url: String,

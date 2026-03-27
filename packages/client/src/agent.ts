@@ -14,7 +14,6 @@ import {
   type AgentToolCall,
   type AgentToolResult,
   type AgentResponse,
-  type AgentContextMessage,
   type ToolHandler,
   type Unsubscribe,
   MtwError,

@@ -12,6 +12,7 @@ import {
   onUnmounted,
   provide,
   inject,
+  toRaw,
   type Ref,
   type InjectionKey,
 } from 'vue';
@@ -23,7 +24,7 @@ import {
   type ConnectionState,
   type ConnMetadata,
   type MtwError,
-} from '@mtw/client';
+} from '@matware/mtw-request-ts-client';
 
 // ---------------------------------------------------------------------------
 // Injection key
@@ -72,7 +73,7 @@ export function useMtwInject(): MtwContext {
  * Usage:
  *   // App.vue setup
  *   const { connected, state } = useMtwProvider({
- *     url: 'ws://localhost:8080/ws',
+ *     url: 'ws://localhost:7741/ws',
  *     auth: { token: 'my-token' },
  *   });
  */
@@ -96,7 +97,7 @@ export function useMtwProvider(options?: ConnectOptions & { autoConnect?: boolea
   async function connect(opts?: ConnectOptions): Promise<ConnMetadata> {
     cleanup();
 
-    const connectOpts = opts ?? options ?? { url: 'ws://localhost:8080/ws' };
+    const connectOpts = opts ?? options ?? { url: 'ws://localhost:7741/ws' };
     const conn = new MtwConnection(connectOpts);
     connection.value = conn;
 
@@ -168,7 +169,7 @@ export function useMtwProvider(options?: ConnectOptions & { autoConnect?: boolea
     if (!connection.value) {
       throw new Error('Not connected');
     }
-    const ch = new MtwChannel(connection.value, name);
+    const ch = new MtwChannel(toRaw(connection.value) as MtwConnection, name);
     channels.set(name, ch);
     return ch;
   }
@@ -180,7 +181,7 @@ export function useMtwProvider(options?: ConnectOptions & { autoConnect?: boolea
     if (!connection.value) {
       throw new Error('Not connected');
     }
-    const agent = new MtwAgentClient(connection.value, name);
+    const agent = new MtwAgentClient(toRaw(connection.value) as MtwConnection, name);
     agents.set(name, agent);
     return agent;
   }

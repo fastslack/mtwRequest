@@ -13,8 +13,6 @@ import {
   type ConnectionEvents,
   type DisconnectInfo,
   type ConnMetadata,
-  type Payload,
-  type MsgType,
   type Unsubscribe,
   MtwError,
   PROTOCOL_VERSION,
@@ -22,7 +20,6 @@ import {
   FrameType,
   MAX_FRAME_SIZE,
   createMessage,
-  textPayload,
   emptyPayload,
 } from './types';
 
@@ -30,9 +27,7 @@ import {
 // Typed event emitter (minimal, no external deps)
 // ---------------------------------------------------------------------------
 
-type EventMap = Record<string, (...args: any[]) => void>;
-
-class TypedEmitter<T extends EventMap> {
+class TypedEmitter<T extends Record<string, (...args: any[]) => void> = Record<string, (...args: any[]) => void>> {
   private listeners = new Map<keyof T, Set<Function>>();
 
   on<K extends keyof T>(event: K, fn: T[K]): Unsubscribe {
@@ -158,16 +153,6 @@ function decodeFrame(data: ArrayBuffer): DecodedFrame {
   return { frameType, payload };
 }
 
-function decodeMessage(data: ArrayBuffer): MtwMessage {
-  const { frameType, payload } = decodeFrame(data);
-  if (frameType !== FrameType.Json) {
-    throw MtwError.invalidFormat(`Expected JSON frame, got frame type ${frameType}`);
-  }
-  const decoder = new TextDecoder();
-  const json = decoder.decode(payload);
-  return JSON.parse(json) as MtwMessage;
-}
-
 // ---------------------------------------------------------------------------
 // MtwConnection
 // ---------------------------------------------------------------------------
@@ -204,7 +189,7 @@ const DEFAULT_OPTIONS: Required<
  *   - Typed event emitter
  *
  * Usage:
- *   const conn = new MtwConnection({ url: "ws://localhost:8080/ws" });
+ *   const conn = new MtwConnection({ url: "ws://localhost:7741/ws" });
  *   conn.on('connected', (meta) => console.log('Connected:', meta.conn_id));
  *   conn.on('message', (msg) => console.log('Message:', msg));
  *   await conn.connect();

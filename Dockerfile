@@ -1,0 +1,88 @@
+# =============================================================================
+# mtwRequest Server — Multi-stage Docker Build
+# =============================================================================
+#
+# Build:  docker build -t mtw-server .
+# Run:    docker run -p 8080:8080 mtw-server
+# Config: docker run -p 8080:8080 -v ./mtw.toml:/app/mtw.toml mtw-server
+#
+# Environment overrides:
+#   MTW_HOST=0.0.0.0  MTW_PORT=9090  RUST_LOG=info,mtw=debug
+
+# --- Builder stage ---
+FROM rust:1.86-slim AS builder
+
+RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Copy workspace manifests first for layer caching
+COPY Cargo.toml Cargo.lock ./
+COPY crates/mtw-protocol/Cargo.toml crates/mtw-protocol/Cargo.toml
+COPY crates/mtw-core/Cargo.toml crates/mtw-core/Cargo.toml
+COPY crates/mtw-codec/Cargo.toml crates/mtw-codec/Cargo.toml
+COPY crates/mtw-transport/Cargo.toml crates/mtw-transport/Cargo.toml
+COPY crates/mtw-router/Cargo.toml crates/mtw-router/Cargo.toml
+COPY crates/mtw-ai/Cargo.toml crates/mtw-ai/Cargo.toml
+COPY crates/mtw-auth/Cargo.toml crates/mtw-auth/Cargo.toml
+COPY crates/mtw-state/Cargo.toml crates/mtw-state/Cargo.toml
+COPY crates/mtw-integrations/Cargo.toml crates/mtw-integrations/Cargo.toml
+COPY crates/mtw-registry/Cargo.toml crates/mtw-registry/Cargo.toml
+COPY crates/mtw-sdk/Cargo.toml crates/mtw-sdk/Cargo.toml
+COPY crates/mtw-test/Cargo.toml crates/mtw-test/Cargo.toml
+COPY crates/mtw-http/Cargo.toml crates/mtw-http/Cargo.toml
+COPY crates/mtw-exchange/Cargo.toml crates/mtw-exchange/Cargo.toml
+COPY crates/mtw-server/Cargo.toml crates/mtw-server/Cargo.toml
+COPY examples/Cargo.toml examples/Cargo.toml
+
+# Create dummy source files for dependency caching
+RUN mkdir -p crates/mtw-protocol/src && echo "" > crates/mtw-protocol/src/lib.rs && \
+    mkdir -p crates/mtw-core/src && echo "" > crates/mtw-core/src/lib.rs && \
+    mkdir -p crates/mtw-codec/src && echo "" > crates/mtw-codec/src/lib.rs && \
+    mkdir -p crates/mtw-transport/src && echo "" > crates/mtw-transport/src/lib.rs && \
+    mkdir -p crates/mtw-router/src && echo "" > crates/mtw-router/src/lib.rs && \
+    mkdir -p crates/mtw-ai/src && echo "" > crates/mtw-ai/src/lib.rs && \
+    mkdir -p crates/mtw-auth/src && echo "" > crates/mtw-auth/src/lib.rs && \
+    mkdir -p crates/mtw-state/src && echo "" > crates/mtw-state/src/lib.rs && \
+    mkdir -p crates/mtw-integrations/src && echo "" > crates/mtw-integrations/src/lib.rs && \
+    mkdir -p crates/mtw-registry/src && echo "" > crates/mtw-registry/src/lib.rs && \
+    mkdir -p crates/mtw-sdk/src && echo "" > crates/mtw-sdk/src/lib.rs && \
+    mkdir -p crates/mtw-test/src && echo "" > crates/mtw-test/src/lib.rs && \
+    mkdir -p crates/mtw-http/src && echo "" > crates/mtw-http/src/lib.rs && \
+    mkdir -p crates/mtw-exchange/src && echo "" > crates/mtw-exchange/src/lib.rs && \
+    mkdir -p crates/mtw-server/src && echo "fn main() {}" > crates/mtw-server/src/main.rs && \
+    mkdir -p examples && echo "fn main() {}" > examples/demo_server.rs && \
+    echo "fn main() {}" > examples/demo_client.rs
+
+# Build dependencies only (cached layer)
+RUN cargo build --release -p mtw-server 2>/dev/null || true
+
+# Now copy real source code
+COPY crates/ crates/
+COPY examples/ examples/
+
+# Build the actual binary
+RUN cargo build --release -p mtw-server
+
+# --- Runtime stage ---
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy binary from builder
+COPY --from=builder /build/target/release/mtw-server /app/mtw-server
+
+# Copy default config
+COPY mtw.toml /app/mtw.toml
+
+# Expose default port
+EXPOSE 7741
+
+# Environment defaults
+ENV RUST_LOG=info,mtw=debug
+ENV MTW_HOST=0.0.0.0
+ENV MTW_PORT=7741
+
+CMD ["/app/mtw-server"]

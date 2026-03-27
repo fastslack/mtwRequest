@@ -30,7 +30,7 @@ use std::collections::HashMap;
 // ---------------------------------------------------------------------------
 //
 // JS usage:
-//   const client = await connect("ws://localhost:8080/ws", { token: "..." });
+//   const client = await connect("ws://localhost:7741/ws", { token: "..." });
 //   client.send("chat.general", { text: "hello" });
 //   client.close();
 
@@ -40,7 +40,7 @@ use std::collections::HashMap;
 /// handle. The client manages automatic reconnection, ping/pong keep-alive, and
 /// message dispatching to registered listeners.
 pub struct MtwClient {
-    /// WebSocket endpoint URL (e.g. "ws://localhost:8080/ws")
+    /// WebSocket endpoint URL (e.g. "ws://localhost:7741/ws")
     url: String,
     /// Authentication token or API key
     auth_token: Option<String>,
@@ -396,7 +396,7 @@ impl MtwAgent {
 //   // Or with the JS wrapper package:
 //   import { connect, MtwClient } from '@mtw/node';
 //
-//   const client = await MtwClient.connect("ws://localhost:8080/ws", "token");
+//   const client = await MtwClient.connect("ws://localhost:7741/ws", "token");
 //   const channel = await client.subscribe("chat.general");
 //   channel.onMessage((msg) => { ... });
 //   channel.publish("hello world");

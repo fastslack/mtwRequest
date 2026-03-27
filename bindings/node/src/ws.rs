@@ -12,7 +12,7 @@
 // The code compiles as a design reference in the meantime.
 //
 // JS usage:
-//   const ws = await MtwWebSocket.connect("ws://localhost:8080/ws");
+//   const ws = await MtwWebSocket.connect("ws://localhost:7741/ws");
 //   await ws.send("hello");
 //   await ws.sendJson({ type: "subscribe", channel: "chat.general" });
 //   const msg = await ws.receive();
@@ -21,7 +21,7 @@
 //
 //   // With options:
 //   const ws = await MtwWebSocket.connectWithOptions(
-//     "ws://localhost:8080/ws",
+//     "ws://localhost:7741/ws",
 //     [{ key: "Authorization", value: "Bearer ..." }],
 //     null,
 //     ["mtw-v1"]

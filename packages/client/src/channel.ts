@@ -13,7 +13,6 @@ import {
   type SubscribeOptions,
   type MessageHandler,
   type ChannelMember,
-  type ChannelEvents,
   type Unsubscribe,
   MtwError,
   createMessage,

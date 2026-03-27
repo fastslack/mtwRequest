@@ -8,15 +8,14 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import type {
-  AgentChunk,
   AgentResponse,
   AgentOptions,
   AgentContextMessage,
   AgentToolCall,
   ToolHandler,
   MtwError,
-} from '@mtw/client';
-import { MtwAgentClient } from '@mtw/client';
+} from '@matware/mtw-request-ts-client';
+import { MtwAgentClient } from '@matware/mtw-request-ts-client';
 import { useMtwContext } from './MtwProvider';
 
 export interface AgentMessage {

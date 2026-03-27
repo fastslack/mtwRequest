@@ -1,6 +1,20 @@
 // =============================================================================
-// @mtw/svelte — Svelte stores for mtwRequest
+// @matware/mtw-request-svelte — Svelte integration for mtwRequest
 // =============================================================================
+
+// ── Quick API (recommended) ──────────────────────────────────
+// Connect once, use channels/agents as reactive stores everywhere.
+//
+//   import { mtw, channel, agent } from '@matware/mtw-request-svelte';
+//
+//   await mtw.connect({ url: 'ws://localhost:7741/ws' });
+//   const dashboard = channel('dashboard');
+//   const ai = agent('assistant');
+
+export { mtw, channel, agent } from './stores/mtw';
+
+// ── Advanced API ─────────────────────────────────────────────
+// Fine-grained stores for complex use cases.
 
 export { createConnectionStore, isConnected } from './stores/connection';
 export type { ConnectionStoreState, ConnectionStore } from './stores/connection';
@@ -16,7 +30,7 @@ export type {
   CreateAgentStoreOptions,
 } from './stores/agent';
 
-// Re-export commonly used types from @mtw/client
+// ── Re-exported types from client ────────────────────────────
 export type {
   MtwMessage,
   MsgType,
@@ -30,6 +44,7 @@ export type {
   AgentResponse,
   AgentOptions,
   ChannelMember,
-  MtwError,
   ToolHandler,
-} from '@mtw/client';
+} from '@matware/mtw-request-ts-client';
+
+export { MtwError } from '@matware/mtw-request-ts-client';

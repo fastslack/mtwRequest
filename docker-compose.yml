@@ -1,0 +1,52 @@
+# =============================================================================
+# mtwRequest — Docker Compose
+# =============================================================================
+#
+# Quick start:
+#   docker compose up
+#
+# With Redis state store:
+#   docker compose --profile redis up
+#
+# Custom config:
+#   docker compose up -e MTW_PORT=9090
+
+services:
+  mtw-server:
+    build: .
+    container_name: mtw-server
+    ports:
+      - "${MTW_PORT:-7741}:7741"
+    environment:
+      - RUST_LOG=${RUST_LOG:-info,mtw=debug}
+      - MTW_HOST=0.0.0.0
+      - MTW_PORT=7741
+    volumes:
+      - ./mtw.toml:/app/mtw.toml:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "echo > /dev/tcp/localhost/7741 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # Optional Redis for state persistence
+  redis:
+    image: redis:7-alpine
+    container_name: mtw-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - mtw-redis-data:/data
+    restart: unless-stopped
+    profiles:
+      - redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  mtw-redis-data:

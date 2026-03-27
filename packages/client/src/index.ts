@@ -64,7 +64,7 @@ import type { ConnectOptions, ConnMetadata, SubscribeOptions } from './types';
  * and returns a high-level client object with channel and agent helpers.
  *
  * Usage:
- *   const client = await connect({ url: "ws://localhost:8080/ws", auth: { token: "..." } });
+ *   const client = await connect({ url: "ws://localhost:7741/ws", auth: { token: "..." } });
  *   const channel = await client.channel("chat.general");
  *   const agent = client.agent("assistant");
  *   const response = await agent.send("Hello!");

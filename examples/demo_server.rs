@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_env_filter("info")
         .init();
 
-    let addr: SocketAddr = "127.0.0.1:8080".parse()?;
+    let addr: SocketAddr = "127.0.0.1:7741".parse()?;
 
     // Create WebSocket transport
     let mut transport = WebSocketTransport::new("/ws", 30);
