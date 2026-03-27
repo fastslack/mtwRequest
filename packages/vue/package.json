@@ -1,6 +1,6 @@
 {
   "name": "@matware/mtw-request-vue",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Vue composables for mtwRequest real-time framework",
   "license": "MIT",
   "author": "fastslack",
@@ -37,7 +37,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@matware/mtw-request-ts-client": "file:../client"
+    "@matware/mtw-request-ts-client": "^0.2.0"
   },
   "peerDependencies": {
     "vue": ">=3.3.0"

@@ -1,9 +1,11 @@
 use async_trait::async_trait;
+use bytes::Bytes;
 use dashmap::DashMap;
 use futures::{SinkExt, StreamExt};
 use mtw_codec::json::JsonCodec;
 use mtw_codec::MtwCodec;
 use mtw_core::MtwError;
+use mtw_protocol::frame::{Frame, FrameType};
 use mtw_protocol::{
     ConnId, ConnMetadata, DisconnectReason, MsgType, MtwMessage, Payload, TransportEvent,
 };
@@ -25,6 +27,8 @@ pub struct WebSocketTransport {
     ping_interval: u64,
     /// Active connections: conn_id -> sender
     connections: Arc<DashMap<ConnId, WsSender>>,
+    /// Connections using binary frame protocol (vs JSON text)
+    binary_connections: Arc<DashMap<ConnId, ()>>,
     /// Event channel
     event_tx: mpsc::UnboundedSender<TransportEvent>,
     event_rx: Option<mpsc::UnboundedReceiver<TransportEvent>>,
@@ -41,6 +45,7 @@ impl WebSocketTransport {
             path: path.into(),
             ping_interval,
             connections: Arc::new(DashMap::new()),
+            binary_connections: Arc::new(DashMap::new()),
             event_tx,
             event_rx: Some(event_rx),
             codec: Arc::new(JsonCodec),
@@ -53,6 +58,7 @@ impl WebSocketTransport {
         stream: TcpStream,
         addr: SocketAddr,
         connections: Arc<DashMap<ConnId, WsSender>>,
+        binary_connections: Arc<DashMap<ConnId, ()>>,
         event_tx: mpsc::UnboundedSender<TransportEvent>,
         codec: Arc<dyn MtwCodec>,
         ping_interval: u64,
@@ -143,10 +149,51 @@ impl WebSocketTransport {
                             }
                         }
                         Some(Ok(WsMessage::Binary(data))) => {
-                            let _ = event_tx.send(TransportEvent::Binary(
-                                conn_id.clone(),
-                                data.to_vec(),
-                            ));
+                            let bytes = Bytes::from(data.to_vec());
+                            match Frame::decode(bytes.clone()) {
+                                Ok((FrameType::Json, payload)) => {
+                                    // MTW binary frame containing a JSON message
+                                    binary_connections.insert(conn_id.clone(), ());
+                                    match serde_json::from_slice::<MtwMessage>(&payload) {
+                                        Ok(mtw_msg) => {
+                                            let _ = event_tx.send(TransportEvent::Message(
+                                                conn_id.clone(),
+                                                mtw_msg,
+                                            ));
+                                        }
+                                        Err(e) => {
+                                            let _ = event_tx.send(TransportEvent::Error(
+                                                conn_id.clone(),
+                                                format!("frame JSON decode error: {}", e),
+                                            ));
+                                        }
+                                    }
+                                }
+                                Ok((FrameType::Ping, _)) => {
+                                    // MTW Ping frame — respond with MTW Pong
+                                    if let Some(sender) = connections.get(&conn_id) {
+                                        let pong = Frame::encode_pong();
+                                        let _ = sender.send(WsMessage::Binary(pong.to_vec().into()));
+                                    }
+                                }
+                                Ok((FrameType::Pong, _)) => {
+                                    // MTW Pong — connection is alive
+                                }
+                                Ok((FrameType::Binary, payload)) => {
+                                    // Raw binary data (audio, 3D, etc.)
+                                    let _ = event_tx.send(TransportEvent::Binary(
+                                        conn_id.clone(),
+                                        payload.to_vec(),
+                                    ));
+                                }
+                                Err(_) => {
+                                    // Not an MTW frame — treat as raw binary
+                                    let _ = event_tx.send(TransportEvent::Binary(
+                                        conn_id.clone(),
+                                        bytes.to_vec(),
+                                    ));
+                                }
+                            }
                         }
                         Some(Ok(WsMessage::Pong(_))) => {
                             // Connection is alive
@@ -173,6 +220,7 @@ impl WebSocketTransport {
         ping_handle.abort();
         write_handle.abort();
         connections.remove(&conn_id);
+        binary_connections.remove(&conn_id);
 
         let _ = event_tx.send(TransportEvent::Disconnected(
             conn_id.clone(),
@@ -198,6 +246,7 @@ impl MtwTransport for WebSocketTransport {
         self.shutdown_tx = Some(shutdown_tx.clone());
 
         let connections = self.connections.clone();
+        let binary_connections = self.binary_connections.clone();
         let event_tx = self.event_tx.clone();
         let codec = self.codec.clone();
         let ping_interval = self.ping_interval;
@@ -214,6 +263,7 @@ impl MtwTransport for WebSocketTransport {
                             stream,
                             addr,
                             connections.clone(),
+                            binary_connections.clone(),
                             event_tx.clone(),
                             codec.clone(),
                             ping_interval,
@@ -231,8 +281,16 @@ impl MtwTransport for WebSocketTransport {
     }
 
     async fn send(&self, conn_id: &ConnId, msg: MtwMessage) -> Result<(), MtwError> {
-        let encoded = self.codec.encode(&msg)?;
-        let ws_msg = WsMessage::Text(String::from_utf8_lossy(&encoded).into());
+        let ws_msg = if self.binary_connections.contains_key(conn_id) {
+            // Client speaks MTW binary protocol — send as binary frame
+            let frame = Frame::encode_message(&msg)
+                .map_err(|e| MtwError::Transport(format!("frame encode error: {}", e)))?;
+            WsMessage::Binary(frame.to_vec().into())
+        } else {
+            // Client speaks JSON text — send as plain JSON
+            let encoded = self.codec.encode(&msg)?;
+            WsMessage::Text(String::from_utf8_lossy(&encoded).into())
+        };
 
         if let Some(sender) = self.connections.get(conn_id) {
             sender
