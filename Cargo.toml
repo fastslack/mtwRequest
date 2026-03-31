@@ -17,6 +17,14 @@ members = [
     "crates/mtw-test",
     "crates/mtw-http",
     "crates/mtw-exchange",
+    "crates/mtw-comms",
+    "crates/mtw-skills",
+    "crates/mtw-notify",
+    "crates/mtw-security",
+    "crates/mtw-federation",
+    "crates/mtw-trading",
+    "crates/mtw-graph",
+    "crates/mtw-orchestrator",
     "crates/mtw-server",
     "examples",
 ]
@@ -71,6 +79,14 @@ mtw-http = { path = "crates/mtw-http" }
 mtw-store = { path = "crates/mtw-store" }
 mtw-bridge = { path = "crates/mtw-bridge" }
 mtw-exchange = { path = "crates/mtw-exchange" }
+mtw-comms = { path = "crates/mtw-comms" }
+mtw-skills = { path = "crates/mtw-skills" }
+mtw-notify = { path = "crates/mtw-notify" }
+mtw-security = { path = "crates/mtw-security" }
+mtw-federation = { path = "crates/mtw-federation" }
+mtw-trading = { path = "crates/mtw-trading" }
+mtw-graph = { path = "crates/mtw-graph" }
+mtw-orchestrator = { path = "crates/mtw-orchestrator" }
 reqwest = { version = "0.12", features = ["json", "gzip", "brotli", "stream"] }
 
 # SQLite

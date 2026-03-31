@@ -1,0 +1,18 @@
+[package]
+name = "mtw-orchestrator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Message orchestrator with slash commands for mtwRequest"
+
+[dependencies]
+mtw-core = { path = "../mtw-core" }
+mtw-protocol = { path = "../mtw-protocol" }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+dashmap = { workspace = true }
+ulid = { workspace = true }

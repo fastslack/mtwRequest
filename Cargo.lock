@@ -1000,7 +1000,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-ai"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -1018,7 +1018,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-auth"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -1036,9 +1036,10 @@ dependencies = [
 
 [[package]]
 name = "mtw-bridge"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
+ "dashmap",
  "mtw-core",
  "mtw-protocol",
  "rmp-serde",
@@ -1052,7 +1053,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-codec"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1064,8 +1065,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "mtw-comms"
+version = "0.2.0"
+dependencies = [
+ "async-trait",
+ "dashmap",
+ "mtw-core",
+ "mtw-protocol",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "ulid",
+]
+
+[[package]]
 name = "mtw-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -1082,7 +1099,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-examples"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "futures",
  "mtw-codec",
@@ -1099,7 +1116,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-exchange"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -1122,8 +1139,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "mtw-federation"
+version = "0.2.0"
+dependencies = [
+ "async-trait",
+ "dashmap",
+ "mtw-core",
+ "mtw-protocol",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "ulid",
+]
+
+[[package]]
+name = "mtw-graph"
+version = "0.2.0"
+dependencies = [
+ "async-trait",
+ "dashmap",
+ "mtw-core",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "mtw-http"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1141,7 +1187,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-integrations"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1155,8 +1201,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "mtw-notify"
+version = "0.2.0"
+dependencies = [
+ "async-trait",
+ "dashmap",
+ "mtw-core",
+ "mtw-protocol",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "ulid",
+]
+
+[[package]]
+name = "mtw-orchestrator"
+version = "0.2.0"
+dependencies = [
+ "async-trait",
+ "dashmap",
+ "mtw-core",
+ "mtw-protocol",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "ulid",
+]
+
+[[package]]
 name = "mtw-protocol"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64",
  "bytes",
@@ -1168,7 +1244,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-registry"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "mtw-core",
  "serde",
@@ -1180,7 +1256,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-router"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -1196,7 +1272,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-sdk"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "mtw-codec",
@@ -1209,15 +1285,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "mtw-security"
+version = "0.2.0"
+dependencies = [
+ "async-trait",
+ "dashmap",
+ "mtw-core",
+ "mtw-protocol",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "ulid",
+]
+
+[[package]]
 name = "mtw-server"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "mtw-bridge",
  "mtw-codec",
  "mtw-core",
  "mtw-protocol",
  "mtw-router",
+ "mtw-security",
  "mtw-store",
+ "mtw-trading",
  "mtw-transport",
  "seahash",
  "serde_json",
@@ -1227,8 +1320,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "mtw-skills"
+version = "0.2.0"
+dependencies = [
+ "async-trait",
+ "dashmap",
+ "mtw-core",
+ "mtw-protocol",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "ulid",
+]
+
+[[package]]
 name = "mtw-state"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -1242,7 +1350,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-store"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -1263,7 +1371,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-test"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -1280,8 +1388,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "mtw-trading"
+version = "0.2.0"
+dependencies = [
+ "async-trait",
+ "dashmap",
+ "mtw-core",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "ulid",
+]
+
+[[package]]
 name = "mtw-transport"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "bytes",

@@ -8,6 +8,8 @@
 //!   mtw-server --config path.toml  # custom config path
 //!   MTW_HOST=0.0.0.0 MTW_PORT=9090 mtw-server  # env overrides
 
+mod rust_services;
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -96,6 +98,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("mtwRequest server v{}", env!("CARGO_PKG_VERSION"));
     tracing::info!("listening on ws://{}{}", addr, ws_path);
+
+    // ── Rust Bridge Server (for mtwKernel delegation) ──────
+    let bridge_socket = std::env::var("RUST_BRIDGE_SOCKET")
+        .unwrap_or_else(|_| "/tmp/mtw-rust.sock".to_string());
+
+    let services = rust_services::RustServices::new();
+    let bridge_server = mtw_bridge::server::BridgeServer::new(&bridge_socket);
+    services.register_all(&bridge_server);
+    let _bridge_handle = bridge_server.start().await?;
+    tracing::info!(
+        socket = %bridge_socket,
+        tools = bridge_server.tool_count(),
+        "rust bridge server started"
+    );
 
     // ── Channels & Router ───────────────────────────────────
     let mut channel_mgr = ChannelManager::new();

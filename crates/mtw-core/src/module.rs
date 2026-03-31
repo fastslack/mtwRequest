@@ -18,6 +18,7 @@ pub enum ModuleType {
     Storage,
     Channel,
     Integration,
+    Trading,
     UI,
 }
 

@@ -1,0 +1,24 @@
+[package]
+name = "mtw-trading"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Trading strategies, signals, and technical analysis for mtwRequest"
+
+[features]
+default = []
+module = ["async-trait"]  # Enable MtwModule implementation for plugin registration
+
+[dependencies]
+mtw-core = { path = "../mtw-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+ulid = { workspace = true }
+dashmap = { workspace = true }
+async-trait = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

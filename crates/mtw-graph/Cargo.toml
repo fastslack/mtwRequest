@@ -1,0 +1,16 @@
+[package]
+name = "mtw-graph"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Graph database client and analytics for mtwRequest"
+
+[dependencies]
+mtw-core = { path = "../mtw-core" }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+dashmap = { workspace = true }

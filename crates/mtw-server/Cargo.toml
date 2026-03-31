@@ -19,6 +19,8 @@ mtw-router = { workspace = true }
 mtw-codec = { workspace = true }
 mtw-store = { workspace = true }
 mtw-bridge = { workspace = true }
+mtw-trading = { path = "../mtw-trading", features = ["module"] }
+mtw-security = { path = "../mtw-security" }
 tokio = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }

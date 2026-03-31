@@ -18,7 +18,10 @@
 //! ```
 
 pub mod protocol;
+pub mod server;
 pub mod unix;
+
+pub use server::{BridgeServer, BridgeToolHandler};
 
 use async_trait::async_trait;
 use mtw_core::MtwError;
