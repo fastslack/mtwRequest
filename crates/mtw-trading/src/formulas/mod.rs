@@ -13,6 +13,22 @@ pub mod vwap;
 pub mod williams_r;
 pub mod ensemble;
 pub mod regime;
+// Standard TA — batch 2
+pub mod stochastic;
+pub mod cci;
+pub mod mfi;
+pub mod aroon;
+pub mod parabolic_sar;
+pub mod donchian;
+pub mod elder_ray;
+pub mod keltner;
+pub mod atr_channel;
+pub mod choppiness;
+pub mod chaikin_mf;
+pub mod vwma_trend;
+pub mod fibonacci;
+pub mod pivot_points;
+pub mod squeeze;
 
 pub use rsi::RsiFormula;
 pub use macd::MacdFormula;
@@ -29,6 +45,21 @@ pub use vwap::VwapFormula;
 pub use williams_r::WilliamsRFormula;
 pub use ensemble::EnsembleFormula;
 pub use regime::RegimeFormula;
+pub use stochastic::StochasticFormula;
+pub use cci::CciFormula;
+pub use mfi::MfiFormula;
+pub use aroon::AroonFormula;
+pub use parabolic_sar::ParabolicSarFormula;
+pub use donchian::DonchianFormula;
+pub use elder_ray::ElderRayFormula;
+pub use keltner::KeltnerFormula;
+pub use atr_channel::AtrChannelFormula;
+pub use choppiness::ChoppinessFormula;
+pub use chaikin_mf::ChaikinMfFormula;
+pub use vwma_trend::VwmaTrendFormula;
+pub use fibonacci::FibonacciFormula;
+pub use pivot_points::PivotPointsFormula;
+pub use squeeze::SqueezeFormula;
 
 use crate::formula::FormulaRegistry;
 
@@ -49,4 +80,20 @@ pub fn register_all(registry: &mut FormulaRegistry) {
     registry.register(Box::new(WilliamsRFormula));
     registry.register(Box::new(EnsembleFormula));
     registry.register(Box::new(RegimeFormula));
+    // Standard TA — batch 2
+    registry.register(Box::new(StochasticFormula));
+    registry.register(Box::new(CciFormula));
+    registry.register(Box::new(MfiFormula));
+    registry.register(Box::new(AroonFormula));
+    registry.register(Box::new(ParabolicSarFormula));
+    registry.register(Box::new(DonchianFormula));
+    registry.register(Box::new(ElderRayFormula));
+    registry.register(Box::new(KeltnerFormula));
+    registry.register(Box::new(AtrChannelFormula));
+    registry.register(Box::new(ChoppinessFormula));
+    registry.register(Box::new(ChaikinMfFormula));
+    registry.register(Box::new(VwmaTrendFormula));
+    registry.register(Box::new(FibonacciFormula));
+    registry.register(Box::new(PivotPointsFormula));
+    registry.register(Box::new(SqueezeFormula));
 }

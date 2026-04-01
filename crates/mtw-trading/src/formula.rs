@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use rayon::prelude::*;
 use crate::types::{Candle, OrderSide, Timeframe};
 use crate::signal::SignalConsensus;
 
@@ -54,8 +55,10 @@ impl FormulaRegistry {
     }
 
     pub fn compute_all(&self, candles: &[Candle], ctx: Option<&FormulaContext>) -> Vec<(String, FormulaResult)> {
-        self.formulas.iter()
+        let eligible: Vec<&Box<dyn SignalFormula>> = self.formulas.iter()
             .filter(|f| candles.len() >= f.min_candles())
+            .collect();
+        eligible.par_iter()
             .map(|f| (f.id().to_string(), f.compute(candles, ctx)))
             .collect()
     }

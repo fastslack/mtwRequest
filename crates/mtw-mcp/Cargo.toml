@@ -1,0 +1,20 @@
+[package]
+name = "mtw-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "MCP server for Claude Code — manage mtwRequest modules, agents, auth, trading, and more"
+
+[[bin]]
+name = "mtw-mcp"
+path = "src/main.rs"
+
+[dependencies]
+mtw-core = { path = "../mtw-core" }
+mtw-protocol = { path = "../mtw-protocol" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

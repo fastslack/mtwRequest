@@ -25,6 +25,7 @@ members = [
     "crates/mtw-trading",
     "crates/mtw-graph",
     "crates/mtw-orchestrator",
+    "crates/mtw-mcp",
     "crates/mtw-server",
     "examples",
 ]
@@ -87,6 +88,7 @@ mtw-federation = { path = "crates/mtw-federation" }
 mtw-trading = { path = "crates/mtw-trading" }
 mtw-graph = { path = "crates/mtw-graph" }
 mtw-orchestrator = { path = "crates/mtw-orchestrator" }
+mtw-mcp = { path = "crates/mtw-mcp" }
 reqwest = { version = "0.12", features = ["json", "gzip", "brotli", "stream"] }
 
 # SQLite
