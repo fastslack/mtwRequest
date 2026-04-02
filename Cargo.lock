@@ -1365,6 +1365,7 @@ dependencies = [
 name = "mtw-server"
 version = "0.2.0"
 dependencies = [
+ "mtw-ai",
  "mtw-bridge",
  "mtw-codec",
  "mtw-core",

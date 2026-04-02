@@ -10,6 +10,11 @@ use mtw_trading::formulas;
 use mtw_trading::monitor::TradeMonitor;
 use mtw_trading::types::OrderSide;
 use mtw_security::rate_limit::RateLimiter;
+use mtw_ai::provider::{CompletionRequest, Message, MessageRole, MtwAIProvider};
+use mtw_ai::providers::openai::{OpenAIConfig, OpenAIProvider};
+use mtw_ai::providers::anthropic::{AnthropicConfig, AnthropicProvider};
+use mtw_ai::providers::ollama::{OllamaConfig, OllamaProvider};
+use mtw_ai::providers::lmstudio::{LMStudioConfig, LMStudioProvider};
 use std::sync::Arc;
 
 /// Holds the heavy-compute Rust services that are registered with the BridgeServer.
@@ -17,18 +22,71 @@ pub struct RustServices {
     pub formula_registry: Arc<FormulaRegistry>,
     pub trade_monitor: Arc<TradeMonitor>,
     pub rate_limiter: Arc<RateLimiter>,
+    pub ai_provider: Arc<dyn MtwAIProvider>,
 }
 
 impl RustServices {
     /// Create a new `RustServices` with all built-in formulas registered.
+    /// AI provider is selected from environment variables.
     pub fn new() -> Self {
         let mut formula_registry = FormulaRegistry::new();
         formulas::register_all(&mut formula_registry);
+
+        // Select AI provider from env
+        let ai_provider: Arc<dyn MtwAIProvider> = Self::create_ai_provider();
 
         Self {
             formula_registry: Arc::new(formula_registry),
             trade_monitor: Arc::new(TradeMonitor::new()),
             rate_limiter: Arc::new(RateLimiter::default()),
+            ai_provider,
+        }
+    }
+
+    fn create_ai_provider() -> Arc<dyn MtwAIProvider> {
+        let provider = std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "openai".to_string());
+        match provider.as_str() {
+            "anthropic" => {
+                let key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
+                let model = std::env::var("LLM_MODEL").unwrap_or_else(|_| "claude-haiku-4-5-20251001".to_string());
+                tracing::info!(provider = "anthropic", model = %model, "AI provider initialized");
+                Arc::new(AnthropicProvider::new(AnthropicConfig {
+                    api_key: key,
+                    base_url: "https://api.anthropic.com".to_string(),
+                    default_model: model,
+                }))
+            }
+            "ollama" => {
+                let url = std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".to_string());
+                let model = std::env::var("LLM_MODEL").unwrap_or_else(|_| "llama3".to_string());
+                tracing::info!(provider = "ollama", url = %url, model = %model, "AI provider initialized");
+                Arc::new(OllamaProvider::new(OllamaConfig {
+                    base_url: url,
+                    default_model: model,
+                }))
+            }
+            "lmstudio" => {
+                let url = std::env::var("LMSTUDIO_URL").unwrap_or_else(|_| "http://localhost:1234/v1".to_string());
+                let model = std::env::var("LLM_MODEL").unwrap_or_default();
+                tracing::info!(provider = "lmstudio", url = %url, "AI provider initialized");
+                Arc::new(LMStudioProvider::new(LMStudioConfig {
+                    base_url: url,
+                    default_model: model,
+                    api_key: None,
+                }))
+            }
+            _ => {
+                // Default: OpenAI
+                let key = std::env::var("OPENAI_API_KEY").unwrap_or_default();
+                let model = std::env::var("LLM_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string());
+                let base_url = std::env::var("OPENAI_BASE_URL").unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
+                tracing::info!(provider = "openai", model = %model, "AI provider initialized");
+                Arc::new(OpenAIProvider::new(OpenAIConfig {
+                    api_key: key,
+                    base_url,
+                    default_model: model,
+                }))
+            }
         }
     }
 
@@ -36,6 +94,7 @@ impl RustServices {
     pub fn register_all(&self, server: &BridgeServer) {
         self.register_trading_tools(server);
         self.register_security_tools(server);
+        self.register_ai_tools(server);
     }
 
     fn register_trading_tools(&self, server: &BridgeServer) {
@@ -282,6 +341,73 @@ impl RustServices {
             "_health",
             Arc::new(|_| {
                 Box::pin(async { Ok(serde_json::json!({"ok": true, "service": "mtwRequest"})) })
+            }),
+        );
+    }
+
+    fn register_ai_tools(&self, server: &BridgeServer) {
+        // llm.chat — unified LLM completion via configured provider
+        // Args: { "system": "...", "user": "...", "model": "gpt-4o-mini", "max_tokens": 2048 }
+        // Returns: { "text": "...", "model": "...", "provider": "openai", "usage": {...} }
+        let provider = self.ai_provider.clone();
+        server.register_tool(
+            "llm.chat",
+            Arc::new(move |args| {
+                let provider = provider.clone();
+                Box::pin(async move {
+                    let system = args.get("system").and_then(|v| v.as_str()).unwrap_or("");
+                    let user = args
+                        .get("user")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| mtw_core::MtwError::Internal("missing 'user' message".into()))?;
+                    let model = args
+                        .get("model")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let max_tokens = args
+                        .get("max_tokens")
+                        .and_then(|v| v.as_u64())
+                        .map(|v| v as u32);
+                    let temperature = args
+                        .get("temperature")
+                        .and_then(|v| v.as_f64())
+                        .map(|v| v as f32);
+
+                    let mut messages = Vec::new();
+                    if !system.is_empty() {
+                        messages.push(Message::system(system));
+                    }
+                    messages.push(Message::user(user));
+
+                    let req = CompletionRequest {
+                        model: if model.is_empty() {
+                            String::new() // provider will use default
+                        } else {
+                            model
+                        },
+                        messages,
+                        tools: None,
+                        temperature,
+                        max_tokens,
+                        metadata: Default::default(),
+                    };
+
+                    let response = provider.complete(req).await.map_err(|e| {
+                        mtw_core::MtwError::Internal(format!("LLM error: {}", e))
+                    })?;
+
+                    Ok(serde_json::json!({
+                        "text": response.content,
+                        "model": response.model,
+                        "provider": provider.name(),
+                        "usage": {
+                            "input_tokens": response.usage.prompt_tokens,
+                            "output_tokens": response.usage.completion_tokens,
+                            "total_tokens": response.usage.total_tokens,
+                        }
+                    }))
+                })
             }),
         );
     }
