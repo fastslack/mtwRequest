@@ -1,12 +1,14 @@
 use async_trait::async_trait;
+use futures::stream::StreamExt;
 use futures::Stream;
 use mtw_core::MtwError;
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 
 use crate::provider::{
-    CompletionRequest, CompletionResponse, ModelInfo, MtwAIProvider, ProviderCapabilities,
-    StreamChunk,
+    CompletionRequest, CompletionResponse, FinishReason, MessageRole, ModelInfo, MtwAIProvider,
+    ProviderCapabilities, StreamChunk, Usage,
 };
 
 // Common local model identifiers
@@ -57,14 +59,84 @@ impl OllamaConfig {
     }
 }
 
+// --- Ollama API request/response types ---
+
+#[derive(Debug, Serialize)]
+struct OllamaRequest {
+    model: String,
+    messages: Vec<OllamaMessage>,
+    stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    options: Option<OllamaOptions>,
+}
+
+#[derive(Debug, Serialize)]
+struct OllamaMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Debug, Serialize)]
+struct OllamaOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    num_predict: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct OllamaResponse {
+    model: Option<String>,
+    message: Option<OllamaResponseMessage>,
+    done: Option<bool>,
+    total_duration: Option<u64>,
+    prompt_eval_count: Option<u32>,
+    eval_count: Option<u32>,
+    error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct OllamaResponseMessage {
+    role: Option<String>,
+    content: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OllamaTagsResponse {
+    models: Option<Vec<OllamaModelInfo>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OllamaModelInfo {
+    name: Option<String>,
+    #[allow(dead_code)]
+    size: Option<u64>,
+}
+
+fn role_to_string(role: &MessageRole) -> &'static str {
+    match role {
+        MessageRole::System => "system",
+        MessageRole::User => "user",
+        MessageRole::Assistant => "assistant",
+        MessageRole::Tool => "user",
+    }
+}
+
 /// Ollama AI provider for local models
 pub struct OllamaProvider {
     config: OllamaConfig,
+    client: Client,
 }
 
 impl OllamaProvider {
     pub fn new(config: OllamaConfig) -> Self {
-        Self { config }
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(300)) // local models can be slow
+            .build()
+            .expect("failed to build HTTP client");
+        Self { config, client }
     }
 
     pub fn config(&self) -> &OllamaConfig {
@@ -88,26 +160,239 @@ impl MtwAIProvider for OllamaProvider {
         }
     }
 
-    async fn complete(&self, _req: CompletionRequest) -> Result<CompletionResponse, MtwError> {
-        Err(MtwError::Internal(
-            "ollama provider not yet implemented".into(),
-        ))
+    async fn complete(&self, req: CompletionRequest) -> Result<CompletionResponse, MtwError> {
+        let model = if req.model.is_empty() {
+            self.config.default_model.clone()
+        } else {
+            req.model.clone()
+        };
+
+        let messages: Vec<OllamaMessage> = req
+            .messages
+            .iter()
+            .map(|m| OllamaMessage {
+                role: role_to_string(&m.role).to_string(),
+                content: m.content.clone(),
+            })
+            .collect();
+
+        let options = if req.temperature.is_some() || req.max_tokens.is_some() {
+            Some(OllamaOptions {
+                temperature: req.temperature,
+                num_predict: req.max_tokens,
+            })
+        } else {
+            None
+        };
+
+        let ollama_req = OllamaRequest {
+            model: model.clone(),
+            messages,
+            stream: false,
+            options,
+        };
+
+        let url = format!("{}/api/chat", self.config.base_url);
+        let resp = self
+            .client
+            .post(&url)
+            .json(&ollama_req)
+            .send()
+            .await
+            .map_err(|e| MtwError::Internal(format!("ollama request failed: {}", e)))?;
+
+        let status = resp.status();
+        let body: OllamaResponse = resp
+            .json()
+            .await
+            .map_err(|e| MtwError::Internal(format!("ollama response parse failed: {}", e)))?;
+
+        if let Some(err) = body.error {
+            return Err(MtwError::Internal(format!(
+                "ollama API error ({}): {}",
+                status, err
+            )));
+        }
+
+        let content = body
+            .message
+            .as_ref()
+            .and_then(|m| m.content.clone())
+            .unwrap_or_default();
+
+        let prompt_tokens = body.prompt_eval_count.unwrap_or(0);
+        let completion_tokens = body.eval_count.unwrap_or(0);
+
+        Ok(CompletionResponse {
+            id: ulid::Ulid::new().to_string(),
+            model: body.model.unwrap_or(model),
+            content,
+            tool_calls: vec![],
+            usage: Usage {
+                prompt_tokens,
+                completion_tokens,
+                total_tokens: prompt_tokens + completion_tokens,
+            },
+            finish_reason: FinishReason::Stop,
+        })
     }
 
     fn stream(
         &self,
-        _req: CompletionRequest,
+        req: CompletionRequest,
     ) -> Pin<Box<dyn Stream<Item = Result<StreamChunk, MtwError>> + Send>> {
-        Box::pin(futures::stream::once(async {
-            Err(MtwError::Internal(
-                "ollama provider streaming not yet implemented".into(),
-            ))
-        }))
+        let model = if req.model.is_empty() {
+            self.config.default_model.clone()
+        } else {
+            req.model.clone()
+        };
+
+        let messages: Vec<OllamaMessage> = req
+            .messages
+            .iter()
+            .map(|m| OllamaMessage {
+                role: role_to_string(&m.role).to_string(),
+                content: m.content.clone(),
+            })
+            .collect();
+
+        let options = if req.temperature.is_some() || req.max_tokens.is_some() {
+            Some(OllamaOptions {
+                temperature: req.temperature,
+                num_predict: req.max_tokens,
+            })
+        } else {
+            None
+        };
+
+        let ollama_req = OllamaRequest {
+            model,
+            messages,
+            stream: true,
+            options,
+        };
+
+        let url = format!("{}/api/chat", self.config.base_url);
+        let client = self.client.clone();
+
+        Box::pin(async_stream::try_stream! {
+            let resp = client
+                .post(&url)
+                .json(&ollama_req)
+                .send()
+                .await
+                .map_err(|e| MtwError::Internal(format!("ollama stream request failed: {}", e)))?;
+
+            let status = resp.status();
+            if !status.is_success() {
+                let body = resp.text().await.unwrap_or_default();
+                Err(MtwError::Internal(format!("ollama stream error ({}): {}", status, body)))?;
+                unreachable!();
+            }
+
+            let mut stream = resp.bytes_stream();
+            let mut buffer = String::new();
+
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk.map_err(|e| MtwError::Internal(format!("ollama stream read: {}", e)))?;
+                buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+                // Ollama streams newline-delimited JSON
+                while let Some(line_end) = buffer.find('\n') {
+                    let line = buffer[..line_end].trim().to_string();
+                    buffer = buffer[line_end + 1..].to_string();
+
+                    if line.is_empty() {
+                        continue;
+                    }
+
+                    match serde_json::from_str::<OllamaResponse>(&line) {
+                        Ok(parsed) => {
+                            let done = parsed.done.unwrap_or(false);
+                            let content = parsed
+                                .message
+                                .as_ref()
+                                .and_then(|m| m.content.clone())
+                                .unwrap_or_default();
+
+                            let finish_reason = if done {
+                                Some(FinishReason::Stop)
+                            } else {
+                                None
+                            };
+
+                            let usage = if done {
+                                let prompt = parsed.prompt_eval_count.unwrap_or(0);
+                                let completion = parsed.eval_count.unwrap_or(0);
+                                Some(Usage {
+                                    prompt_tokens: prompt,
+                                    completion_tokens: completion,
+                                    total_tokens: prompt + completion,
+                                })
+                            } else {
+                                None
+                            };
+
+                            yield StreamChunk {
+                                delta: content,
+                                tool_calls: vec![],
+                                finish_reason,
+                                usage,
+                            };
+
+                            if done {
+                                return;
+                            }
+                        }
+                        Err(_) => { /* skip unparseable lines */ }
+                    }
+                }
+            }
+        })
     }
 
     async fn models(&self) -> Result<Vec<ModelInfo>, MtwError> {
-        // In a real implementation, this would query the Ollama API
-        Ok(vec![
+        let url = format!("{}/api/tags", self.config.base_url);
+        let resp = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| MtwError::Internal(format!("ollama models request failed: {}", e)))?;
+
+        if !resp.status().is_success() {
+            // Fallback to static list if Ollama is not running
+            return Ok(self.static_models());
+        }
+
+        let body: OllamaTagsResponse = resp
+            .json()
+            .await
+            .map_err(|e| MtwError::Internal(format!("ollama models parse failed: {}", e)))?;
+
+        let models = body
+            .models
+            .unwrap_or_default()
+            .into_iter()
+            .map(|m| {
+                let name = m.name.unwrap_or_else(|| "unknown".to_string());
+                ModelInfo {
+                    id: name.clone(),
+                    name: name.clone(),
+                    max_context: 8192,
+                    supports_tools: false,
+                    supports_vision: false,
+                }
+            })
+            .collect();
+
+        Ok(models)
+    }
+}
+
+impl OllamaProvider {
+    fn static_models(&self) -> Vec<ModelInfo> {
+        vec![
             ModelInfo {
                 id: LLAMA3.to_string(),
                 name: "Llama 3".to_string(),
@@ -136,7 +421,7 @@ impl MtwAIProvider for OllamaProvider {
                 supports_tools: false,
                 supports_vision: false,
             },
-        ])
+        ]
     }
 }
 
@@ -176,19 +461,11 @@ mod tests {
         assert!(caps.embeddings);
     }
 
-    #[tokio::test]
-    async fn test_models_list() {
+    #[test]
+    fn test_static_models() {
         let provider = OllamaProvider::new(OllamaConfig::default());
-        let models = provider.models().await.unwrap();
+        let models = provider.static_models();
         assert_eq!(models.len(), 4);
         assert!(models.iter().any(|m| m.id == LLAMA3));
-    }
-
-    #[tokio::test]
-    async fn test_complete_not_implemented() {
-        let provider = OllamaProvider::new(OllamaConfig::default());
-        let req = CompletionRequest::default();
-        let result = provider.complete(req).await;
-        assert!(result.is_err());
     }
 }

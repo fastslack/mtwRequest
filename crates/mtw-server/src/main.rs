@@ -314,6 +314,15 @@ async fn handle_message(
             transport.close(conn_id).await?;
         }
 
+        // Response/Error: route back to channel subscribers (for RPC correlation via ref_id)
+        MsgType::Response | MsgType::Error => {
+            if let Some(channel_name) = &msg.channel {
+                if let Some(channel) = router.channels().get(channel_name) {
+                    channel.publish(msg.clone(), Some(conn_id)).await?;
+                }
+            }
+        }
+
         _ => {
             tracing::debug!(conn_id = %conn_id, msg_type = ?msg.msg_type, "unhandled message type");
         }
