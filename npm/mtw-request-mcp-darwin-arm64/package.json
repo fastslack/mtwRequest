@@ -1,0 +1,14 @@
+{
+  "name": "@matware/mtw-request-mcp-darwin-arm64",
+  "version": "0.2.0",
+  "description": "mtwRequest MCP binary for darwin-arm64",
+  "license": "Apache-2.0",
+  "author": "fastslack",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fastslack/mtwRequest"
+  },
+  "os": ["darwin"],
+  "cpu": ["arm64"],
+  "files": ["mtw-mcp*"]
+}

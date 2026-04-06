@@ -1,0 +1,14 @@
+{
+  "name": "@matware/mtw-request-mcp-linux-x64",
+  "version": "0.2.0",
+  "description": "mtwRequest MCP binary for linux-x64",
+  "license": "Apache-2.0",
+  "author": "fastslack",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fastslack/mtwRequest"
+  },
+  "os": ["linux"],
+  "cpu": ["x64"],
+  "files": ["mtw-mcp*"]
+}

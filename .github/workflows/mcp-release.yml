@@ -1,0 +1,111 @@
+name: MCP Release
+
+on:
+  push:
+    tags:
+      - 'mcp-v*'
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            npm-pkg: mtw-request-mcp-linux-x64
+            binary: mtw-mcp
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            npm-pkg: mtw-request-mcp-linux-arm64
+            binary: mtw-mcp
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            npm-pkg: mtw-request-mcp-darwin-x64
+            binary: mtw-mcp
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            npm-pkg: mtw-request-mcp-darwin-arm64
+            binary: mtw-mcp
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            npm-pkg: mtw-request-mcp-win32-x64
+            binary: mtw-mcp.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build
+        run: cargo build --release -p mtw-mcp --target ${{ matrix.target }}
+
+      - name: Copy binary to npm package
+        shell: bash
+        run: |
+          cp target/${{ matrix.target }}/release/${{ matrix.binary }} npm/${{ matrix.npm-pkg }}/${{ matrix.binary }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.npm-pkg }}
+          path: npm/${{ matrix.npm-pkg }}
+
+  publish:
+    name: Publish npm packages
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: npm-artifacts
+
+      - name: Copy binaries to npm packages
+        run: |
+          for pkg in mtw-request-mcp-linux-x64 mtw-request-mcp-linux-arm64 mtw-request-mcp-darwin-x64 mtw-request-mcp-darwin-arm64 mtw-request-mcp-win32-x64; do
+            if [ -d "npm-artifacts/$pkg" ]; then
+              cp -r npm-artifacts/$pkg/* npm/$pkg/
+            fi
+          done
+
+      - name: Publish platform packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for pkg in npm/mtw-request-mcp-*/; do
+            echo "Publishing $(basename $pkg)..."
+            cd "$pkg"
+            npm publish --access public || true
+            cd ../..
+          done
+
+      - name: Publish main package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd npm/mtw-request-mcp
+          npm publish --access public

@@ -1,0 +1,14 @@
+{
+  "name": "@matware/mtw-request-mcp-win32-x64",
+  "version": "0.2.0",
+  "description": "mtwRequest MCP binary for win32-x64",
+  "license": "Apache-2.0",
+  "author": "fastslack",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fastslack/mtwRequest"
+  },
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "files": ["mtw-mcp*"]
+}

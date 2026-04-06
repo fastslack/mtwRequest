@@ -1,0 +1,41 @@
+{
+  "name": "@matware/mtw-request-mcp",
+  "version": "0.2.0",
+  "description": "MCP server for Claude Code — manage mtwRequest modules, agents, auth, trading, and more. Rust-powered.",
+  "license": "Apache-2.0",
+  "author": "fastslack",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fastslack/mtwRequest",
+    "directory": "npm/mtw-request-mcp"
+  },
+  "bin": {
+    "mtw-mcp": "bin/mtw-mcp"
+  },
+  "files": [
+    "bin",
+    "postinstall.js"
+  ],
+  "scripts": {
+    "postinstall": "node postinstall.js"
+  },
+  "optionalDependencies": {
+    "@matware/mtw-request-mcp-linux-x64": "0.2.0",
+    "@matware/mtw-request-mcp-linux-arm64": "0.2.0",
+    "@matware/mtw-request-mcp-darwin-x64": "0.2.0",
+    "@matware/mtw-request-mcp-darwin-arm64": "0.2.0",
+    "@matware/mtw-request-mcp-win32-x64": "0.2.0"
+  },
+  "keywords": [
+    "mcp",
+    "claude",
+    "claude-code",
+    "mtwRequest",
+    "real-time",
+    "websocket",
+    "ai",
+    "agents",
+    "trading",
+    "rust"
+  ]
+}
