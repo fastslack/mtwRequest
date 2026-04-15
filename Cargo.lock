@@ -1153,6 +1153,7 @@ dependencies = [
  "futures",
  "mtw-codec",
  "mtw-core",
+ "mtw-iris",
  "mtw-protocol",
  "mtw-router",
  "mtw-transport",
@@ -1247,6 +1248,24 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "mtw-iris"
+version = "0.2.0"
+dependencies = [
+ "async-trait",
+ "futures",
+ "mtw-ai",
+ "mtw-core",
+ "mtw-protocol",
+ "mtw-router",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "ulid",
 ]
 
 [[package]]

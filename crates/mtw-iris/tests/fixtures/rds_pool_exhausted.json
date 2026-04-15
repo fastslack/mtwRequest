@@ -1,0 +1,42 @@
+{
+  "id": "rds_pool_exhausted",
+  "title": "RDS Postgres connection pool exhausted under bursty traffic",
+  "ground_truth_root_cause": "db_pool_exhausted",
+  "accepted_aliases": ["connection_pool_exhausted", "pool_exhausted"],
+  "required_evidence_tags": ["db", "saturation"],
+  "red_herring_root_causes": ["cpu_spike", "gc_pause"],
+  "evidence": [
+    {
+      "kind": "alert",
+      "source": "pagerduty",
+      "message": "p1: api-service error rate 12% for 5m",
+      "tags": ["paging"]
+    },
+    {
+      "kind": "log",
+      "source": "api-service",
+      "message": "ERROR could not acquire connection from pool: timeout after 2000ms",
+      "tags": ["db", "saturation"]
+    },
+    {
+      "kind": "metric",
+      "source": "cloudwatch.rds",
+      "message": "DatabaseConnections=198 max_connections=200",
+      "tags": ["db", "saturation"]
+    },
+    {
+      "kind": "metric",
+      "source": "cloudwatch.ec2",
+      "message": "CPUUtilization=12% (baseline)",
+      "tags": ["cpu"],
+      "red_herring": true
+    },
+    {
+      "kind": "log",
+      "source": "jvm.gc",
+      "message": "full gc 40ms (normal)",
+      "tags": ["gc"],
+      "red_herring": true
+    }
+  ]
+}

@@ -10,6 +10,7 @@ mtw-protocol = { path = "../crates/mtw-protocol" }
 mtw-transport = { path = "../crates/mtw-transport" }
 mtw-router = { path = "../crates/mtw-router" }
 mtw-codec = { path = "../crates/mtw-codec" }
+mtw-iris = { path = "../crates/mtw-iris" }
 tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 futures = "0.3"
@@ -24,3 +25,7 @@ path = "demo_server.rs"
 [[bin]]
 name = "demo-client"
 path = "demo_client.rs"
+
+[[bin]]
+name = "iris-demo"
+path = "iris_demo.rs"
