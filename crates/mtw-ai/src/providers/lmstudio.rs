@@ -7,8 +7,11 @@ use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 
 use crate::provider::{
-    CompletionRequest, CompletionResponse, FinishReason, MessageRole, ModelInfo, MtwAIProvider,
+    CompletionRequest, CompletionResponse, FinishReason, ModelInfo, MtwAIProvider,
     ProviderCapabilities, StreamChunk, Usage,
+};
+use super::openai::{
+    build_oai_request, OaiResponse, OaiUsage,
 };
 
 /// Configuration for the LM Studio provider (local, OpenAI-compatible)
@@ -62,64 +65,7 @@ impl LMStudioConfig {
     }
 }
 
-// --- OpenAI-compatible request/response types (shared format with LM Studio) ---
-
-#[derive(Debug, Serialize)]
-struct LmsRequest {
-    model: String,
-    messages: Vec<LmsMessage>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    temperature: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    max_tokens: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    stream: Option<bool>,
-}
-
-#[derive(Debug, Serialize)]
-struct LmsMessage {
-    role: String,
-    content: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct LmsResponse {
-    id: Option<String>,
-    model: Option<String>,
-    choices: Option<Vec<LmsChoice>>,
-    usage: Option<LmsUsage>,
-    error: Option<LmsError>,
-}
-
-#[derive(Debug, Deserialize)]
-struct LmsChoice {
-    message: Option<LmsResponseMessage>,
-    delta: Option<LmsDelta>,
-    finish_reason: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct LmsResponseMessage {
-    content: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct LmsDelta {
-    content: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct LmsUsage {
-    prompt_tokens: Option<u32>,
-    completion_tokens: Option<u32>,
-    total_tokens: Option<u32>,
-}
-
-#[derive(Debug, Deserialize)]
-struct LmsError {
-    message: String,
-}
-
+// LMStudio-specific response types (models endpoint only)
 #[derive(Debug, Deserialize)]
 struct LmsModelsResponse {
     data: Option<Vec<LmsModelEntry>>,
@@ -130,21 +76,13 @@ struct LmsModelEntry {
     id: Option<String>,
 }
 
-fn role_to_string(role: &MessageRole) -> &'static str {
-    match role {
-        MessageRole::System => "system",
-        MessageRole::User => "user",
-        MessageRole::Assistant => "assistant",
-        MessageRole::Tool => "user",
-    }
-}
 
-fn parse_finish_reason(s: &str) -> FinishReason {
-    match s {
-        "stop" => FinishReason::Stop,
-        "length" => FinishReason::Length,
-        _ => FinishReason::Stop,
-    }
+fn oai_usage_to_usage(u: Option<&OaiUsage>) -> Usage {
+    u.map_or(Usage::default(), |u| Usage {
+        prompt_tokens: u.prompt_tokens.unwrap_or(0),
+        completion_tokens: u.completion_tokens.unwrap_or(0),
+        total_tokens: u.total_tokens.unwrap_or(0),
+    })
 }
 
 /// LM Studio AI provider for local models (OpenAI-compatible API)
@@ -197,25 +135,13 @@ impl MtwAIProvider for LMStudioProvider {
             req.model.clone()
         };
 
-        let messages: Vec<LmsMessage> = req
-            .messages
-            .iter()
-            .map(|m| LmsMessage {
-                role: role_to_string(&m.role).to_string(),
-                content: m.content.clone(),
-            })
-            .collect();
-
-        let lms_req = LmsRequest {
-            model: model.clone(),
-            messages,
-            temperature: req.temperature,
-            max_tokens: req.max_tokens,
-            stream: None,
-        };
+        let mut oai_req = build_oai_request(&req, false);
+        oai_req.model = model.clone();
+        // LMStudio doesn't support tool_calls
+        oai_req.tools = None;
 
         let url = format!("{}/chat/completions", self.config.base_url);
-        let mut http_req = self.client.post(&url).json(&lms_req);
+        let mut http_req = self.client.post(&url).json(&oai_req);
         if let Some(auth) = self.auth_header() {
             http_req = http_req.header("Authorization", auth);
         }
@@ -226,7 +152,7 @@ impl MtwAIProvider for LMStudioProvider {
             .map_err(|e| MtwError::Internal(format!("lmstudio request failed: {}", e)))?;
 
         let status = resp.status();
-        let body: LmsResponse = resp
+        let body: OaiResponse = resp
             .json()
             .await
             .map_err(|e| {
@@ -252,16 +178,12 @@ impl MtwAIProvider for LMStudioProvider {
             .and_then(|m| m.content.clone())
             .unwrap_or_default();
 
-        let usage = body.usage.as_ref().map_or(Usage::default(), |u| Usage {
-            prompt_tokens: u.prompt_tokens.unwrap_or(0),
-            completion_tokens: u.completion_tokens.unwrap_or(0),
-            total_tokens: u.total_tokens.unwrap_or(0),
-        });
+        let usage = oai_usage_to_usage(body.usage.as_ref());
 
         let finish_reason = choice
             .finish_reason
             .as_deref()
-            .map(parse_finish_reason)
+            .map(FinishReason::from_openai)
             .unwrap_or(FinishReason::Stop);
 
         Ok(CompletionResponse {
@@ -278,35 +200,18 @@ impl MtwAIProvider for LMStudioProvider {
         &self,
         req: CompletionRequest,
     ) -> Pin<Box<dyn Stream<Item = Result<StreamChunk, MtwError>> + Send>> {
-        let model = if req.model.is_empty() {
-            self.config.default_model.clone()
-        } else {
-            req.model.clone()
-        };
-
-        let messages: Vec<LmsMessage> = req
-            .messages
-            .iter()
-            .map(|m| LmsMessage {
-                role: role_to_string(&m.role).to_string(),
-                content: m.content.clone(),
-            })
-            .collect();
-
-        let lms_req = LmsRequest {
-            model,
-            messages,
-            temperature: req.temperature,
-            max_tokens: req.max_tokens,
-            stream: Some(true),
-        };
+        let mut oai_req = build_oai_request(&req, true);
+        if req.model.is_empty() {
+            oai_req.model = self.config.default_model.clone();
+        }
+        oai_req.tools = None;
 
         let url = format!("{}/chat/completions", self.config.base_url);
         let client = self.client.clone();
         let auth = self.auth_header();
 
         Box::pin(async_stream::try_stream! {
-            let mut http_req = client.post(&url).json(&lms_req);
+            let mut http_req = client.post(&url).json(&oai_req);
             if let Some(auth) = auth {
                 http_req = http_req.header("Authorization", auth);
             }
@@ -323,58 +228,9 @@ impl MtwAIProvider for LMStudioProvider {
                 unreachable!();
             }
 
-            let mut stream = resp.bytes_stream();
-            let mut buffer = String::new();
-
-            while let Some(chunk) = stream.next().await {
-                let chunk = chunk.map_err(|e| MtwError::Internal(format!("lmstudio stream read: {}", e)))?;
-                buffer.push_str(&String::from_utf8_lossy(&chunk));
-
-                while let Some(line_end) = buffer.find('\n') {
-                    let line = buffer[..line_end].trim().to_string();
-                    buffer = buffer[line_end + 1..].to_string();
-
-                    if line.is_empty() || line.starts_with(':') {
-                        continue;
-                    }
-
-                    if let Some(data) = line.strip_prefix("data: ") {
-                        if data.trim() == "[DONE]" {
-                            return;
-                        }
-
-                        match serde_json::from_str::<LmsResponse>(data) {
-                            Ok(parsed) => {
-                                if let Some(choices) = &parsed.choices {
-                                    if let Some(choice) = choices.first() {
-                                        let delta_content = choice
-                                            .delta
-                                            .as_ref()
-                                            .and_then(|d| d.content.clone())
-                                            .unwrap_or_default();
-                                        let finish_reason = choice
-                                            .finish_reason
-                                            .as_deref()
-                                            .map(parse_finish_reason);
-                                        let usage = parsed.usage.as_ref().map(|u| Usage {
-                                            prompt_tokens: u.prompt_tokens.unwrap_or(0),
-                                            completion_tokens: u.completion_tokens.unwrap_or(0),
-                                            total_tokens: u.total_tokens.unwrap_or(0),
-                                        });
-
-                                        yield StreamChunk {
-                                            delta: delta_content,
-                                            tool_calls: vec![],
-                                            finish_reason,
-                                            usage,
-                                        };
-                                    }
-                                }
-                            }
-                            Err(_) => { /* skip unparseable lines */ }
-                        }
-                    }
-                }
+            let mut inner = super::sse::parse_oai_sse_stream(resp.bytes_stream(), "lmstudio", false);
+            while let Some(chunk) = StreamExt::next(&mut inner).await {
+                yield chunk?;
             }
         })
     }

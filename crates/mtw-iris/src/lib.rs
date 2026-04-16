@@ -8,13 +8,12 @@
 pub mod agent;
 pub mod evidence;
 pub mod fault;
-pub mod mock_provider;
 pub mod scenario;
 pub mod score;
 
 pub use agent::{IncidentAgent, RootCauseHypothesis};
 pub use evidence::{Evidence, EvidenceKind, EvidenceStream};
 pub use fault::{FaultInjectorMiddleware, FaultRule};
-pub use mock_provider::MockProvider;
+pub use mtw_test::MockProvider;
 pub use scenario::{Scenario, ScenarioHarness, ScenarioRun};
 pub use score::{ScenarioScore, Verdict};

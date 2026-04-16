@@ -135,14 +135,6 @@ struct StreamDelta {
     stop_reason: Option<String>,
 }
 
-fn parse_finish_reason(s: &str) -> FinishReason {
-    match s {
-        "end_turn" | "stop" => FinishReason::Stop,
-        "max_tokens" => FinishReason::Length,
-        "tool_use" => FinishReason::ToolUse,
-        _ => FinishReason::Stop,
-    }
-}
 
 fn build_anthropic_request(
     req: &CompletionRequest,
@@ -310,7 +302,7 @@ impl MtwAIProvider for AnthropicProvider {
         let finish_reason = body
             .stop_reason
             .as_deref()
-            .map(parse_finish_reason)
+            .map(FinishReason::from_anthropic)
             .unwrap_or(FinishReason::Stop);
 
         Ok(CompletionResponse {
@@ -440,7 +432,7 @@ impl MtwAIProvider for AnthropicProvider {
                                         .delta
                                         .as_ref()
                                         .and_then(|d| d.stop_reason.as_deref())
-                                        .map(parse_finish_reason);
+                                        .map(FinishReason::from_anthropic);
                                     let usage = evt.usage.as_ref().map(|u| {
                                         let output = u.output_tokens.unwrap_or(0);
                                         Usage {
@@ -574,9 +566,9 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_finish_reason() {
-        assert_eq!(parse_finish_reason("end_turn"), FinishReason::Stop);
-        assert_eq!(parse_finish_reason("max_tokens"), FinishReason::Length);
-        assert_eq!(parse_finish_reason("tool_use"), FinishReason::ToolUse);
+    fn test_finish_reason_from_anthropic() {
+        assert_eq!(FinishReason::from_anthropic("end_turn"), FinishReason::Stop);
+        assert_eq!(FinishReason::from_anthropic("max_tokens"), FinishReason::Length);
+        assert_eq!(FinishReason::from_anthropic("tool_use"), FinishReason::ToolUse);
     }
 }

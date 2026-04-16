@@ -67,6 +67,28 @@ pub enum MessageRole {
     Tool,
 }
 
+impl MessageRole {
+    /// OpenAI / LMStudio compatible role string.
+    pub fn as_openai_str(&self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::User => "user",
+            Self::Assistant => "assistant",
+            Self::Tool => "tool",
+        }
+    }
+
+    /// Ollama compatible role string (Tool maps to "user").
+    pub fn as_ollama_str(&self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::User => "user",
+            Self::Assistant => "assistant",
+            Self::Tool => "user",
+        }
+    }
+}
+
 /// Tool definition for function calling
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDef {
@@ -161,6 +183,29 @@ pub enum FinishReason {
     Length,
     ToolUse,
     ContentFilter,
+}
+
+impl FinishReason {
+    /// Parse an OpenAI / LMStudio compatible finish reason string.
+    pub fn from_openai(s: &str) -> Self {
+        match s {
+            "stop" => Self::Stop,
+            "length" => Self::Length,
+            "tool_calls" => Self::ToolUse,
+            "content_filter" => Self::ContentFilter,
+            _ => Self::Stop,
+        }
+    }
+
+    /// Parse an Anthropic compatible stop reason string.
+    pub fn from_anthropic(s: &str) -> Self {
+        match s {
+            "end_turn" | "stop" => Self::Stop,
+            "max_tokens" => Self::Length,
+            "tool_use" => Self::ToolUse,
+            _ => Self::Stop,
+        }
+    }
 }
 
 /// A streaming chunk from the provider

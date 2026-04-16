@@ -89,8 +89,14 @@ impl Scenario {
 }
 
 fn token_overlap(a: &str, b: &str) -> f32 {
-    let at: std::collections::HashSet<&str> = a.split(|c: char| !c.is_alphanumeric()).collect();
-    let bt: std::collections::HashSet<&str> = b.split(|c: char| !c.is_alphanumeric()).collect();
+    let at: std::collections::HashSet<&str> = a
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let bt: std::collections::HashSet<&str> = b
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|s| !s.is_empty())
+        .collect();
     let inter = at.intersection(&bt).count();
     let union = at.union(&bt).count().max(1);
     inter as f32 / union as f32

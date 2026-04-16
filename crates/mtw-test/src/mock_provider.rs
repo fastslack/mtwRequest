@@ -17,6 +17,7 @@ use mtw_ai::provider::{
 };
 use mtw_core::MtwError;
 use std::pin::Pin;
+use std::collections::VecDeque;
 use std::sync::Mutex;
 
 /// A rule that maps a substring in the last user message to a canned response.
@@ -30,7 +31,7 @@ pub struct MockProvider {
     name: &'static str,
     rules: Vec<Rule>,
     default_response: String,
-    scripted: Mutex<Vec<String>>,
+    scripted: Mutex<VecDeque<String>>,
 }
 
 impl MockProvider {
@@ -39,7 +40,7 @@ impl MockProvider {
             name: "mock",
             rules: Vec::new(),
             default_response: "I don't have enough information to diagnose.".to_string(),
-            scripted: Mutex::new(Vec::new()),
+            scripted: Mutex::new(VecDeque::new()),
         }
     }
 
@@ -60,15 +61,12 @@ impl MockProvider {
     /// Queue a scripted response. Scripted responses take priority over rules
     /// and are consumed in FIFO order.
     pub fn with_scripted(self, response: impl Into<String>) -> Self {
-        self.scripted.lock().unwrap().push(response.into());
+        self.scripted.lock().unwrap().push_back(response.into());
         self
     }
 
     fn pick_response(&self, req: &CompletionRequest) -> String {
-        if let Some(r) = self.scripted.lock().unwrap().pop() {
-            // We pushed to the back; pop returns last. For FIFO we'd use
-            // remove(0), but calling patterns only enqueue once per run so
-            // LIFO is fine and cheaper.
+        if let Some(r) = self.scripted.lock().unwrap().pop_front() {
             return r;
         }
         let last_user = req

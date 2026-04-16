@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 
 use crate::provider::{
-    CompletionRequest, CompletionResponse, FinishReason, MessageRole, ModelInfo, MtwAIProvider,
+    CompletionRequest, CompletionResponse, FinishReason, ModelInfo, MtwAIProvider,
     ProviderCapabilities, StreamChunk, Usage,
 };
 
@@ -115,14 +115,6 @@ struct OllamaModelInfo {
     size: Option<u64>,
 }
 
-fn role_to_string(role: &MessageRole) -> &'static str {
-    match role {
-        MessageRole::System => "system",
-        MessageRole::User => "user",
-        MessageRole::Assistant => "assistant",
-        MessageRole::Tool => "user",
-    }
-}
 
 /// Ollama AI provider for local models
 pub struct OllamaProvider {
@@ -171,7 +163,7 @@ impl MtwAIProvider for OllamaProvider {
             .messages
             .iter()
             .map(|m| OllamaMessage {
-                role: role_to_string(&m.role).to_string(),
+                role: m.role.as_ollama_str().to_string(),
                 content: m.content.clone(),
             })
             .collect();
@@ -251,7 +243,7 @@ impl MtwAIProvider for OllamaProvider {
             .messages
             .iter()
             .map(|m| OllamaMessage {
-                role: role_to_string(&m.role).to_string(),
+                role: m.role.as_ollama_str().to_string(),
                 content: m.content.clone(),
             })
             .collect();

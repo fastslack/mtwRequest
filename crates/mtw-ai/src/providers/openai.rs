@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 
 use crate::provider::{
-    CompletionRequest, CompletionResponse, FinishReason, MessageRole, ModelInfo,
+    CompletionRequest, CompletionResponse, FinishReason, ModelInfo,
     MtwAIProvider, ProviderCapabilities, StreamChunk, ToolCall, Usage,
 };
 
@@ -46,118 +46,99 @@ impl OpenAIConfig {
     }
 }
 
-// --- OpenAI API request/response types ---
+// --- OpenAI API request/response types (shared with LMStudio) ---
 
 #[derive(Debug, Serialize)]
-struct OaiRequest {
-    model: String,
-    messages: Vec<OaiMessage>,
+pub(crate) struct OaiRequest {
+    pub(crate) model: String,
+    pub(crate) messages: Vec<OaiMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    temperature: Option<f32>,
+    pub(crate) temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    max_tokens: Option<u32>,
+    pub(crate) max_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tools: Option<Vec<OaiTool>>,
+    pub(crate) tools: Option<Vec<OaiTool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    stream: Option<bool>,
-}
-
-#[derive(Debug, Serialize)]
-struct OaiMessage {
-    role: String,
-    content: String,
+    pub(crate) stream: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
-struct OaiTool {
-    r#type: String,
-    function: OaiFunction,
+pub(crate) struct OaiMessage {
+    pub(crate) role: String,
+    pub(crate) content: String,
 }
 
 #[derive(Debug, Serialize)]
-struct OaiFunction {
-    name: String,
-    description: String,
-    parameters: serde_json::Value,
+pub(crate) struct OaiTool {
+    pub(crate) r#type: String,
+    pub(crate) function: OaiFunction,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct OaiFunction {
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) parameters: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize)]
-struct OaiResponse {
-    id: Option<String>,
-    model: Option<String>,
-    choices: Option<Vec<OaiChoice>>,
-    usage: Option<OaiUsage>,
-    error: Option<OaiError>,
+pub(crate) struct OaiResponse {
+    pub(crate) id: Option<String>,
+    pub(crate) model: Option<String>,
+    pub(crate) choices: Option<Vec<OaiChoice>>,
+    pub(crate) usage: Option<OaiUsage>,
+    pub(crate) error: Option<OaiError>,
 }
 
 #[derive(Debug, Deserialize)]
-struct OaiChoice {
-    message: Option<OaiResponseMessage>,
-    delta: Option<OaiDelta>,
-    finish_reason: Option<String>,
+pub(crate) struct OaiChoice {
+    pub(crate) message: Option<OaiResponseMessage>,
+    pub(crate) delta: Option<OaiDelta>,
+    pub(crate) finish_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
-struct OaiResponseMessage {
-    content: Option<String>,
-    tool_calls: Option<Vec<OaiToolCall>>,
+pub(crate) struct OaiResponseMessage {
+    pub(crate) content: Option<String>,
+    pub(crate) tool_calls: Option<Vec<OaiToolCall>>,
 }
 
 #[derive(Debug, Deserialize)]
-struct OaiDelta {
-    content: Option<String>,
-    tool_calls: Option<Vec<OaiToolCall>>,
+pub(crate) struct OaiDelta {
+    pub(crate) content: Option<String>,
+    pub(crate) tool_calls: Option<Vec<OaiToolCall>>,
 }
 
 #[derive(Debug, Deserialize)]
-struct OaiToolCall {
-    id: Option<String>,
-    function: Option<OaiToolCallFunction>,
+pub(crate) struct OaiToolCall {
+    pub(crate) id: Option<String>,
+    pub(crate) function: Option<OaiToolCallFunction>,
 }
 
 #[derive(Debug, Deserialize)]
-struct OaiToolCallFunction {
-    name: Option<String>,
-    arguments: Option<String>,
+pub(crate) struct OaiToolCallFunction {
+    pub(crate) name: Option<String>,
+    pub(crate) arguments: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
-struct OaiUsage {
-    prompt_tokens: Option<u32>,
-    completion_tokens: Option<u32>,
-    total_tokens: Option<u32>,
+pub(crate) struct OaiUsage {
+    pub(crate) prompt_tokens: Option<u32>,
+    pub(crate) completion_tokens: Option<u32>,
+    pub(crate) total_tokens: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
-struct OaiError {
-    message: String,
+pub(crate) struct OaiError {
+    pub(crate) message: String,
 }
 
-fn role_to_string(role: &MessageRole) -> String {
-    match role {
-        MessageRole::System => "system".to_string(),
-        MessageRole::User => "user".to_string(),
-        MessageRole::Assistant => "assistant".to_string(),
-        MessageRole::Tool => "tool".to_string(),
-    }
-}
-
-fn parse_finish_reason(s: &str) -> FinishReason {
-    match s {
-        "stop" => FinishReason::Stop,
-        "length" => FinishReason::Length,
-        "tool_calls" => FinishReason::ToolUse,
-        "content_filter" => FinishReason::ContentFilter,
-        _ => FinishReason::Stop,
-    }
-}
-
-fn build_oai_request(req: &CompletionRequest, stream: bool) -> OaiRequest {
+pub(crate) fn build_oai_request(req: &CompletionRequest, stream: bool) -> OaiRequest {
     let messages = req
         .messages
         .iter()
         .map(|m| OaiMessage {
-            role: role_to_string(&m.role),
+            role: m.role.as_openai_str().to_string(),
             content: m.content.clone(),
         })
         .collect();
@@ -185,7 +166,7 @@ fn build_oai_request(req: &CompletionRequest, stream: bool) -> OaiRequest {
     }
 }
 
-fn parse_tool_calls(oai_calls: &[OaiToolCall]) -> Vec<ToolCall> {
+pub(crate) fn parse_tool_calls(oai_calls: &[OaiToolCall]) -> Vec<ToolCall> {
     oai_calls
         .iter()
         .filter_map(|tc| {
@@ -299,7 +280,7 @@ impl MtwAIProvider for OpenAIProvider {
         let finish_reason = choice
             .finish_reason
             .as_deref()
-            .map(parse_finish_reason)
+            .map(FinishReason::from_openai)
             .unwrap_or(FinishReason::Stop);
 
         Ok(CompletionResponse {
@@ -345,64 +326,9 @@ impl MtwAIProvider for OpenAIProvider {
                 unreachable!();
             }
 
-            let mut stream = resp.bytes_stream();
-            let mut buffer = String::new();
-
-            while let Some(chunk) = stream.next().await {
-                let chunk = chunk.map_err(|e| MtwError::Internal(format!("openai stream read: {}", e)))?;
-                buffer.push_str(&String::from_utf8_lossy(&chunk));
-
-                while let Some(line_end) = buffer.find('\n') {
-                    let line = buffer[..line_end].trim().to_string();
-                    buffer = buffer[line_end + 1..].to_string();
-
-                    if line.is_empty() || line.starts_with(':') {
-                        continue;
-                    }
-
-                    if let Some(data) = line.strip_prefix("data: ") {
-                        if data.trim() == "[DONE]" {
-                            return;
-                        }
-
-                        match serde_json::from_str::<OaiResponse>(data) {
-                            Ok(parsed) => {
-                                if let Some(choices) = &parsed.choices {
-                                    if let Some(choice) = choices.first() {
-                                        let delta_content = choice
-                                            .delta
-                                            .as_ref()
-                                            .and_then(|d| d.content.clone())
-                                            .unwrap_or_default();
-                                        let tool_calls = choice
-                                            .delta
-                                            .as_ref()
-                                            .and_then(|d| d.tool_calls.as_ref())
-                                            .map(|tc| parse_tool_calls(tc))
-                                            .unwrap_or_default();
-                                        let finish_reason = choice
-                                            .finish_reason
-                                            .as_deref()
-                                            .map(parse_finish_reason);
-                                        let usage = parsed.usage.as_ref().map(|u| Usage {
-                                            prompt_tokens: u.prompt_tokens.unwrap_or(0),
-                                            completion_tokens: u.completion_tokens.unwrap_or(0),
-                                            total_tokens: u.total_tokens.unwrap_or(0),
-                                        });
-
-                                        yield StreamChunk {
-                                            delta: delta_content,
-                                            tool_calls,
-                                            finish_reason,
-                                            usage,
-                                        };
-                                    }
-                                }
-                            }
-                            Err(_) => { /* skip unparseable lines */ }
-                        }
-                    }
-                }
+            let mut inner = super::sse::parse_oai_sse_stream(resp.bytes_stream(), "openai", true);
+            while let Some(chunk) = StreamExt::next(&mut inner).await {
+                yield chunk?;
             }
         })
     }
@@ -517,14 +443,14 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_finish_reason() {
-        assert_eq!(parse_finish_reason("stop"), FinishReason::Stop);
-        assert_eq!(parse_finish_reason("length"), FinishReason::Length);
-        assert_eq!(parse_finish_reason("tool_calls"), FinishReason::ToolUse);
+    fn test_finish_reason_from_openai() {
+        assert_eq!(FinishReason::from_openai("stop"), FinishReason::Stop);
+        assert_eq!(FinishReason::from_openai("length"), FinishReason::Length);
+        assert_eq!(FinishReason::from_openai("tool_calls"), FinishReason::ToolUse);
         assert_eq!(
-            parse_finish_reason("content_filter"),
+            FinishReason::from_openai("content_filter"),
             FinishReason::ContentFilter
         );
-        assert_eq!(parse_finish_reason("unknown"), FinishReason::Stop);
+        assert_eq!(FinishReason::from_openai("unknown"), FinishReason::Stop);
     }
 }

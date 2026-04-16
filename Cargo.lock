@@ -1051,6 +1051,7 @@ version = "0.2.0"
 dependencies = [
  "async-stream",
  "async-trait",
+ "bytes",
  "dashmap",
  "futures",
  "mtw-core",
@@ -1264,6 +1265,7 @@ dependencies = [
  "mtw-core",
  "mtw-protocol",
  "mtw-router",
+ "mtw-test",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -1289,21 +1291,6 @@ dependencies = [
 
 [[package]]
 name = "mtw-notify"
-version = "0.2.0"
-dependencies = [
- "async-trait",
- "dashmap",
- "mtw-core",
- "mtw-protocol",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "ulid",
-]
-
-[[package]]
-name = "mtw-orchestrator"
 version = "0.2.0"
 dependencies = [
  "async-trait",
@@ -1465,6 +1452,7 @@ version = "0.2.0"
 dependencies = [
  "async-trait",
  "futures",
+ "mtw-ai",
  "mtw-codec",
  "mtw-core",
  "mtw-protocol",
@@ -1475,6 +1463,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "tracing",
+ "ulid",
 ]
 
 [[package]]
