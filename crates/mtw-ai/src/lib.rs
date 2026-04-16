@@ -10,6 +10,9 @@ pub mod trigger;
 pub mod reactive;
 pub mod feedback;
 pub mod executor;
+pub mod store;
+pub mod store_migrations;
+pub mod store_sqlite;
 
 pub use agent::*;
 pub use memory::*;
@@ -22,3 +25,5 @@ pub use trigger::*;
 pub use reactive::*;
 pub use feedback::*;
 pub use executor::*;
+pub use store::*;
+pub use store_sqlite::SqliteAgentStore;

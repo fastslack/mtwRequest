@@ -105,7 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let services = rust_services::RustServices::new();
     let bridge_server = mtw_bridge::server::BridgeServer::new(&bridge_socket);
-    services.register_all(&bridge_server);
+    services.register_all(&bridge_server, bridge.clone());
     let _bridge_handle = bridge_server.start().await?;
     tracing::info!(
         socket = %bridge_socket,

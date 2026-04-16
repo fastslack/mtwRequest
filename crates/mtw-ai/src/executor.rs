@@ -15,6 +15,9 @@ use crate::feedback::FeedbackStore;
 use crate::provider::{
     CompletionRequest, Message, MtwAIProvider, ToolCall, ToolDef, ToolResult,
 };
+use crate::store::{
+    AgentMemoryRecord, AgentStore, MemoryRole, RunFilter, RunUpdate,
+};
 use crate::trigger::TriggerType;
 
 // ---------------------------------------------------------------------------
@@ -200,6 +203,10 @@ pub struct ExecutorEngine {
     pub feedback_store: Option<Arc<FeedbackStore>>,
     /// Agent configurations keyed by agent ID
     pub agent_configs: Arc<DashMap<String, AgentConfig>>,
+    /// Optional persistent store for agents, runs, steps, and memory.
+    /// When set, runs/steps/memory are persisted and `execute()` falls back
+    /// to the store if the in-memory agent config map misses.
+    pub store: Option<Arc<dyn AgentStore>>,
 }
 
 impl ExecutorEngine {
@@ -213,6 +220,7 @@ impl ExecutorEngine {
             chain_registry: None,
             feedback_store: None,
             agent_configs: Arc::new(DashMap::new()),
+            store: None,
         }
     }
 
@@ -226,6 +234,45 @@ impl ExecutorEngine {
     pub fn with_feedback_store(mut self, store: Arc<FeedbackStore>) -> Self {
         self.feedback_store = Some(store);
         self
+    }
+
+    /// Set the persistent agent store.
+    ///
+    /// When set, `execute()` creates and updates an `AgentRun` row, appends
+    /// each emitted `AgentStep`, and persists a `MemoryRole::User` and
+    /// `MemoryRole::Assistant` entry per run. The engine also falls back
+    /// to the store when `agent_configs` has no entry for the requested
+    /// agent ID.
+    pub fn with_store(mut self, store: Arc<dyn AgentStore>) -> Self {
+        self.store = Some(store);
+        self
+    }
+
+    /// Look up an agent config, first in the in-memory map, then in the
+    /// persistent store if configured.
+    async fn resolve_agent_config(
+        &self,
+        agent_id: &str,
+    ) -> Result<Option<AgentConfig>, MtwError> {
+        if let Some(cfg) = self.agent_configs.get(agent_id) {
+            return Ok(Some(cfg.value().clone()));
+        }
+        if let Some(store) = &self.store {
+            return store.get_agent(agent_id).await;
+        }
+        Ok(None)
+    }
+
+    /// List currently-active run IDs from the persistent store for a given
+    /// agent, or an empty vec if no store is configured.
+    pub async fn list_runs(
+        &self,
+        filter: &RunFilter,
+    ) -> Result<Vec<AgentRun>, MtwError> {
+        match &self.store {
+            Some(s) => s.list_runs(filter).await,
+            None => Ok(Vec::new()),
+        }
     }
 
     /// Register an LLM provider.
@@ -333,6 +380,21 @@ impl ExecutorEngine {
             tool_output: tool_output.to_string(),
             tokens,
             created_at: Self::now_timestamp(),
+        }
+    }
+
+    /// Persist a step to the store if one is configured.
+    /// Persistence failures are logged but non-fatal.
+    async fn persist_step(&self, step: &AgentStep) {
+        if let Some(store) = &self.store {
+            if let Err(e) = store.add_step(step).await {
+                tracing::warn!(
+                    run_id = %step.run_id,
+                    step = step.step_number,
+                    error = %e,
+                    "add_step failed"
+                );
+            }
         }
     }
 
@@ -461,7 +523,7 @@ impl ExecutorEngine {
                         "LLM provider call failed"
                     );
                     step_number += 1;
-                    steps.push(Self::make_step(
+                    let step = Self::make_step(
                         run_id,
                         step_number,
                         StepType::Error,
@@ -470,7 +532,9 @@ impl ExecutorEngine {
                         Value::Null,
                         "",
                         0,
-                    ));
+                    );
+                    self.persist_step(&step).await;
+                    steps.push(step);
                     continue;
                 }
             };
@@ -480,7 +544,7 @@ impl ExecutorEngine {
             // No tool calls -- final answer
             if response.tool_calls.is_empty() {
                 step_number += 1;
-                steps.push(Self::make_step(
+                let step = Self::make_step(
                     run_id,
                     step_number,
                     StepType::Final,
@@ -489,7 +553,9 @@ impl ExecutorEngine {
                     Value::Null,
                     "",
                     response.usage.total_tokens,
-                ));
+                );
+                self.persist_step(&step).await;
+                steps.push(step);
 
                 return ExecutionResult {
                     status: RunStatus::Completed,
@@ -503,7 +569,7 @@ impl ExecutorEngine {
             // Record thought if the response also includes text content
             if !response.content.is_empty() {
                 step_number += 1;
-                steps.push(Self::make_step(
+                let step = Self::make_step(
                     run_id,
                     step_number,
                     StepType::Thought,
@@ -512,7 +578,9 @@ impl ExecutorEngine {
                     Value::Null,
                     "",
                     0,
-                ));
+                );
+                self.persist_step(&step).await;
+                steps.push(step);
                 messages.push(Message::assistant(&response.content));
             }
 
@@ -529,7 +597,7 @@ impl ExecutorEngine {
 
                 // Record tool_call step
                 step_number += 1;
-                steps.push(Self::make_step(
+                let call_step = Self::make_step(
                     run_id,
                     step_number,
                     StepType::ToolCall,
@@ -538,11 +606,13 @@ impl ExecutorEngine {
                     tc.arguments.clone(),
                     "",
                     0,
-                ));
+                );
+                self.persist_step(&call_step).await;
+                steps.push(call_step);
 
                 // Record tool_result step
                 step_number += 1;
-                steps.push(Self::make_step(
+                let result_step = Self::make_step(
                     run_id,
                     step_number,
                     StepType::ToolResult,
@@ -551,7 +621,9 @@ impl ExecutorEngine {
                     Value::Null,
                     &result_str,
                     0,
-                ));
+                );
+                self.persist_step(&result_step).await;
+                steps.push(result_step);
 
                 // Loop detection
                 let snippet: String = result_str.chars().take(100).collect();
@@ -733,6 +805,7 @@ impl ExecutorEngine {
             let engine_configs = Arc::clone(&self.agent_configs);
             let chain_reg = self.chain_registry.clone();
             let feedback = self.feedback_store.clone();
+            let engine_store = self.store.clone();
             let default_provider = self.default_provider.clone();
             let exec_config = config.clone();
             let target_id = chain.target_agent_id.clone();
@@ -753,6 +826,7 @@ impl ExecutorEngine {
                     chain_registry: chain_reg,
                     feedback_store: feedback,
                     agent_configs: engine_configs,
+                    store: engine_store,
                 };
 
                 match engine.execute(&target_id, &chained_goal, &exec_config).await {
@@ -788,16 +862,16 @@ impl MtwAgentExecutor for ExecutorEngine {
         goal: &str,
         config: &ExecutionConfig,
     ) -> Result<ExecutionResult, MtwError> {
-        // Look up agent config
+        // Look up agent config (DashMap first, store as fallback)
         let agent_config = self
-            .agent_configs
-            .get(agent_id)
-            .map(|r| r.value().clone())
+            .resolve_agent_config(agent_id)
+            .await?
             .ok_or_else(|| {
                 MtwError::Agent(format!("agent config not found: {}", agent_id))
             })?;
 
         let run_id = ulid::Ulid::new().to_string();
+        let created_at = Self::now_timestamp();
 
         tracing::info!(
             run_id = %run_id,
@@ -805,6 +879,41 @@ impl MtwAgentExecutor for ExecutorEngine {
             goal = %goal,
             "starting agent execution"
         );
+
+        // Persist run + user memory if a store is configured.
+        // Failures to persist are logged but don't abort the run — the
+        // executor degrades gracefully to in-memory-only mode.
+        if let Some(store) = &self.store {
+            let run = AgentRun {
+                id: run_id.clone(),
+                agent_id: agent_id.to_string(),
+                trigger_type: TriggerType::Manual,
+                trigger_payload: Value::Null,
+                goal: goal.to_string(),
+                status: RunStatus::Running,
+                result: String::new(),
+                error: String::new(),
+                steps_count: 0,
+                tokens_used: 0,
+                started_at: Some(created_at.clone()),
+                completed_at: None,
+                created_at: created_at.clone(),
+            };
+            if let Err(e) = store.create_run(&run).await {
+                tracing::warn!(run_id = %run_id, error = %e, "create_run failed");
+            }
+            let memory = AgentMemoryRecord {
+                id: ulid::Ulid::new().to_string(),
+                agent_id: agent_id.to_string(),
+                role: MemoryRole::User,
+                content: goal.to_string(),
+                run_id: run_id.clone(),
+                created_at: created_at.clone(),
+            };
+            if let Err(e) = store.add_memory(&memory).await {
+                tracing::warn!(run_id = %run_id, error = %e, "add_memory(user) failed");
+            }
+        }
 
         // Set up cancellation flag
         let cancelled = Arc::new(AtomicBool::new(false));
@@ -818,6 +927,42 @@ impl MtwAgentExecutor for ExecutorEngine {
 
         // Clean up active run
         self.active_run_flags.remove(&run_id);
+
+        // Persist final run state + assistant memory.
+        if let Some(store) = &self.store {
+            let completed_at = Self::now_timestamp();
+            let update = RunUpdate {
+                status: Some(result.status.clone()),
+                result: Some(result.result.clone()),
+                error: Some(result.error.clone()),
+                steps_count: Some(result.steps_count),
+                tokens_used: Some(result.tokens_used),
+                completed_at: Some(completed_at.clone()),
+                ..Default::default()
+            };
+            if let Err(e) = store.update_run(&run_id, &update).await {
+                tracing::warn!(run_id = %run_id, error = %e, "update_run failed");
+            }
+            // Only save assistant memory when there is actual content to remember.
+            let content = if result.result.is_empty() {
+                result.error.clone()
+            } else {
+                result.result.clone()
+            };
+            if !content.is_empty() {
+                let memory = AgentMemoryRecord {
+                    id: ulid::Ulid::new().to_string(),
+                    agent_id: agent_id.to_string(),
+                    role: MemoryRole::Assistant,
+                    content,
+                    run_id: run_id.clone(),
+                    created_at: completed_at,
+                };
+                if let Err(e) = store.add_memory(&memory).await {
+                    tracing::warn!(run_id = %run_id, error = %e, "add_memory(assistant) failed");
+                }
+            }
+        }
 
         tracing::info!(
             run_id = %run_id,
@@ -1270,5 +1415,160 @@ mod tests {
         let debug = format!("{:?}", tool);
         assert!(debug.contains("test"));
         assert!(debug.contains("A test tool"));
+    }
+
+    // -- Persistence integration (store wiring) ------------------------------
+
+    fn temp_store() -> Arc<crate::SqliteAgentStore> {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let path = file.path().to_string_lossy().to_string();
+        std::mem::forget(file);
+        let cfg = crate::store::AgentStoreConfig {
+            path,
+            ..Default::default()
+        };
+        Arc::new(crate::SqliteAgentStore::open(&cfg).unwrap())
+    }
+
+    fn sample_agent() -> AgentConfig {
+        AgentConfig {
+            id: "agent-run".into(),
+            name: "Runner".into(),
+            provider: "mock".into(),
+            model: "mock".into(),
+            system_prompt: "you are a tester".into(),
+            tool_names: vec![],
+            token_budget: 0,
+        }
+    }
+
+    #[tokio::test]
+    async fn execute_persists_run_and_final_step() {
+        let store = temp_store();
+        let agent = sample_agent();
+        store.save_agent(&agent).await.unwrap();
+
+        let engine = ExecutorEngine::new("mock").with_store(store.clone());
+        engine.register_provider(Arc::new(MockProvider::new(vec![
+            MockProvider::simple_response("hello world"),
+        ])));
+
+        let result = engine
+            .execute(&agent.id, "say hi", &ExecutionConfig::default())
+            .await
+            .unwrap();
+
+        assert_eq!(result.status, RunStatus::Completed);
+        assert_eq!(result.result, "hello world");
+
+        let runs = store
+            .list_runs(&crate::store::RunFilter {
+                agent_id: Some(agent.id.clone()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(runs.len(), 1);
+        let run = &runs[0];
+        assert_eq!(run.status, RunStatus::Completed);
+        assert_eq!(run.result, "hello world");
+        assert!(run.tokens_used > 0);
+
+        let steps = store.list_steps(&run.id).await.unwrap();
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0].step_type, StepType::Final);
+        assert_eq!(steps[0].content, "hello world");
+
+        // Memory: user goal + assistant result
+        let mem = store.recent_memory(&agent.id, 10).await.unwrap();
+        assert_eq!(mem.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn execute_falls_back_to_store_for_agent_config() {
+        let store = temp_store();
+        // Only in the store, NOT registered in DashMap.
+        let agent = AgentConfig {
+            id: "only-in-store".into(),
+            ..sample_agent()
+        };
+        store.save_agent(&agent).await.unwrap();
+
+        let engine = ExecutorEngine::new("mock").with_store(store.clone());
+        engine.register_provider(Arc::new(MockProvider::new(vec![
+            MockProvider::simple_response("ok"),
+        ])));
+
+        let result = engine
+            .execute(&agent.id, "hi", &ExecutionConfig::default())
+            .await
+            .unwrap();
+        assert_eq!(result.status, RunStatus::Completed);
+    }
+
+    #[tokio::test]
+    async fn execute_persists_thought_and_tool_steps() {
+        let store = temp_store();
+        let mut agent = sample_agent();
+        agent.id = "agent-tools".into();
+        agent.tool_names = vec!["echo".into()];
+        store.save_agent(&agent).await.unwrap();
+
+        let engine = ExecutorEngine::new("mock").with_store(store.clone());
+        engine.register_provider(Arc::new(MockProvider::new(vec![
+            MockProvider::thought_and_tool_response(
+                "I will call echo",
+                "echo",
+                serde_json::json!({"text": "hi"}),
+            ),
+            MockProvider::simple_response("done"),
+        ])));
+        engine.register_tool(ToolDefinition {
+            name: "echo".into(),
+            description: "echo".into(),
+            parameters: serde_json::json!({}),
+            handler: Arc::new(|args| {
+                Box::pin(async move { Ok(args) })
+            }),
+        });
+
+        let result = engine
+            .execute(&agent.id, "echo hi", &ExecutionConfig::default())
+            .await
+            .unwrap();
+        assert_eq!(result.status, RunStatus::Completed);
+
+        let runs = store
+            .list_runs(&crate::store::RunFilter {
+                agent_id: Some(agent.id.clone()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let run = &runs[0];
+        let steps = store.list_steps(&run.id).await.unwrap();
+        // thought, tool_call, tool_result, final
+        assert_eq!(steps.len(), 4);
+        assert_eq!(steps[0].step_type, StepType::Thought);
+        assert_eq!(steps[1].step_type, StepType::ToolCall);
+        assert_eq!(steps[1].tool_name, "echo");
+        assert_eq!(steps[2].step_type, StepType::ToolResult);
+        assert_eq!(steps[3].step_type, StepType::Final);
+    }
+
+    #[tokio::test]
+    async fn execute_without_store_still_works() {
+        let engine = ExecutorEngine::new("mock");
+        engine.register_provider(Arc::new(MockProvider::new(vec![
+            MockProvider::simple_response("no store"),
+        ])));
+        engine.register_agent_config(sample_agent());
+
+        let result = engine
+            .execute("agent-run", "hi", &ExecutionConfig::default())
+            .await
+            .unwrap();
+        assert_eq!(result.status, RunStatus::Completed);
+        assert_eq!(result.result, "no store");
     }
 }
