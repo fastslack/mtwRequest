@@ -17,6 +17,7 @@ use mtw_ai::providers::anthropic::{AnthropicConfig, AnthropicProvider};
 use mtw_ai::providers::ollama::{OllamaConfig, OllamaProvider};
 use mtw_ai::providers::lmstudio::{LMStudioConfig, LMStudioProvider};
 use std::sync::Arc;
+use tokio::sync::Semaphore;
 
 /// Holds the heavy-compute Rust services that are registered with the BridgeServer.
 pub struct RustServices {
@@ -28,6 +29,9 @@ pub struct RustServices {
     pub providers: Arc<DashMap<String, Arc<dyn MtwAIProvider>>>,
     /// Provider used when no explicit `provider` arg is given to `llm.chat`.
     pub default_provider: String,
+    /// Concurrency limiters per provider. Local models (lmstudio, ollama) get 1 permit
+    /// (serial queue). Cloud providers (openai, anthropic) get 5 concurrent.
+    pub provider_semaphores: Arc<DashMap<String, Arc<Semaphore>>>,
 }
 
 impl RustServices {
@@ -43,12 +47,20 @@ impl RustServices {
         // Seed providers from env (backwards-compatible with existing docker-compose).
         let default_provider = Self::seed_providers_from_env(&providers);
 
+        // Create concurrency semaphores: 1 for local models, 5 for cloud
+        let provider_semaphores: Arc<DashMap<String, Arc<Semaphore>>> = Arc::new(DashMap::new());
+        provider_semaphores.insert("lmstudio".into(), Arc::new(Semaphore::new(1)));
+        provider_semaphores.insert("ollama".into(), Arc::new(Semaphore::new(1)));
+        provider_semaphores.insert("openai".into(), Arc::new(Semaphore::new(5)));
+        provider_semaphores.insert("anthropic".into(), Arc::new(Semaphore::new(5)));
+
         Self {
             formula_registry: Arc::new(formula_registry),
             trade_monitor: Arc::new(TradeMonitor::new()),
             rate_limiter: Arc::new(RateLimiter::default()),
             providers,
             default_provider,
+            provider_semaphores,
         }
     }
 
@@ -495,15 +507,18 @@ impl RustServices {
             }),
         );
 
-        // llm.chat — unified LLM completion.
-        // Now picks from the multi-provider map; supports `provider` arg.
+        // llm.chat — unified LLM completion with per-provider queue.
+        // Local models (lmstudio) get serial access (1 at a time).
+        // Cloud providers get 5 concurrent requests.
         let providers = self.providers.clone();
         let default_name = self.default_provider.clone();
+        let semaphores = self.provider_semaphores.clone();
         server.register_tool(
             "llm.chat",
             Arc::new(move |args| {
                 let providers = providers.clone();
                 let default_name = default_name.clone();
+                let semaphores = semaphores.clone();
                 Box::pin(async move {
                     let provider_name = args.get("provider").and_then(|v| v.as_str()).unwrap_or("");
                     let key = if provider_name.is_empty() { &default_name } else { provider_name };
@@ -517,6 +532,15 @@ impl RustServices {
                                 providers.iter().map(|e| e.key().clone()).collect::<Vec<_>>(),
                             ))
                         })?;
+
+                    // Acquire semaphore — queues requests for local models
+                    let sem = semaphores
+                        .entry(key.to_string())
+                        .or_insert_with(|| Arc::new(Semaphore::new(1)))
+                        .clone();
+                    let _permit = sem.acquire().await.map_err(|_| {
+                        mtw_core::MtwError::Internal("semaphore closed".into())
+                    })?;
 
                     let system = args.get("system").and_then(|v| v.as_str()).unwrap_or("");
                     let user = args

@@ -24,9 +24,9 @@ pub struct Channel {
     /// Active subscribers
     subscribers: DashMap<ConnId, Subscriber>,
     /// Message history ring buffer
-    history: tokio::sync::RwLock<Vec<MtwMessage>>,
+    history: tokio::sync::RwLock<std::collections::VecDeque<MtwMessage>>,
     /// Channel for outgoing messages to transport
-    message_tx: mpsc::UnboundedSender<(ConnId, MtwMessage)>,
+    message_tx: mpsc::UnboundedSender<(ConnId, Arc<MtwMessage>)>,
 }
 
 impl Channel {
@@ -35,7 +35,7 @@ impl Channel {
         auth_required: bool,
         max_members: Option<usize>,
         history_size: usize,
-        message_tx: mpsc::UnboundedSender<(ConnId, MtwMessage)>,
+        message_tx: mpsc::UnboundedSender<(ConnId, Arc<MtwMessage>)>,
     ) -> Self {
         Self {
             name: name.into(),
@@ -43,7 +43,7 @@ impl Channel {
             max_members,
             history_size,
             subscribers: DashMap::new(),
-            history: tokio::sync::RwLock::new(Vec::new()),
+            history: tokio::sync::RwLock::new(std::collections::VecDeque::new()),
             message_tx,
         }
     }
@@ -98,17 +98,23 @@ impl Channel {
         self.subscribers.contains_key(conn_id)
     }
 
-    /// Publish a message to all subscribers
+    /// Publish a message to all subscribers.
+    ///
+    /// Uses `Arc` internally so the heavy `MtwMessage` is cloned only once
+    /// (into the Arc) regardless of subscriber count. Each subscriber gets
+    /// an `Arc::unwrap_or_clone` copy which avoids allocation when possible.
     pub async fn publish(&self, msg: MtwMessage, exclude: Option<&ConnId>) -> Result<usize, MtwError> {
         // Store in history
         if self.history_size > 0 {
             let mut history = self.history.write().await;
-            history.push(msg.clone());
-            if history.len() > self.history_size {
-                history.remove(0);
+            history.push_back(msg.clone());
+            while history.len() > self.history_size {
+                history.pop_front();
             }
         }
 
+        // Wrap in Arc — each subscriber gets a refcount bump, not a deep clone.
+        let shared = Arc::new(msg);
         let mut sent = 0;
         for entry in self.subscribers.iter() {
             if let Some(excluded) = exclude {
@@ -117,7 +123,7 @@ impl Channel {
                 }
             }
 
-            if self.message_tx.send((entry.key().clone(), msg.clone())).is_ok() {
+            if self.message_tx.send((entry.key().clone(), Arc::clone(&shared))).is_ok() {
                 sent += 1;
             }
         }
@@ -130,7 +136,7 @@ impl Channel {
         let history = self.history.read().await;
         match limit {
             Some(n) => history.iter().rev().take(n).cloned().collect(),
-            None => history.clone(),
+            None => history.iter().cloned().collect(),
         }
     }
 
@@ -148,8 +154,11 @@ impl Channel {
 /// Channel manager — handles multiple channels with glob pattern matching
 pub struct ChannelManager {
     channels: DashMap<String, Arc<Channel>>,
-    message_tx: mpsc::UnboundedSender<(ConnId, MtwMessage)>,
-    message_rx: Option<mpsc::UnboundedReceiver<(ConnId, MtwMessage)>>,
+    /// Reverse index: conn_id → set of channel names this connection is subscribed to.
+    /// Enables O(subscriptions) disconnect instead of O(all_channels).
+    conn_channels: DashMap<ConnId, std::collections::HashSet<String>>,
+    message_tx: mpsc::UnboundedSender<(ConnId, Arc<MtwMessage>)>,
+    message_rx: Option<mpsc::UnboundedReceiver<(ConnId, Arc<MtwMessage>)>>,
 }
 
 impl ChannelManager {
@@ -157,6 +166,7 @@ impl ChannelManager {
         let (tx, rx) = mpsc::unbounded_channel();
         Self {
             channels: DashMap::new(),
+            conn_channels: DashMap::new(),
             message_tx: tx,
             message_rx: Some(rx),
         }
@@ -165,7 +175,7 @@ impl ChannelManager {
     /// Take the message receiver (for the transport layer to consume)
     pub fn take_message_receiver(
         &mut self,
-    ) -> Option<mpsc::UnboundedReceiver<(ConnId, MtwMessage)>> {
+    ) -> Option<mpsc::UnboundedReceiver<(ConnId, Arc<MtwMessage>)>> {
         self.message_rx.take()
     }
 
@@ -237,22 +247,38 @@ impl ChannelManager {
     /// Subscribe a connection to a channel
     pub fn subscribe(&self, channel_name: &str, conn_id: &ConnId) -> Result<(), MtwError> {
         let channel = self.get_or_create(channel_name);
-        channel.subscribe(conn_id)
+        channel.subscribe(conn_id)?;
+        self.conn_channels
+            .entry(conn_id.clone())
+            .or_default()
+            .insert(channel_name.to_string());
+        Ok(())
     }
 
     /// Unsubscribe a connection from a channel
     pub fn unsubscribe(&self, channel_name: &str, conn_id: &ConnId) -> bool {
         if let Some(channel) = self.get(channel_name) {
-            channel.unsubscribe(conn_id)
+            let removed = channel.unsubscribe(conn_id);
+            if removed {
+                if let Some(mut set) = self.conn_channels.get_mut(conn_id) {
+                    set.remove(channel_name);
+                }
+            }
+            removed
         } else {
             false
         }
     }
 
-    /// Remove a connection from all channels (on disconnect)
+    /// Remove a connection from all channels (on disconnect).
+    /// Uses reverse index for O(subscriptions) instead of O(all_channels).
     pub fn remove_connection(&self, conn_id: &ConnId) {
-        for entry in self.channels.iter() {
-            entry.value().remove_connection(conn_id);
+        if let Some((_, channel_names)) = self.conn_channels.remove(conn_id) {
+            for name in &channel_names {
+                if let Some(channel) = self.channels.get(name) {
+                    channel.value().remove_connection(conn_id);
+                }
+            }
         }
     }
 

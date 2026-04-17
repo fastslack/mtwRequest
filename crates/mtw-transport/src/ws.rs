@@ -97,7 +97,7 @@ impl WebSocketTransport {
             "conn_id": conn_id,
         })));
         if let Ok(encoded) = codec.encode(&ack) {
-            let _ = ws_sink.send(WsMessage::Text(String::from_utf8_lossy(&encoded).into())).await;
+            let _ = ws_sink.send(WsMessage::Text(String::from_utf8(encoded.to_vec()).unwrap_or_default().into())).await;
         }
 
         // Spawn task to forward messages from channel to WebSocket sink
@@ -289,7 +289,7 @@ impl MtwTransport for WebSocketTransport {
         } else {
             // Client speaks JSON text — send as plain JSON
             let encoded = self.codec.encode(&msg)?;
-            WsMessage::Text(String::from_utf8_lossy(&encoded).into())
+            WsMessage::Text(String::from_utf8(encoded.to_vec()).unwrap_or_default().into())
         };
 
         if let Some(sender) = self.connections.get(conn_id) {
@@ -317,11 +317,14 @@ impl MtwTransport for WebSocketTransport {
 
     async fn broadcast(&self, msg: MtwMessage) -> Result<(), MtwError> {
         let encoded = self.codec.encode(&msg)?;
-        let text = String::from_utf8_lossy(&encoded).to_string();
+        let text = String::from_utf8(encoded.to_vec()).unwrap_or_default();
+        // Build WsMessage once — its inner Utf8Bytes is backed by refcounted
+        // bytes::Bytes, so .clone() is a refcount bump, not a data copy.
+        let ws_msg = WsMessage::Text(text.into());
 
         let mut errors = vec![];
         for entry in self.connections.iter() {
-            if entry.send(WsMessage::Text(text.clone().into())).is_err() {
+            if entry.send(ws_msg.clone()).is_err() {
                 errors.push(entry.key().clone());
             }
         }

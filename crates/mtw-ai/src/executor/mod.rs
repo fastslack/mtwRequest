@@ -276,14 +276,19 @@ impl ExecutorEngine {
         vars.insert("agent_name".to_string(), agent_config.name.clone());
         let system_prompt = self.build_system_prompt(agent_config, &vars);
 
-        // Collect tool definitions
+        // Collect tool definitions once (reused across iterations)
         let tool_defs = self.collect_tool_defs(agent_config);
+        // Pre-compute the Option to avoid re-checking every iteration
+        let tools_for_request: Option<Vec<ToolDef>> = if tool_defs.is_empty() {
+            None
+        } else {
+            Some(tool_defs)
+        };
 
-        // Initialize messages
-        let mut messages: Vec<Message> = vec![
-            Message::system(&system_prompt),
-            Message::user(goal),
-        ];
+        // Initialize messages — pre-allocate for typical multi-step runs
+        let mut messages: Vec<Message> = Vec::with_capacity(2 + (config.max_iterations as usize * 2));
+        messages.push(Message::system(&system_prompt));
+        messages.push(Message::user(goal));
 
         // Loop detection: (tool_name, result_snippet) -> count
         let mut loop_signatures: HashMap<(String, String), u32> = HashMap::new();
@@ -341,15 +346,14 @@ impl ExecutorEngine {
                 };
             }
 
-            // Build completion request
+            // Build completion request — messages.clone() is unavoidable since
+            // CompletionRequest owns the Vec. Pre-allocation above minimises
+            // re-alloc churn. tools_for_request.clone() copies the tool schemas
+            // but they're stable across iterations.
             let req = CompletionRequest {
                 model: agent_config.model.clone(),
                 messages: messages.clone(),
-                tools: if tool_defs.is_empty() {
-                    None
-                } else {
-                    Some(tool_defs.clone())
-                },
+                tools: tools_for_request.clone(),
                 temperature: None,
                 max_tokens: None,
                 metadata: HashMap::new(),

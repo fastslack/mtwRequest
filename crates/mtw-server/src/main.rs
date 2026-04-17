@@ -137,6 +137,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let transport_fwd = transport.clone();
     tokio::spawn(async move {
         while let Some((conn_id, msg)) = channel_rx.recv().await {
+            let msg = std::sync::Arc::unwrap_or_clone(msg);
             if let Err(e) = transport_fwd.send(&conn_id, msg).await {
                 tracing::warn!(conn_id = %conn_id, error = %e, "failed to forward channel message");
             }
