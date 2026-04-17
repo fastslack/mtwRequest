@@ -195,7 +195,7 @@ impl AgentStore for SqliteAgentStore {
         tokio::task::spawn_blocking(move || {
             let conn = pool.get().map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
             let mut stmt = conn
-                .prepare(
+                .prepare_cached(
                     "SELECT id, name, provider, model, system_prompt, tool_names, token_budget
                      FROM agents WHERE id = ?1",
                 )
@@ -223,7 +223,7 @@ impl AgentStore for SqliteAgentStore {
         tokio::task::spawn_blocking(move || {
             let conn = pool.get().map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
             let mut stmt = conn
-                .prepare(
+                .prepare_cached(
                     "SELECT id, name, provider, model, system_prompt, tool_names, token_budget
                      FROM agents ORDER BY name",
                 )
@@ -383,7 +383,7 @@ impl AgentStore for SqliteAgentStore {
         tokio::task::spawn_blocking(move || {
             let conn = pool.get().map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
             let mut stmt = conn
-                .prepare(
+                .prepare_cached(
                     "SELECT id, agent_id, trigger_type, trigger_payload, goal, status, result,
                             error, steps_count, tokens_used, started_at, completed_at, created_at
                      FROM agent_runs WHERE id = ?1",
@@ -510,7 +510,7 @@ impl AgentStore for SqliteAgentStore {
         tokio::task::spawn_blocking(move || {
             let conn = pool.get().map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
             let mut stmt = conn
-                .prepare(
+                .prepare_cached(
                     "SELECT id, run_id, step_number, step_type, content, tool_name, tool_input,
                             tool_output, tokens, created_at
                      FROM agent_steps
@@ -578,7 +578,7 @@ impl AgentStore for SqliteAgentStore {
         tokio::task::spawn_blocking(move || {
             let conn = pool.get().map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
             let mut stmt = conn
-                .prepare(
+                .prepare_cached(
                     "SELECT id, agent_id, role, content, run_id, created_at
                      FROM agent_memory
                      WHERE agent_id = ?1

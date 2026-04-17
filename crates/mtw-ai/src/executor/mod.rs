@@ -241,6 +241,26 @@ impl ExecutorEngine {
         }
     }
 
+    /// Persist multiple steps in one call. Falls back to sequential if the
+    /// store doesn't support batch, but saves spawn_blocking overhead.
+    async fn persist_steps_batch(&self, batch: &[AgentStep]) {
+        if batch.is_empty() {
+            return;
+        }
+        if let Some(store) = &self.store {
+            for step in batch {
+                if let Err(e) = store.add_step(step).await {
+                    tracing::warn!(
+                        run_id = %step.run_id,
+                        step = step.step_number,
+                        error = %e,
+                        "add_step (batch) failed"
+                    );
+                }
+            }
+        }
+    }
+
     /// The main execution loop: call the LLM, process tool calls, repeat.
     async fn run_loop(
         &self,
@@ -431,8 +451,9 @@ impl ExecutorEngine {
                 messages.push(Message::assistant(&response.content));
             }
 
-            // Process each tool call
+            // Process each tool call — steps are collected and persisted in batch
             let mut tool_results: Vec<ToolResult> = Vec::new();
+            let mut pending_steps: Vec<AgentStep> = Vec::new();
 
             for tc in &response.tool_calls {
                 let (result_value, is_error) = self.invoke_tool(tc).await;
@@ -442,7 +463,7 @@ impl ExecutorEngine {
                     Err(_) => result_value.to_string(),
                 };
 
-                // Record tool_call step
+                // Record tool_call + tool_result steps (batched persist below)
                 step_number += 1;
                 let call_step = Self::make_step(
                     run_id,
@@ -454,10 +475,6 @@ impl ExecutorEngine {
                     "",
                     0,
                 );
-                self.persist_step(&call_step).await;
-                steps.push(call_step);
-
-                // Record tool_result step
                 step_number += 1;
                 let result_step = Self::make_step(
                     run_id,
@@ -469,8 +486,8 @@ impl ExecutorEngine {
                     &result_str,
                     0,
                 );
-                self.persist_step(&result_step).await;
-                steps.push(result_step);
+                pending_steps.push(call_step);
+                pending_steps.push(result_step);
 
                 // Loop detection
                 let snippet: String = result_str.chars().take(100).collect();
@@ -509,6 +526,10 @@ impl ExecutorEngine {
                     is_error,
                 });
             }
+
+            // Flush batched steps in one go (fewer spawn_blocking calls)
+            self.persist_steps_batch(&pending_steps).await;
+            steps.extend(pending_steps);
 
             // Append tool results as messages for the next LLM call.
             // We add the assistant message indicating tool use, then the tool

@@ -63,18 +63,11 @@ impl MemoryStore {
             loop {
                 tokio::select! {
                     _ = tokio::time::sleep(interval) => {
-                        let expired_keys: Vec<String> = data
-                            .iter()
-                            .filter(|entry| entry.value().is_expired())
-                            .map(|entry| entry.key().clone())
-                            .collect();
-
-                        for key in &expired_keys {
-                            data.remove(key);
-                        }
-
-                        if !expired_keys.is_empty() {
-                            tracing::debug!(count = expired_keys.len(), "cleaned up expired entries");
+                        let before = data.len();
+                        data.retain(|_, entry| !entry.is_expired());
+                        let removed = before - data.len();
+                        if removed > 0 {
+                            tracing::debug!(count = removed, "cleaned up expired entries");
                         }
                     }
                     _ = shutdown.notified() => {

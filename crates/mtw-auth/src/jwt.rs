@@ -103,11 +103,27 @@ struct JwtPayload {
 /// JWT authentication implementation
 pub struct JwtAuth {
     config: JwtConfig,
+    /// Cached decoding key — avoids rebuilding from secret bytes on every validate.
+    decoding_key: DecodingKey,
+    /// Cached validation rules — avoids allocating sets/vecs on every validate.
+    validation: Validation,
 }
 
 impl JwtAuth {
     pub fn new(config: JwtConfig) -> Self {
-        Self { config }
+        let decoding_key = DecodingKey::from_secret(config.secret.as_bytes());
+        let mut validation = Validation::new(config.algorithm.to_jsonwebtoken());
+        if let Some(ref issuer) = config.issuer {
+            validation.set_issuer(&[issuer]);
+        }
+        if let Some(ref audience) = config.audience {
+            validation.set_audience(&[audience]);
+        }
+        Self {
+            config,
+            decoding_key,
+            validation,
+        }
     }
 
     /// Create a token for a given subject with roles and custom claims
@@ -166,25 +182,10 @@ impl JwtAuth {
         })
     }
 
-    /// Decode and validate a JWT token
+    /// Decode and validate a JWT token using cached key and validation rules.
     fn decode_token(&self, token: &str) -> Result<JwtPayload, MtwError> {
-        let mut validation = Validation::new(self.config.algorithm.to_jsonwebtoken());
-
-        if let Some(ref issuer) = self.config.issuer {
-            validation.set_issuer(&[issuer]);
-        }
-
-        if let Some(ref audience) = self.config.audience {
-            validation.set_audience(&[audience]);
-        }
-
-        let token_data = decode::<JwtPayload>(
-            token,
-            &DecodingKey::from_secret(self.config.secret.as_bytes()),
-            &validation,
-        )
-        .map_err(|e| MtwError::Auth(format!("invalid token: {}", e)))?;
-
+        let token_data = decode::<JwtPayload>(token, &self.decoding_key, &self.validation)
+            .map_err(|e| MtwError::Auth(format!("invalid token: {}", e)))?;
         Ok(token_data.claims)
     }
 }

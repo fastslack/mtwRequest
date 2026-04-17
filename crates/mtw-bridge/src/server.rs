@@ -208,30 +208,21 @@ async fn handle_connection(
         let req_id = request.id.clone();
         let tool_name = request.tool.clone();
 
-        // Look up and invoke tool handler
+        // Look up and invoke tool handler directly (no spawn overhead).
+        // Handlers are trusted internal code — panic isolation is not needed.
         let response = if let Some(handler) = tools.get(&tool_name) {
             let handler = handler.value().clone();
-            // Catch panics from the handler
-            match tokio::task::spawn(async move { handler(request.args).await }).await {
-                Ok(Ok(result)) => BridgeResponse {
+            match handler(request.args).await {
+                Ok(result) => BridgeResponse {
                     id: req_id,
                     result: Some(result),
                     error: None,
                 },
-                Ok(Err(e)) => BridgeResponse {
+                Err(e) => BridgeResponse {
                     id: req_id,
                     result: None,
                     error: Some(format!("{}", e)),
                 },
-                Err(e) => {
-                    // JoinError — likely a panic
-                    tracing::error!(tool = %tool_name, error = %e, "bridge server: tool handler panicked");
-                    BridgeResponse {
-                        id: req_id,
-                        result: None,
-                        error: Some(format!("tool handler panicked: {}", e)),
-                    }
-                }
             }
         } else {
             BridgeResponse {
@@ -250,6 +241,7 @@ async fn handle_connection(
 }
 
 /// Encode a `BridgeResponse` as a length-prefixed MessagePack frame and write it.
+/// Combines length header + payload into a single write to reduce syscalls.
 async fn send_response(
     stream: &mut UnixStream,
     response: &BridgeResponse,
@@ -258,14 +250,15 @@ async fn send_response(
         .map_err(|e| MtwError::Internal(format!("encode response: {}", e)))?;
     let len = (payload.len() as u32).to_be_bytes();
 
+    // Single allocation: 4-byte length header + payload
+    let mut frame = Vec::with_capacity(4 + payload.len());
+    frame.extend_from_slice(&len);
+    frame.extend_from_slice(&payload);
+
     stream
-        .write_all(&len)
+        .write_all(&frame)
         .await
-        .map_err(|e| MtwError::Transport(format!("write response len: {}", e)))?;
-    stream
-        .write_all(&payload)
-        .await
-        .map_err(|e| MtwError::Transport(format!("write response payload: {}", e)))?;
+        .map_err(|e| MtwError::Transport(format!("write response: {}", e)))?;
     stream
         .flush()
         .await
