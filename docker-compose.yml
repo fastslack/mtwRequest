@@ -21,8 +21,15 @@ services:
       - RUST_LOG=${RUST_LOG:-info,mtw=debug}
       - MTW_HOST=0.0.0.0
       - MTW_PORT=7741
+      # Must match whatsapp-bridge's MTW_WHATSAPP_SOCKET. Both containers
+      # see the socket file through the shared named volume.
+      - MTW_WHATSAPP_SOCKET=/var/run/mtw-whatsapp/whatsapp.sock
     volumes:
       - ./mtw.toml:/app/mtw.toml:ro
+      - mtw-whatsapp-sock:/var/run/mtw-whatsapp
+    depends_on:
+      whatsapp-bridge:
+        condition: service_started
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "echo > /dev/tcp/localhost/7741 || exit 1"]
@@ -30,6 +37,22 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+
+  # ── WhatsApp bridge ────────────────────────────────────────────────
+  # Talks the WhatsApp Multi-Device protocol via whatsmeow (Go) and
+  # exposes a newline-JSON Unix socket for the mtw-whatsapp Rust crate.
+  # The Go process is the only thing in this repo that touches MD;
+  # everything else stays in pure Rust.
+  whatsapp-bridge:
+    build: ./services/whatsapp-bridge
+    container_name: mtw-whatsapp-bridge
+    environment:
+      - MTW_WHATSAPP_SOCKET=/var/run/mtw-whatsapp/whatsapp.sock
+      - MTW_WHATSAPP_DB=/var/lib/mtw-whatsapp/session.db
+    volumes:
+      - mtw-whatsapp-sock:/var/run/mtw-whatsapp
+      - mtw-whatsapp-data:/var/lib/mtw-whatsapp
+    restart: unless-stopped
 
   # Optional Redis for state persistence
   redis:
@@ -50,3 +73,7 @@ services:
 
 volumes:
   mtw-redis-data:
+  # Shared between mtw-server and whatsapp-bridge; holds only the Unix socket.
+  mtw-whatsapp-sock:
+  # Persists the whatsmeow session DB so the user only scans the QR once.
+  mtw-whatsapp-data:

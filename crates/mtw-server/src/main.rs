@@ -9,6 +9,7 @@
 //!   MTW_HOST=0.0.0.0 MTW_PORT=9090 mtw-server  # env overrides
 
 mod rust_services;
+mod whatsapp;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -144,13 +145,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // ── WhatsApp integration (optional) ─────────────────────
+    let whatsapp_integration = if let Some(ref wa_cfg) = config.whatsapp {
+        whatsapp::WhatsAppIntegration::start(wa_cfg, router.clone())
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "whatsapp: init failed, continuing without it");
+                None
+            })
+    } else {
+        None
+    };
+
     tracing::info!("ready — waiting for connections (Ctrl+C to stop)");
 
     // ── Main event loop ─────────────────────────────────────
     loop {
         tokio::select! {
             Some(event) = event_rx.recv() => {
-                handle_event(event, &transport, &router, &store, &bridge).await;
+                handle_event(event, &transport, &router, &store, &bridge, &whatsapp_integration).await;
             }
             _ = tokio::signal::ctrl_c() => {
                 tracing::info!("shutdown signal received");
@@ -196,6 +209,7 @@ async fn handle_event(
     router: &Arc<MtwRouter>,
     store: &Option<Arc<dyn MtwStore>>,
     bridge: &Option<Arc<dyn mtw_bridge::MtwBridge>>,
+    whatsapp: &Option<whatsapp::WhatsAppIntegration>,
 ) {
     match event {
         TransportEvent::Connected(ref conn_id, ref meta) => {
@@ -212,7 +226,7 @@ async fn handle_event(
         }
 
         TransportEvent::Message(ref conn_id, ref msg) => {
-            if let Err(e) = handle_message(conn_id, msg, transport, router, store, bridge).await {
+            if let Err(e) = handle_message(conn_id, msg, transport, router, store, bridge, whatsapp).await {
                 tracing::error!(conn_id = %conn_id, error = %e, "message handling error");
                 let err_msg = MtwMessage::error(500, e.to_string());
                 let _ = transport.send(conn_id, err_msg).await;
@@ -237,6 +251,7 @@ async fn handle_message(
     router: &Arc<MtwRouter>,
     store: &Option<Arc<dyn MtwStore>>,
     bridge: &Option<Arc<dyn mtw_bridge::MtwBridge>>,
+    whatsapp: &Option<whatsapp::WhatsAppIntegration>,
 ) -> Result<(), mtw_core::MtwError> {
     match &msg.msg_type {
         MsgType::Subscribe => {
@@ -290,7 +305,7 @@ async fn handle_message(
 
         // ── Store Query: read data directly from SQLite (fast path) ──
         MsgType::Request => {
-            let response = handle_request(msg, store, bridge).await;
+            let response = handle_request(msg, store, bridge, whatsapp).await;
             transport.send(conn_id, response).await?;
         }
 
@@ -337,6 +352,7 @@ async fn handle_request(
     msg: &MtwMessage,
     store: &Option<Arc<dyn MtwStore>>,
     bridge: &Option<Arc<dyn mtw_bridge::MtwBridge>>,
+    whatsapp: &Option<whatsapp::WhatsAppIntegration>,
 ) -> MtwMessage {
     // Extract action from metadata or payload
     let action = msg
@@ -344,6 +360,14 @@ async fn handle_request(
         .get("action")
         .and_then(|v| v.as_str())
         .unwrap_or("");
+
+    // ── Route: whatsapp.* → WhatsApp integration ──
+    if action.starts_with("whatsapp.") {
+        if let Some(wa) = whatsapp {
+            return wa.handle_action(action, msg).await;
+        }
+        return MtwMessage::error(503, "whatsapp integration not active").with_ref(&msg.id);
+    }
 
     let tool = msg
         .metadata

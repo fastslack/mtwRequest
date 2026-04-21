@@ -35,7 +35,47 @@ pub struct MtwConfig {
 
     #[serde(default)]
     pub orchestrator: Option<OrchestratorConfig>,
+
+    /// WhatsApp sidecar integration. When present and `enabled = true`,
+    /// the server connects to the `whatsapp-bridge` Go sidecar over a
+    /// Unix socket and exposes the following:
+    ///
+    /// - `whatsapp:inbound`, `whatsapp:qr`, `whatsapp:status` channels
+    ///   (server publishes to them as events arrive from WhatsApp)
+    /// - `whatsapp.send_text` / `whatsapp.send_media` / `whatsapp.react` /
+    ///   `whatsapp.delete` / `whatsapp.typing` / `whatsapp.request_qr` /
+    ///   `whatsapp.logout` request actions
+    ///
+    /// ```toml
+    /// [whatsapp]
+    /// enabled = true
+    /// socket = "/var/run/mtw-whatsapp/whatsapp.sock"
+    /// ```
+    #[serde(default)]
+    pub whatsapp: Option<WhatsAppSection>,
 }
+
+/// WhatsApp sidecar bridge configuration. See [`MtwConfig::whatsapp`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WhatsAppSection {
+    #[serde(default = "default_whatsapp_enabled")]
+    pub enabled: bool,
+
+    /// Unix socket path the whatsapp-bridge sidecar listens on.
+    #[serde(default = "default_whatsapp_socket")]
+    pub socket: String,
+
+    /// How long to keep retrying the initial connect before giving up,
+    /// in seconds. Default 60.
+    #[serde(default = "default_whatsapp_connect_timeout")]
+    pub connect_timeout_secs: u64,
+}
+
+fn default_whatsapp_enabled() -> bool { true }
+fn default_whatsapp_socket() -> String {
+    "/var/run/mtw-whatsapp/whatsapp.sock".to_string()
+}
+fn default_whatsapp_connect_timeout() -> u64 { 60 }
 
 /// Store configuration section
 ///
@@ -339,6 +379,7 @@ impl MtwConfig {
             agents: vec![],
             channels: vec![],
             orchestrator: None,
+            whatsapp: None,
         }
     }
 
