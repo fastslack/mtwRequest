@@ -1,9 +1,15 @@
 [package]
 name = "mtw-core"
-description = "Core module system and server for mtwRequest"
+description = "Core kernel for mtwRequest — module system, lifecycle hooks, and config loader"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+keywords = ["websocket", "realtime", "framework", "server", "mtw"]
+categories = ["web-programming", "asynchronous", "network-programming"]
 
 [dependencies]
 mtw-protocol = { workspace = true }

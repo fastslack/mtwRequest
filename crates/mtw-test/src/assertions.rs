@@ -1,7 +1,5 @@
 //! Test assertion helpers for mtwRequest messages.
 
-use mtw_protocol::{MsgType, MtwMessage};
-
 /// Assert that a message has the expected message type.
 ///
 /// # Panics
@@ -77,7 +75,7 @@ macro_rules! assert_has_metadata {
 
 #[cfg(test)]
 mod tests {
-    use mtw_protocol::{MsgType, MtwMessage, Payload};
+    use mtw_protocol::{MsgType, MtwMessage};
 
     #[test]
     fn test_assert_message_type() {

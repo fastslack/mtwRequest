@@ -1,0 +1,36 @@
+[package]
+name = "mtw-benches"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "Criterion benchmarks for the mtwRequest framework"
+publish = false
+
+[dependencies]
+mtw-protocol = { workspace = true }
+mtw-codec = { workspace = true }
+mtw-router = { workspace = true }
+mtw-core = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde_json = { workspace = true }
+ulid = { workspace = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["async_tokio"] }
+
+[[bench]]
+name = "codec"
+harness = false
+
+[[bench]]
+name = "channel"
+harness = false
+
+[[bench]]
+name = "middleware"
+harness = false

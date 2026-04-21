@@ -1,0 +1,25 @@
+[package]
+name = "mtw-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "Command-line tool for mtwRequest — scaffold projects, run servers, publish modules"
+keywords = ["cli", "mtw", "scaffold", "server", "realtime"]
+categories = ["command-line-utilities", "development-tools"]
+
+[[bin]]
+name = "mtw"
+path = "src/main.rs"
+
+[dependencies]
+mtw-registry = { workspace = true }
+clap = { version = "4", features = ["derive"] }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

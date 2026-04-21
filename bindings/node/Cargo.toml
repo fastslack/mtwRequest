@@ -1,11 +1,14 @@
 [package]
 name = "mtw-binding-node"
-version = "0.2.0"
-edition = "2021"
-license = "MIT"
-authors = ["fastslack"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
 description = "NAPI-RS bindings for mtwRequest — Node.js native addon"
-repository = "https://github.com/fastslack/mtwRequest"
+publish = false
 
 [lib]
 crate-type = ["cdylib"]

@@ -4,7 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "Graph database client and analytics for mtwRequest"
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "Graph database client and analytics for mtwRequest (Neo4j-compatible)"
+keywords = ["graph", "neo4j", "analytics", "database", "mtw"]
+categories = ["database"]
 
 [dependencies]
 mtw-core = { path = "../mtw-core" }

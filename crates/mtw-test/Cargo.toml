@@ -1,9 +1,15 @@
 [package]
 name = "mtw-test"
-description = "Testing harness for mtwRequest module developers"
+description = "Testing harness for mtwRequest — mock transport, mock provider, assertion macros"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+keywords = ["testing", "mock", "async", "websocket", "mtw"]
+categories = ["development-tools::testing"]
 
 [dependencies]
 mtw-core = { workspace = true }

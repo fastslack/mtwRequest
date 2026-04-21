@@ -1,9 +1,15 @@
 [package]
 name = "mtw-iris"
-description = "IRIS — Incident Response & Investigation System: AI incident agents, scored scenario evaluation, and fault injection"
+description = "IRIS — Incident Response & Investigation for mtwRequest: AI incident agents, scored scenarios, fault injection"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+keywords = ["incident", "investigation", "agents", "ai", "mtw"]
+categories = ["development-tools::testing", "science"]
 
 [dependencies]
 mtw-protocol = { workspace = true }

@@ -27,6 +27,9 @@ members = [
     "crates/mtw-mcp",
     "crates/mtw-server",
     "crates/mtw-iris",
+    "crates/mtw-whatsapp",
+    "crates/mtw-cli",
+    "crates/mtw-benches",
     "examples",
 ]
 
@@ -36,6 +39,9 @@ edition = "2021"
 license = "Apache-2.0"
 authors = ["fastslack"]
 repository = "https://github.com/fastslack/mtwRequest"
+homepage = "https://github.com/fastslack/mtwRequest"
+documentation = "https://docs.rs/mtw-core"
+rust-version = "1.80"
 
 [workspace.dependencies]
 # Async runtime
@@ -90,6 +96,7 @@ mtw-trading = { path = "crates/mtw-trading" }
 mtw-graph = { path = "crates/mtw-graph" }
 mtw-mcp = { path = "crates/mtw-mcp" }
 mtw-iris = { path = "crates/mtw-iris" }
+mtw-whatsapp = { path = "crates/mtw-whatsapp" }
 reqwest = { version = "0.12", features = ["json", "gzip", "brotli", "stream"] }
 
 # SQLite

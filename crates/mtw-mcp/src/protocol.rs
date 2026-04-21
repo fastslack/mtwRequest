@@ -20,21 +20,14 @@ pub struct McpTool {
     pub input_schema: Value,
 }
 
-/// MCP tool result content
-#[derive(Debug, Serialize)]
-pub struct McpContent {
-    #[serde(rename = "type")]
-    pub content_type: String,
-    pub text: String,
-}
-
 /// Handler function type
 pub type ToolHandler = Arc<
     dyn Fn(Value) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send>> + Send + Sync,
 >;
 
-/// JSON-RPC request
+/// JSON-RPC request (the `jsonrpc` field is validated by deserialization but not otherwise used)
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct JsonRpcRequest {
     jsonrpc: String,
     id: Option<Value>,
@@ -126,7 +119,6 @@ impl McpServer {
                 }
             };
 
-            let id = req.id.clone().unwrap_or(Value::Null);
             let response = self.handle_request(req).await;
 
             if let Some(resp) = response {

@@ -1,9 +1,15 @@
 [package]
 name = "mtw-exchange"
-description = "Exchange and broker connectivity for mtwRequest"
+description = "Exchange and broker connectivity for mtwRequest — unified API for multiple providers"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+keywords = ["exchange", "crypto", "broker", "trading", "mtw"]
+categories = ["api-bindings", "finance"]
 
 [dependencies]
 mtw-core = { workspace = true }

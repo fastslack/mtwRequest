@@ -1,9 +1,15 @@
 [package]
 name = "mtw-sdk"
-description = "SDK for mtwRequest module developers"
+description = "SDK for mtwRequest module developers — manifest builder and lightweight test helpers"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+keywords = ["sdk", "module", "framework", "websocket", "mtw"]
+categories = ["development-tools", "web-programming"]
 
 [dependencies]
 mtw-core = { workspace = true }

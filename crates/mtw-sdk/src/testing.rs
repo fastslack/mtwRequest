@@ -2,7 +2,7 @@
 //!
 //! For a full-featured testing harness, see the `mtw-test` crate.
 
-use mtw_core::module::{ModuleContext, ModuleManifest, MtwModule, SharedState};
+use mtw_core::module::{ModuleContext, MtwModule, SharedState};
 use mtw_core::error::MtwError;
 use std::sync::Arc;
 
@@ -73,7 +73,7 @@ pub async fn assert_middleware_passes(
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use mtw_core::module::{HealthStatus, ModuleType};
+    use mtw_core::module::{ModuleManifest, ModuleType};
 
     struct DummyModule {
         manifest: ModuleManifest,

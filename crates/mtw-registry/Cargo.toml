@@ -1,9 +1,15 @@
 [package]
 name = "mtw-registry"
-description = "Marketplace client and module resolver for mtwRequest"
+description = "Module marketplace client, manifest parser, resolver, and WASM sandbox for mtwRequest"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+keywords = ["registry", "marketplace", "modules", "wasm", "mtw"]
+categories = ["development-tools", "wasm"]
 
 [dependencies]
 mtw-core = { workspace = true }
@@ -12,3 +18,10 @@ serde_json = { workspace = true }
 toml = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+reqwest = { workspace = true, features = ["multipart"] }
+tokio = { workspace = true }
+wasmtime = { version = "24", default-features = false, features = ["cranelift", "runtime"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+wat = "1"

@@ -1,9 +1,15 @@
 [package]
 name = "mtw-protocol"
-description = "Wire protocol for mtwRequest"
+description = "Wire protocol for mtwRequest — typed messages, frames, and transport events"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+keywords = ["websocket", "protocol", "messaging", "realtime", "mtw"]
+categories = ["web-programming::websocket", "network-programming", "encoding"]
 
 [dependencies]
 serde = { workspace = true }

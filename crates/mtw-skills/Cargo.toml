@@ -4,7 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "Dynamic skill and plugin system for mtwRequest"
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "Dynamic skill and plugin system for mtwRequest agents"
+keywords = ["skills", "plugins", "agents", "dynamic", "mtw"]
+categories = ["development-tools", "web-programming"]
 
 [dependencies]
 mtw-core = { workspace = true }

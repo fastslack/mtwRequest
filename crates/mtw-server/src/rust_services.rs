@@ -11,7 +11,7 @@ use mtw_trading::formulas;
 use mtw_trading::monitor::TradeMonitor;
 use mtw_trading::types::OrderSide;
 use mtw_security::rate_limit::RateLimiter;
-use mtw_ai::provider::{CompletionRequest, Message, MessageRole, MtwAIProvider};
+use mtw_ai::provider::{CompletionRequest, Message, MtwAIProvider};
 use mtw_ai::providers::openai::{OpenAIConfig, OpenAIProvider};
 use mtw_ai::providers::anthropic::{AnthropicConfig, AnthropicProvider};
 use mtw_ai::providers::ollama::{OllamaConfig, OllamaProvider};
@@ -133,22 +133,6 @@ impl RustServices {
         }
 
         chosen
-    }
-
-    /// Register a provider at runtime (called by `credentials.set`).
-    pub fn register_provider(&self, name: &str, provider: Arc<dyn MtwAIProvider>) {
-        tracing::info!(provider = %name, "provider registered via bridge");
-        self.providers.insert(name.to_string(), provider);
-    }
-
-    /// Resolve a provider by name, falling back to the default.
-    fn resolve_provider(&self, name: &str) -> Option<Arc<dyn MtwAIProvider>> {
-        let key = if name.is_empty() {
-            &self.default_provider
-        } else {
-            name
-        };
-        self.providers.get(key).map(|r| Arc::clone(r.value()))
     }
 
     /// Register all tools with the given bridge server.

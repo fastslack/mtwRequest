@@ -4,7 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "Multi-channel notification system for mtwRequest"
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "Multi-channel notification system for mtwRequest — webhooks, Slack, email, push"
+keywords = ["notifications", "webhooks", "slack", "push", "mtw"]
+categories = ["api-bindings", "asynchronous"]
 
 [dependencies]
 mtw-core = { path = "../mtw-core" }

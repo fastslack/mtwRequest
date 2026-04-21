@@ -2,7 +2,7 @@
   "name": "@matware/mtw-request-vue",
   "version": "0.2.0",
   "description": "Vue composables for mtwRequest real-time framework",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "author": "fastslack",
   "repository": {
     "type": "git",

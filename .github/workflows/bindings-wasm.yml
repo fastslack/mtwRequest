@@ -1,0 +1,49 @@
+name: Publish WASM binding
+
+on:
+  push:
+    tags:
+      - 'binding-wasm-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build & publish WASM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: bindings-wasm
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build
+        working-directory: bindings/wasm
+        run: wasm-pack build --release --target web --out-dir pkg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mtw-request-wasm
+          path: bindings/wasm/pkg
+
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/binding-wasm-v')
+        working-directory: bindings/wasm/pkg
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public

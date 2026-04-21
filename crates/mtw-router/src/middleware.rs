@@ -130,7 +130,7 @@ impl Default for MiddlewareChain {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mtw_protocol::{MsgType, Payload};
+    use mtw_protocol::Payload;
 
     struct PassthroughMiddleware;
 

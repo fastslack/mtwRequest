@@ -1,0 +1,99 @@
+name: Publish Node binding
+
+on:
+  push:
+    tags:
+      - 'binding-node-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  prebuild:
+    name: Prebuild ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: mtw-request-linux-x64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact: mtw-request-linux-arm64
+          - os: macos-14
+            target: aarch64-apple-darwin
+            artifact: mtw-request-darwin-arm64
+          - os: macos-13
+            target: x86_64-apple-darwin
+            artifact: mtw-request-darwin-x64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: mtw-request-win32-x64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: bindings-node-${{ matrix.target }}
+
+      - name: Install aarch64 linker (Linux arm64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Install bindings deps
+        working-directory: bindings/node
+        run: npm ci || npm install
+
+      - name: Build native addon
+        working-directory: bindings/node
+        env:
+          CARGO_BUILD_TARGET: ${{ matrix.target }}
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: npx napi build --release --platform --target ${{ matrix.target }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: bindings/node/*.node
+
+  publish:
+    name: Publish to npm
+    needs: prebuild
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/binding-node-v')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: bindings/node/artifacts
+
+      - name: Assemble prebuild dirs
+        working-directory: bindings/node
+        run: npx napi artifacts --dir artifacts
+
+      - name: Publish
+        working-directory: bindings/node
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npx napi pre-publish --no-gh-release && npm publish --access public

@@ -5,7 +5,11 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "mtwRequest server binary — real-time WebSocket framework"
+homepage.workspace = true
+rust-version.workspace = true
+description = "mtwRequest server binary — real-time WebSocket framework with AI agents"
+keywords = ["server", "websocket", "realtime", "framework", "mtw"]
+categories = ["web-programming", "command-line-utilities"]
 
 [[bin]]
 name = "mtw-server"
@@ -22,6 +26,7 @@ mtw-bridge = { workspace = true }
 mtw-trading = { path = "../mtw-trading", features = ["module"] }
 mtw-security = { path = "../mtw-security" }
 mtw-ai = { path = "../mtw-ai" }
+mtw-whatsapp = { workspace = true }
 tokio = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }

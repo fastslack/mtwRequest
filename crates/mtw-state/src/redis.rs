@@ -47,6 +47,7 @@ impl RedisStore {
     }
 
     /// Build a prefixed key
+    #[allow(dead_code)] // used once the real Redis backend lands (see stub methods below)
     fn prefixed_key(&self, key: &str) -> String {
         format!("{}{}", self.config.prefix, key)
     }

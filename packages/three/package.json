@@ -2,7 +2,7 @@
   "name": "@mtw/three",
   "version": "0.1.0",
   "description": "Three.js real-time scene sync and asset streaming for mtwRequest",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "author": "fastslack",
   "repository": {
     "type": "git",

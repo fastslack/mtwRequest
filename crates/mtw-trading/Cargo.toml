@@ -4,7 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "Trading strategies, signals, and technical analysis for mtwRequest"
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "Trading strategies, signals, and technical analysis formulas for mtwRequest"
+keywords = ["trading", "ta", "strategy", "signals", "mtw"]
+categories = ["finance", "algorithms"]
 
 [features]
 default = []

@@ -4,7 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
 description = "MCP server for Claude Code — manage mtwRequest modules, agents, auth, trading, and more"
+keywords = ["mcp", "claude", "agents", "ai-tools", "mtw"]
+categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
 name = "mtw-mcp"

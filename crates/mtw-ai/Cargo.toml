@@ -1,9 +1,15 @@
 [package]
 name = "mtw-ai"
-description = "AI engine: agents, providers, streaming, and tool calling for mtwRequest"
+description = "AI engine for mtwRequest — agents, multi-provider LLMs, streaming, and tool calling"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+keywords = ["ai", "llm", "agents", "claude", "openai"]
+categories = ["science", "api-bindings", "asynchronous"]
 
 [dependencies]
 mtw-protocol = { workspace = true }

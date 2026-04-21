@@ -5,7 +5,11 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "HTTP client with response pipeline system for mtwRequest"
+homepage.workspace = true
+rust-version.workspace = true
+description = "HTTP client for mtwRequest with a 16-stage composable response pipeline"
+keywords = ["http", "client", "pipeline", "middleware", "mtw"]
+categories = ["web-programming::http-client", "asynchronous"]
 
 [dependencies]
 mtw-core = { workspace = true }

@@ -1,0 +1,34 @@
+[package]
+name = "mtw-whatsapp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "WhatsApp driver for mtwRequest — talks to the whatsapp-bridge Go sidecar over a Unix socket"
+keywords = ["whatsapp", "bridge", "messaging", "mtw", "ipc"]
+categories = ["api-bindings", "network-programming"]
+
+[dependencies]
+mtw-core = { workspace = true }
+
+# Async
+tokio = { workspace = true, features = ["full"] }
+tokio-stream = "0.1"
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+base64 = "0.22"
+
+# Utilities
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util", "macros"] }

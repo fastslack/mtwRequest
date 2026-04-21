@@ -4,7 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "Peer-to-peer data synchronization for mtwRequest"
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "Peer-to-peer data synchronization between mtwRequest instances"
+keywords = ["federation", "p2p", "sync", "distributed", "mtw"]
+categories = ["network-programming", "asynchronous"]
 
 [dependencies]
 mtw-core = { path = "../mtw-core" }

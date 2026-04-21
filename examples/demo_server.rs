@@ -3,7 +3,6 @@
 //! Run with: cargo run --example demo_server
 //! Then connect with: cargo run --example demo_client
 
-use mtw_core::{MtwServerBuilder, MtwError};
 use mtw_transport::ws::WebSocketTransport;
 use mtw_transport::MtwTransport;
 use mtw_router::{ChannelManager, MiddlewareChain, MtwRouter};

@@ -7,7 +7,7 @@
       Users can create, install, and share modules through a marketplace.
     </description>
     <version>0.1.0</version>
-    <license>MIT</license>
+    <license>Apache-2.0</license>
     <author>fastslack</author>
     <repository>https://github.com/fastslack/mtwRequest</repository>
     <architecture-doc>ARCHITECTURE.md</architecture-doc>

@@ -2,7 +2,7 @@
   "name": "@matware/mtw-request-ts-client",
   "version": "0.2.0",
   "description": "Universal JavaScript/TypeScript client for mtwRequest real-time framework",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "author": "fastslack",
   "repository": {
     "type": "git",

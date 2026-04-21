@@ -1,9 +1,15 @@
 [package]
 name = "mtw-codec"
-description = "Codec system for mtwRequest (JSON, MessagePack, binary)"
+description = "Codec system for mtwRequest — JSON, MessagePack, and binary serialization"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+keywords = ["codec", "json", "serialization", "messagepack", "mtw"]
+categories = ["encoding", "parser-implementations"]
 
 [dependencies]
 mtw-protocol = { workspace = true }

@@ -53,13 +53,6 @@ struct RawModule {
     pub minimum_core: Option<String>,
 }
 
-/// Raw TOML structure for [dependencies] section
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct RawDependency {
-    pub version: Option<String>,
-    pub optional: Option<bool>,
-}
-
 /// Raw TOML manifest file
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct RawManifest {

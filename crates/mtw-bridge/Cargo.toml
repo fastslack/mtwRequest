@@ -5,7 +5,11 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "mtwRequest bridge — delegate operations to external services via Unix socket or TCP"
+homepage.workspace = true
+rust-version.workspace = true
+description = "Bridge for mtwRequest — delegate operations to external services over Unix socket or TCP"
+keywords = ["bridge", "ipc", "rpc", "tokio", "mtw"]
+categories = ["network-programming", "asynchronous"]
 
 [dependencies]
 mtw-core = { workspace = true }

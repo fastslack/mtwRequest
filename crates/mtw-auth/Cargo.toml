@@ -1,9 +1,15 @@
 [package]
 name = "mtw-auth"
-description = "Authentication and authorization for mtwRequest"
+description = "Authentication and authorization for mtwRequest — JWT, API keys, and auth middleware"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+keywords = ["jwt", "auth", "apikey", "security", "mtw"]
+categories = ["authentication", "web-programming"]
 
 [dependencies]
 mtw-protocol = { workspace = true }

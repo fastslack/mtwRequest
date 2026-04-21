@@ -1,9 +1,15 @@
 [package]
 name = "mtw-state"
-description = "State management for mtwRequest"
+description = "State management for mtwRequest — pluggable key-value stores (memory, Redis)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+keywords = ["state", "redis", "kv", "cache", "mtw"]
+categories = ["database", "caching"]
 
 [dependencies]
 mtw-core = { workspace = true }

@@ -137,7 +137,6 @@ impl mtw_transport::MtwTransport for MockTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mtw_protocol::{MsgType, Payload};
     use mtw_transport::MtwTransport;
 
     #[tokio::test]

@@ -2,7 +2,7 @@
   "name": "@matware/mtw-request-react",
   "version": "0.2.0",
   "description": "React hooks and components for mtwRequest real-time framework",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "author": "fastslack",
   "repository": {
     "type": "git",

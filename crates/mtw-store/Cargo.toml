@@ -5,7 +5,11 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "mtwRequest data store — native SQLite access with connection pooling"
+homepage.workspace = true
+rust-version.workspace = true
+description = "Data store for mtwRequest — native SQLite access with r2d2 connection pooling"
+keywords = ["sqlite", "store", "database", "async", "mtw"]
+categories = ["database"]
 
 [dependencies]
 mtw-core = { workspace = true }
