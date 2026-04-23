@@ -2,7 +2,19 @@
 //! `services/whatsapp-bridge/protocol.md`. Both directions live here so
 //! users of the crate never need to remember the discriminator strings.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+
+/// Helper that treats a JSON `null` as an empty vec during deserialization.
+/// Needed because the Go whatsapp-bridge emits `"attachments": null` when a
+/// message has no media — plain `#[serde(default)]` only covers the field
+/// being absent, not present-but-null, and would otherwise reject the event.
+fn null_as_empty_vec<'de, D, T>(de: D) -> Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Ok(Option::<Vec<T>>::deserialize(de)?.unwrap_or_default())
+}
 
 // ── Driver → Bridge ───────────────────────────────────────────────────
 
@@ -123,7 +135,7 @@ pub enum Event {
         text: String,
         #[serde(default)]
         reply_to: Option<String>,
-        #[serde(default)]
+        #[serde(default, deserialize_with = "null_as_empty_vec")]
         attachments: Vec<InboundAttachment>,
     },
 
