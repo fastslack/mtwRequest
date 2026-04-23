@@ -1,0 +1,72 @@
+# Competitor servers for the bench-suite. mtw-server is NOT here — the bench
+# wrapper runs it natively from the repo.
+#
+# All services have healthchecks so `docker compose up -d --wait` actually
+# waits for readiness before returning. Resource caps are identical across
+# services for fair comparison.
+
+services:
+  centrifugo:
+    image: centrifugo/centrifugo:v5
+    container_name: bench-centrifugo
+    command: ["centrifugo", "--config=/etc/centrifugo/config.json"]
+    volumes:
+      - ./servers/centrifugo/config.json:/etc/centrifugo/config.json:ro
+    ports:
+      - "${CENTRIFUGO_HOST_PORT:-8000}:8000"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    cpus: 2.0
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/health"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+      start_period: 3s
+    restart: unless-stopped
+
+  nats:
+    image: nats:2-alpine
+    container_name: bench-nats
+    command: ["-c", "/etc/nats/nats.conf"]
+    volumes:
+      - ./servers/nats/nats.conf:/etc/nats/nats.conf:ro
+    ports:
+      - "${NATS_HOST_PORT:-4222}:4222"
+      - "${NATS_HTTP_HOST_PORT:-8222}:8222"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    cpus: 2.0
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8222/healthz"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+      start_period: 3s
+    restart: unless-stopped
+
+  socketio:
+    build:
+      context: ./servers/socketio
+    container_name: bench-socketio
+    ports:
+      - "${SOCKETIO_HOST_PORT:-13000}:3000"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    cpus: 2.0
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/healthz"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+      start_period: 3s
+    restart: unless-stopped

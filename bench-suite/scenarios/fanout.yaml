@@ -1,0 +1,21 @@
+# 1 publisher → N subscribers on a single channel. Publisher-side timestamp
+# in payload header; subscriber records one-way latency on receive.
+#
+# This file is descriptive — the bench-runner takes flags, not YAML. Scripts
+# and CI pick which rows to run.
+
+scenario: fanout
+
+matrix:
+  subs: [100, 1000, 10000]
+  messages: 5000
+  payload_bytes: [128, 1024]
+  warmup: 200
+  timeout_secs: 60
+  channel: bench
+
+metrics:
+  - one_way_latency_p50
+  - one_way_latency_p99
+  - throughput_deliveries_per_sec
+  - errors

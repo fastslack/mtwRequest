@@ -1,0 +1,28 @@
+[package]
+name = "bench-mtw-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "bench-mtw-server"
+path = "src/main.rs"
+
+[features]
+default = []
+# Enables the in-process pprof-rs flamegraph profiler. Writes
+# flamegraph.svg on SIGTERM or after BENCH_MTW_PROFILE_SECS timeout.
+profile = ["dep:pprof"]
+
+[dependencies]
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+
+mtw-protocol = { workspace = true }
+mtw-transport = { workspace = true }
+mtw-router = { workspace = true }
+
+pprof = { version = "0.13", features = ["flamegraph"], optional = true }

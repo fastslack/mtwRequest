@@ -1,0 +1,25 @@
+[package]
+name = "bench-runner"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "bench-runner"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true }
+futures-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+bytes = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+clap = { workspace = true }
+chrono = { workspace = true }
+
+bench-clients = { path = "../bench-clients" }
+bench-metrics = { path = "../bench-metrics" }

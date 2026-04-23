@@ -1,0 +1,19 @@
+# Round-trip latency via an echo-bot:
+#   requester publishes to "ping" → bot subscribed to "ping" republishes to "pong"
+#   → requester subscribed to "pong" receives → measures RTT.
+#
+# RTT includes one server fanout in each direction + the bot's recv/send hop.
+
+scenario: echo
+
+matrix:
+  messages: 10000
+  payload_bytes: [128, 1024]
+  warmup: 200
+  timeout_secs: 30
+
+metrics:
+  - rtt_latency_p50
+  - rtt_latency_p99
+  - round_trips_per_sec
+  - errors

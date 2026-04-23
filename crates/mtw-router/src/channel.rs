@@ -1,14 +1,36 @@
+use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use mtw_core::MtwError;
-use mtw_protocol::{ConnId, MtwMessage};
-use std::sync::Arc;
+use mtw_protocol::{ConnId, ConnTarget, EnvelopeSink, MtwMessage, SharedEnvelope};
+use std::sync::{Arc, OnceLock};
 use tokio::sync::mpsc;
 
-/// Channel subscriber info
-#[derive(Debug, Clone)]
+/// Channel subscriber info. `target` is resolved at subscribe time (when a
+/// direct sink is installed) and kept through the subscriber's lifetime so
+/// broadcast deliveries never pay for a conn-id → sender lookup.
+#[derive(Clone)]
 pub struct Subscriber {
     pub conn_id: ConnId,
     pub subscribed_at: u64,
+    pub target: Option<Arc<dyn ConnTarget>>,
+}
+
+impl std::fmt::Debug for Subscriber {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Subscriber")
+            .field("conn_id", &self.conn_id)
+            .field("subscribed_at", &self.subscribed_at)
+            .field("target", &self.target.as_ref().map(|_| "..."))
+            .finish()
+    }
+}
+
+/// Snapshot entry used by the publish hot path. Carries the pre-bound
+/// delivery target so iterating the snapshot is read-only and lock-free.
+#[derive(Clone)]
+pub struct SubscriberEntry {
+    pub conn_id: ConnId,
+    pub target: Option<Arc<dyn ConnTarget>>,
 }
 
 /// A pub/sub channel
@@ -21,12 +43,22 @@ pub struct Channel {
     max_members: Option<usize>,
     /// Message history size to keep
     history_size: usize,
-    /// Active subscribers
+    /// Active subscribers (keyed lookup for sub/unsub/is_subscribed).
     subscribers: DashMap<ConnId, Subscriber>,
+    /// Immutable snapshot of subscriber entries, each carrying a pre-bound
+    /// `ConnTarget`. Swapped atomically on every sub/unsub. `publish` reads
+    /// it via a single atomic load and calls `target.deliver()` directly —
+    /// no DashMap lookups on the broadcast hot path.
+    subscriber_list: ArcSwap<Vec<SubscriberEntry>>,
     /// Message history ring buffer
     history: tokio::sync::RwLock<std::collections::VecDeque<MtwMessage>>,
-    /// Channel for outgoing messages to transport
-    message_tx: mpsc::UnboundedSender<(ConnId, Arc<MtwMessage>)>,
+    /// Fallback delivery path: a central mpsc drained by a forwarder task.
+    /// Used when `direct_sink` is unset.
+    message_tx: mpsc::UnboundedSender<(ConnId, Arc<SharedEnvelope>)>,
+    /// Hot-path delivery: if set, `publish` enqueues envelopes directly into
+    /// each connection's writer queue via the sink, bypassing `message_tx`
+    /// and its forwarder task entirely.
+    direct_sink: OnceLock<Arc<dyn EnvelopeSink>>,
 }
 
 impl Channel {
@@ -35,7 +67,7 @@ impl Channel {
         auth_required: bool,
         max_members: Option<usize>,
         history_size: usize,
-        message_tx: mpsc::UnboundedSender<(ConnId, Arc<MtwMessage>)>,
+        message_tx: mpsc::UnboundedSender<(ConnId, Arc<SharedEnvelope>)>,
     ) -> Self {
         Self {
             name: name.into(),
@@ -43,9 +75,58 @@ impl Channel {
             max_members,
             history_size,
             subscribers: DashMap::new(),
+            subscriber_list: ArcSwap::from_pointee(Vec::new()),
             history: tokio::sync::RwLock::new(std::collections::VecDeque::new()),
             message_tx,
+            direct_sink: OnceLock::new(),
         }
+    }
+
+    /// Install a direct delivery sink. Call once, before any `publish`.
+    /// If subscribers already exist, their cached `ConnTarget`s are
+    /// back-filled via `sink.resolve` and the snapshot is refreshed.
+    pub fn set_direct_sink(&self, sink: Arc<dyn EnvelopeSink>) {
+        if self.direct_sink.set(sink.clone()).is_err() {
+            return;
+        }
+        // Back-fill in two phases to avoid holding DashMap write locks
+        // while calling into `sink.resolve` (which may take its own locks).
+        let unresolved: Vec<ConnId> = self
+            .subscribers
+            .iter()
+            .filter(|e| e.value().target.is_none())
+            .map(|e| e.key().clone())
+            .collect();
+
+        let mut touched = false;
+        for conn_id in unresolved {
+            if let Some(target) = sink.resolve(&conn_id) {
+                if let Some(mut entry) = self.subscribers.get_mut(&conn_id) {
+                    if entry.target.is_none() {
+                        entry.target = Some(target);
+                        touched = true;
+                    }
+                }
+            }
+        }
+        if touched {
+            self.refresh_subscriber_list();
+        }
+    }
+
+    /// Rebuild the immutable subscriber snapshot after a membership change.
+    /// Entries keep the `ConnTarget` resolved at subscribe time, so publish
+    /// deliveries don't pay for any lookup.
+    fn refresh_subscriber_list(&self) {
+        let list: Vec<SubscriberEntry> = self
+            .subscribers
+            .iter()
+            .map(|e| SubscriberEntry {
+                conn_id: e.key().clone(),
+                target: e.value().target.clone(),
+            })
+            .collect();
+        self.subscriber_list.store(Arc::new(list));
     }
 
     pub fn name(&self) -> &str {
@@ -71,15 +152,24 @@ impl Channel {
             }
         }
 
+        // Resolve the delivery target once. If no direct sink is installed
+        // yet, the fallback publish path will route through the mpsc.
+        let target = self
+            .direct_sink
+            .get()
+            .and_then(|sink| sink.resolve(conn_id));
+
         let subscriber = Subscriber {
             conn_id: conn_id.clone(),
             subscribed_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis() as u64,
+            target,
         };
 
         self.subscribers.insert(conn_id.clone(), subscriber);
+        self.refresh_subscriber_list();
         tracing::debug!(channel = %self.name, conn_id = %conn_id, "subscribed");
         Ok(())
     }
@@ -88,6 +178,7 @@ impl Channel {
     pub fn unsubscribe(&self, conn_id: &ConnId) -> bool {
         let removed = self.subscribers.remove(conn_id).is_some();
         if removed {
+            self.refresh_subscriber_list();
             tracing::debug!(channel = %self.name, conn_id = %conn_id, "unsubscribed");
         }
         removed
@@ -100,11 +191,16 @@ impl Channel {
 
     /// Publish a message to all subscribers.
     ///
-    /// Uses `Arc` internally so the heavy `MtwMessage` is cloned only once
-    /// (into the Arc) regardless of subscriber count. Each subscriber gets
-    /// an `Arc::unwrap_or_clone` copy which avoids allocation when possible.
+    /// Hot path: the message is wrapped in a `SharedEnvelope` (lazy text +
+    /// binary encoding) and, if a `direct_sink` is installed, delivered
+    /// straight into each connection's writer queue with no intermediate
+    /// mpsc hop. The subscriber list is read via a single atomic load
+    /// (`ArcSwap`), so publish holds zero locks.
+    ///
+    /// Fallback path (no sink installed): the envelope is pushed into the
+    /// central `message_tx` mpsc and a forwarder task relays it.
     pub async fn publish(&self, msg: MtwMessage, exclude: Option<&ConnId>) -> Result<usize, MtwError> {
-        // Store in history
+        // Store in history (history still wants the decoded MtwMessage).
         if self.history_size > 0 {
             let mut history = self.history.write().await;
             history.push_back(msg.clone());
@@ -113,21 +209,49 @@ impl Channel {
             }
         }
 
-        // Wrap in Arc — each subscriber gets a refcount bump, not a deep clone.
-        let shared = Arc::new(msg);
+        // Single atomic load: no DashMap shard locks on the hot path.
+        let snapshot = self.subscriber_list.load();
+        if snapshot.is_empty() {
+            return Ok(0);
+        }
+
+        let envelope = Arc::new(SharedEnvelope::new(msg));
+        let direct_sink = self.direct_sink.get();
+
         let mut sent = 0;
-        for entry in self.subscribers.iter() {
+        for entry in snapshot.iter() {
             if let Some(excluded) = exclude {
-                if entry.key() == excluded {
+                if &entry.conn_id == excluded {
                     continue;
                 }
             }
-
-            if self.message_tx.send((entry.key().clone(), Arc::clone(&shared))).is_ok() {
+            // Fast path: target was resolved at subscribe time, so
+            // delivery is one virtual call + one `mpsc::send`. Pass the
+            // envelope by reference — the target only needs the cached
+            // wire bytes, not a new Arc refcount bump.
+            if let Some(target) = &entry.target {
+                target.deliver(&envelope);
+                sent += 1;
+                continue;
+            }
+            // Fallback: sink was installed but target was never resolved
+            // (e.g. the conn went away between subscribe and now).
+            if let Some(sink) = direct_sink {
+                sink.deliver(&entry.conn_id, &envelope);
+                sent += 1;
+                continue;
+            }
+            // Last resort: no direct sink at all, route through the
+            // central mpsc forwarder (Arc clone needed here — the queue
+            // must own an Arc for the forwarder to consume later).
+            if self
+                .message_tx
+                .send((entry.conn_id.clone(), Arc::clone(&envelope)))
+                .is_ok()
+            {
                 sent += 1;
             }
         }
-
         Ok(sent)
     }
 
@@ -147,7 +271,9 @@ impl Channel {
 
     /// Remove a connection from all tracking (called on disconnect)
     pub fn remove_connection(&self, conn_id: &ConnId) {
-        self.subscribers.remove(conn_id);
+        if self.subscribers.remove(conn_id).is_some() {
+            self.refresh_subscriber_list();
+        }
     }
 }
 
@@ -157,8 +283,12 @@ pub struct ChannelManager {
     /// Reverse index: conn_id → set of channel names this connection is subscribed to.
     /// Enables O(subscriptions) disconnect instead of O(all_channels).
     conn_channels: DashMap<ConnId, std::collections::HashSet<String>>,
-    message_tx: mpsc::UnboundedSender<(ConnId, Arc<MtwMessage>)>,
-    message_rx: Option<mpsc::UnboundedReceiver<(ConnId, Arc<MtwMessage>)>>,
+    message_tx: mpsc::UnboundedSender<(ConnId, Arc<SharedEnvelope>)>,
+    message_rx: Option<mpsc::UnboundedReceiver<(ConnId, Arc<SharedEnvelope>)>>,
+    /// Direct delivery sink, propagated to every channel created after it's
+    /// installed. Channels created *before* the sink is installed are
+    /// back-filled at install time.
+    direct_sink: OnceLock<Arc<dyn EnvelopeSink>>,
 }
 
 impl ChannelManager {
@@ -169,13 +299,27 @@ impl ChannelManager {
             conn_channels: DashMap::new(),
             message_tx: tx,
             message_rx: Some(rx),
+            direct_sink: OnceLock::new(),
+        }
+    }
+
+    /// Install the direct delivery sink. Once set, every `publish` across
+    /// every channel (existing or future) delivers straight into the
+    /// transport's per-connection writer queue.
+    pub fn set_direct_sink(&self, sink: Arc<dyn EnvelopeSink>) {
+        // First set wins; ignore subsequent calls.
+        if self.direct_sink.set(sink.clone()).is_err() {
+            return;
+        }
+        for entry in self.channels.iter() {
+            entry.value().set_direct_sink(sink.clone());
         }
     }
 
     /// Take the message receiver (for the transport layer to consume)
     pub fn take_message_receiver(
         &mut self,
-    ) -> Option<mpsc::UnboundedReceiver<(ConnId, Arc<MtwMessage>)>> {
+    ) -> Option<mpsc::UnboundedReceiver<(ConnId, Arc<SharedEnvelope>)>> {
         self.message_rx.take()
     }
 
@@ -195,6 +339,9 @@ impl ChannelManager {
             history_size,
             self.message_tx.clone(),
         ));
+        if let Some(sink) = self.direct_sink.get() {
+            channel.set_direct_sink(sink.clone());
+        }
         self.channels.insert(name, channel.clone());
         channel
     }

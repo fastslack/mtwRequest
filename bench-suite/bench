@@ -1,0 +1,269 @@
+#!/usr/bin/env bash
+# bench — one-shot entry point for the bench-suite.
+#
+# Starts docker competitor servers (centrifugo, nats, socket.io), starts
+# bench-mtw-server locally on an auto-picked free port, runs the matrix
+# against every system, writes JSON under results/<ts>/ plus a markdown
+# summary. Optional: PNG charts if matplotlib is installed.
+#
+# Usage:
+#   ./bench                      # full matrix, default (fast) params
+#   ./bench check                # just verify servers are reachable
+#   ./bench clean                # stop docker + kill stray mtw-server
+#
+# Env overrides:
+#   SYSTEMS="mtw nats"           # comma-or-space separated
+#   SCENARIOS="fanout"           # fanout | echo | connect
+#   SUBS="100 1000"              # fanout tiers
+#   MESSAGES=5000                # messages per fanout run
+#   PAYLOAD_BYTES=128
+#   ECHO_MESSAGES=2000
+#   CONNECT_COUNT="500"
+#   CONNECT_CONCURRENCY=32
+
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+# --- style -------------------------------------------------------------------
+if [[ -t 1 ]]; then
+    C_HDR=$'\e[1;36m'; C_OK=$'\e[1;32m'; C_WARN=$'\e[1;33m'
+    C_ERR=$'\e[1;31m'; C_DIM=$'\e[2m'; C_OFF=$'\e[0m'
+else
+    C_HDR=""; C_OK=""; C_WARN=""; C_ERR=""; C_DIM=""; C_OFF=""
+fi
+say()   { printf "%s[bench]%s %s\n" "$C_HDR" "$C_OFF" "$*"; }
+ok()    { printf "%s[ ok ]%s %s\n" "$C_OK" "$C_OFF" "$*"; }
+warn()  { printf "%s[warn]%s %s\n" "$C_WARN" "$C_OFF" "$*" >&2; }
+fail()  { printf "%s[fail]%s %s\n" "$C_ERR" "$C_OFF" "$*" >&2; exit 1; }
+
+# --- subcommands dispatch ----------------------------------------------------
+SUB="${1:-run}"
+case "${SUB}" in
+    check|clean|run) shift || true ;;
+    -h|--help|help)
+        sed -n '3,24p' "$0"; exit 0 ;;
+    *) SUB="run" ;;
+esac
+
+# --- common setup ------------------------------------------------------------
+SYSTEMS_DEFAULT="mtw centrifugo socketio nats"
+SYSTEMS="${SYSTEMS:-$SYSTEMS_DEFAULT}"
+# normalize commas → spaces
+SYSTEMS="${SYSTEMS//,/ }"
+
+SOCKETIO_HOST_PORT="${SOCKETIO_HOST_PORT:-13000}"
+CENTRIFUGO_HOST_PORT="${CENTRIFUGO_HOST_PORT:-8000}"
+NATS_HOST_PORT="${NATS_HOST_PORT:-4222}"
+NATS_HTTP_HOST_PORT="${NATS_HTTP_HOST_PORT:-8222}"
+export SOCKETIO_HOST_PORT CENTRIFUGO_HOST_PORT NATS_HOST_PORT NATS_HTTP_HOST_PORT
+
+# Auto-pick a free port for the mtw server (avoid the 7741 squatter).
+find_free_port() {
+    local start=${1:-17741}
+    for p in $(seq $start $((start + 100))); do
+        if ! ss -tlnH "sport = :${p}" 2>/dev/null | grep -q LISTEN; then
+            echo "$p"; return
+        fi
+    done
+    fail "no free port in [${start}, ${start}+100]"
+}
+
+MTW_PORT="${BENCH_MTW_PORT:-$(find_free_port 17741)}"
+MTW_URL="ws://127.0.0.1:${MTW_PORT}/ws"
+
+# --- docker helpers ----------------------------------------------------------
+needs_docker() {
+    for s in $SYSTEMS; do
+        case "$s" in centrifugo|socketio|nats) return 0 ;; esac
+    done
+    return 1
+}
+
+docker_up() {
+    say "docker compose up -d --wait"
+    # --wait requires healthchecks (we defined them).
+    if ! docker compose up -d --wait 2>&1 | sed "s/^/${C_DIM}  docker: &${C_OFF}/"; then
+        warn "some containers did not become healthy; continuing anyway"
+    fi
+}
+
+docker_down() {
+    say "docker compose down --remove-orphans"
+    docker compose down --remove-orphans >/dev/null 2>&1 || true
+}
+
+# --- reachability probes -----------------------------------------------------
+probe_centrifugo() {
+    curl -fsS "http://127.0.0.1:${CENTRIFUGO_HOST_PORT}/health" >/dev/null
+}
+probe_nats() {
+    # NATS monitoring /healthz returns 200 when ready
+    curl -fsS "http://127.0.0.1:${NATS_HTTP_HOST_PORT}/healthz" >/dev/null
+}
+probe_socketio() {
+    curl -fsS "http://127.0.0.1:${SOCKETIO_HOST_PORT}/healthz" >/dev/null
+}
+probe_mtw() {
+    # TCP connect + WS upgrade handled by the mtw client; here we just check
+    # that something is listening.
+    ss -tlnH "sport = :${MTW_PORT}" 2>/dev/null | grep -q LISTEN
+}
+
+wait_for() {
+    local name=$1 probe=$2 tries=${3:-30}
+    for _ in $(seq 1 "$tries"); do
+        if $probe 2>/dev/null; then ok "$name reachable"; return 0; fi
+        sleep 0.5
+    done
+    warn "$name not reachable after ${tries} tries"
+    return 1
+}
+
+# --- mtw server lifecycle ----------------------------------------------------
+MTW_PID=""
+
+start_mtw() {
+    if ! echo " $SYSTEMS " | grep -q " mtw "; then return 0; fi
+    say "building bench binaries (release)..."
+    CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(nproc)}" \
+        cargo build --release -p bench-runner -p bench-mtw-server >/dev/null
+    say "starting bench-mtw-server on port ${MTW_PORT}..."
+    BENCH_MTW_BIND="127.0.0.1:${MTW_PORT}" ./target/release/bench-mtw-server \
+        >/tmp/bench-mtw.log 2>&1 &
+    MTW_PID=$!
+    sleep 0.5
+    if ! kill -0 "$MTW_PID" 2>/dev/null; then
+        warn "bench-mtw-server exited immediately; see /tmp/bench-mtw.log"
+        return 1
+    fi
+    wait_for "mtw-server" probe_mtw 20
+}
+
+cleanup() {
+    local code=$?
+    set +e
+    if [[ -n "$MTW_PID" ]] && kill -0 "$MTW_PID" 2>/dev/null; then
+        kill "$MTW_PID" 2>/dev/null
+        wait "$MTW_PID" 2>/dev/null
+    fi
+    return $code
+}
+trap cleanup EXIT INT TERM
+
+# -----------------------------------------------------------------------------
+# Subcommand: clean
+# -----------------------------------------------------------------------------
+if [[ "$SUB" == "clean" ]]; then
+    docker_down
+    # kill any stray mtw-server
+    pkill -f 'target/release/bench-mtw-server' 2>/dev/null || true
+    ok "cleaned"
+    exit 0
+fi
+
+# -----------------------------------------------------------------------------
+# Subcommand: check
+# -----------------------------------------------------------------------------
+if [[ "$SUB" == "check" ]]; then
+    if needs_docker; then docker_up; fi
+    start_mtw || true
+    local_fail=0
+    for s in $SYSTEMS; do
+        case "$s" in
+            mtw)        wait_for "mtw"        probe_mtw        || local_fail=1 ;;
+            centrifugo) wait_for "centrifugo" probe_centrifugo || local_fail=1 ;;
+            socketio)   wait_for "socketio"   probe_socketio   || local_fail=1 ;;
+            nats)       wait_for "nats"       probe_nats       || local_fail=1 ;;
+        esac
+    done
+    [[ $local_fail == 0 ]] && ok "all systems reachable" || fail "one or more systems not reachable"
+    exit 0
+fi
+
+# -----------------------------------------------------------------------------
+# Subcommand: run (default)
+# -----------------------------------------------------------------------------
+SCENARIOS="${SCENARIOS:-fanout echo connect}"
+SCENARIOS="${SCENARIOS//,/ }"
+
+SUBS_LIST="${SUBS:-100 1000}"
+MESSAGES="${MESSAGES:-2000}"
+PAYLOAD_BYTES="${PAYLOAD_BYTES:-128}"
+WARMUP="${WARMUP:-100}"
+ECHO_MESSAGES="${ECHO_MESSAGES:-2000}"
+CONNECT_COUNT_LIST="${CONNECT_COUNT:-500}"
+CONNECT_CONCURRENCY="${CONNECT_CONCURRENCY:-32}"
+
+TS="$(date -u +%Y%m%dT%H%M%SZ)"
+OUT_DIR="results/${TS}"
+mkdir -p "${OUT_DIR}"
+
+say "output dir: ${C_DIM}${OUT_DIR}${C_OFF}"
+say "systems:    ${SYSTEMS}"
+say "scenarios:  ${SCENARIOS}"
+
+if needs_docker; then docker_up; fi
+start_mtw || warn "mtw scenarios will be skipped"
+
+url_for() {
+    case "$1" in
+        mtw)        echo "$MTW_URL" ;;
+        centrifugo) echo "ws://127.0.0.1:${CENTRIFUGO_HOST_PORT}/connection/websocket" ;;
+        socketio)   echo "http://127.0.0.1:${SOCKETIO_HOST_PORT}" ;;
+        nats)       echo "nats://127.0.0.1:${NATS_HOST_PORT}" ;;
+    esac
+}
+
+BENCH_RUNNER="./target/release/bench-runner"
+
+run_one() {
+    local system=$1 scenario=$2 tag=$3
+    shift 3
+    local url; url=$(url_for "$system")
+    printf "  %s%-11s %-10s %s%s\n" "$C_DIM" "$system" "$scenario" "$tag" "$C_OFF"
+    if ! "$BENCH_RUNNER" \
+            --system "$system" --url "$url" \
+            --out-dir "$OUT_DIR" --tag "${scenario}-${tag}" \
+            "$scenario" "$@" >/dev/null 2>"${OUT_DIR}/${system}-${scenario}-${tag}.err"; then
+        warn "${system}/${scenario}/${tag} failed — see ${OUT_DIR}/${system}-${scenario}-${tag}.err"
+    else
+        rm -f "${OUT_DIR}/${system}-${scenario}-${tag}.err"
+    fi
+}
+
+for system in $SYSTEMS; do
+    for scenario in $SCENARIOS; do
+        case "$scenario" in
+            fanout)
+                for n in $SUBS_LIST; do
+                    run_one "$system" fanout "subs${n}" \
+                        --subs "$n" --messages "$MESSAGES" \
+                        --payload-bytes "$PAYLOAD_BYTES" --warmup "$WARMUP"
+                done ;;
+            echo)
+                run_one "$system" echo "default" \
+                    --messages "$ECHO_MESSAGES" \
+                    --payload-bytes "$PAYLOAD_BYTES" --warmup "$WARMUP" ;;
+            connect)
+                for n in $CONNECT_COUNT_LIST; do
+                    run_one "$system" connect "n${n}" \
+                        --count "$n" --concurrency "$CONNECT_CONCURRENCY"
+                done ;;
+            *) warn "unknown scenario: $scenario" ;;
+        esac
+    done
+done
+
+say "generating markdown summary..."
+python3 scripts/summary.py "$OUT_DIR" >/dev/null
+
+if command -v python3 >/dev/null && python3 -c "import matplotlib" 2>/dev/null; then
+    say "plotting..."
+    python3 scripts/plot.py "$OUT_DIR" || warn "plot.py failed"
+else
+    say "matplotlib not installed; skipping plots (pip install matplotlib to enable)"
+fi
+
+ok "done → ${OUT_DIR}/summary.md"
+cat "${OUT_DIR}/summary.md"

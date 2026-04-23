@@ -1,0 +1,25 @@
+[package]
+name = "bench-clients"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+tokio = { workspace = true }
+async-trait = { workspace = true }
+futures-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+bytes = { workspace = true }
+url = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+tokio-tungstenite = { workspace = true }
+rust_socketio = { workspace = true }
+async-nats = { workspace = true }
+base64 = "0.22"
+
+mtw-protocol = { workspace = true }

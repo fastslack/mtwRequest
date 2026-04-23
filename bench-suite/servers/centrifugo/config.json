@@ -1,0 +1,14 @@
+{
+  "token_hmac_secret_key": "bench-no-auth",
+  "allowed_origins": ["*"],
+  "client_insecure": true,
+  "health": true,
+  "allow_subscribe_for_client": true,
+  "allow_publish_for_client": true,
+  "allow_subscribe_for_anonymous": true,
+  "allow_publish_for_anonymous": true,
+  "presence": false,
+  "history_size": 0,
+  "history_ttl": "0s",
+  "log_level": "warn"
+}

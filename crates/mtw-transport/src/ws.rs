@@ -7,15 +7,27 @@ use mtw_codec::MtwCodec;
 use mtw_core::MtwError;
 use mtw_protocol::frame::{Frame, FrameType};
 use mtw_protocol::{
-    ConnId, ConnMetadata, DisconnectReason, MsgType, MtwMessage, Payload, TransportEvent,
+    ConnId, ConnMetadata, ConnTarget, DisconnectReason, EnvelopeSink, MsgType, MtwMessage,
+    Payload, SharedEnvelope, TransportEvent,
 };
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
+use tokio_tungstenite::tungstenite::protocol::frame::Utf8Bytes;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 use crate::MtwTransport;
+
+/// Wrap a `SharedEnvelope`'s cached JSON bytes into `Utf8Bytes` without
+/// re-validating UTF-8. Safe because `serde_json::to_vec` always emits
+/// valid UTF-8 (invariant held by `SharedEnvelope::text_bytes`).
+#[inline]
+fn envelope_text_utf8(envelope: &SharedEnvelope) -> Utf8Bytes {
+    // SAFETY: `SharedEnvelope::text_bytes` returns the output of
+    // `serde_json::to_vec`, which always produces valid UTF-8.
+    unsafe { Utf8Bytes::from_bytes_unchecked(envelope.text_bytes()) }
+}
 
 type WsSender = mpsc::UnboundedSender<WsMessage>;
 
@@ -100,10 +112,36 @@ impl WebSocketTransport {
             let _ = ws_sink.send(WsMessage::Text(String::from_utf8(encoded.to_vec()).unwrap_or_default().into())).await;
         }
 
-        // Spawn task to forward messages from channel to WebSocket sink
+        // Spawn task to forward messages from channel to WebSocket sink.
+        //
+        // Batching: `SinkExt::send` flushes after each item, which for
+        // tungstenite translates to ~3 syscalls per WS frame. Under
+        // fanout bursts that kills the worker path. Instead, `feed` every
+        // item into tungstenite's write buffer, then `flush` once per
+        // burst — one syscall covers many frames.
+        //
+        // Pattern: block on `recv` for the first item, then drain anything
+        // else already queued with non-blocking `try_recv` (capped by
+        // `MAX_BATCH`), then flush once.
+        const MAX_BATCH: usize = 256;
         let write_handle = tokio::spawn(async move {
-            while let Some(msg) = conn_rx.recv().await {
-                if ws_sink.send(msg).await.is_err() {
+            while let Some(first) = conn_rx.recv().await {
+                if ws_sink.feed(first).await.is_err() {
+                    break;
+                }
+                let mut batched = 1usize;
+                while batched < MAX_BATCH {
+                    match conn_rx.try_recv() {
+                        Ok(msg) => {
+                            if ws_sink.feed(msg).await.is_err() {
+                                break;
+                            }
+                            batched += 1;
+                        }
+                        Err(_) => break,
+                    }
+                }
+                if ws_sink.flush().await.is_err() {
                     break;
                 }
             }
@@ -152,7 +190,6 @@ impl WebSocketTransport {
                             let bytes = Bytes::from(data.to_vec());
                             match Frame::decode(bytes.clone()) {
                                 Ok((FrameType::Json, payload)) => {
-                                    // MTW binary frame containing a JSON message
                                     binary_connections.insert(conn_id.clone(), ());
                                     match serde_json::from_slice::<MtwMessage>(&payload) {
                                         Ok(mtw_msg) => {
@@ -170,24 +207,19 @@ impl WebSocketTransport {
                                     }
                                 }
                                 Ok((FrameType::Ping, _)) => {
-                                    // MTW Ping frame — respond with MTW Pong
                                     if let Some(sender) = connections.get(&conn_id) {
                                         let pong = Frame::encode_pong();
-                                        let _ = sender.send(WsMessage::Binary(pong.to_vec().into()));
+                                        let _ = sender.send(WsMessage::Binary(pong));
                                     }
                                 }
-                                Ok((FrameType::Pong, _)) => {
-                                    // MTW Pong — connection is alive
-                                }
+                                Ok((FrameType::Pong, _)) => {}
                                 Ok((FrameType::Binary, payload)) => {
-                                    // Raw binary data (audio, 3D, etc.)
                                     let _ = event_tx.send(TransportEvent::Binary(
                                         conn_id.clone(),
                                         payload.to_vec(),
                                     ));
                                 }
                                 Err(_) => {
-                                    // Not an MTW frame — treat as raw binary
                                     let _ = event_tx.send(TransportEvent::Binary(
                                         conn_id.clone(),
                                         bytes.to_vec(),
@@ -195,9 +227,7 @@ impl WebSocketTransport {
                                 }
                             }
                         }
-                        Some(Ok(WsMessage::Pong(_))) => {
-                            // Connection is alive
-                        }
+                        Some(Ok(WsMessage::Pong(_))) => {}
                         Some(Ok(WsMessage::Close(_))) => {
                             break DisconnectReason::Normal;
                         }
@@ -282,12 +312,10 @@ impl MtwTransport for WebSocketTransport {
 
     async fn send(&self, conn_id: &ConnId, msg: MtwMessage) -> Result<(), MtwError> {
         let ws_msg = if self.binary_connections.contains_key(conn_id) {
-            // Client speaks MTW binary protocol — send as binary frame
             let frame = Frame::encode_message(&msg)
                 .map_err(|e| MtwError::Transport(format!("frame encode error: {}", e)))?;
-            WsMessage::Binary(frame.to_vec().into())
+            WsMessage::Binary(frame)
         } else {
-            // Client speaks JSON text — send as plain JSON
             let encoded = self.codec.encode(&msg)?;
             WsMessage::Text(String::from_utf8(encoded.to_vec()).unwrap_or_default().into())
         };
@@ -302,8 +330,31 @@ impl MtwTransport for WebSocketTransport {
         }
     }
 
+    async fn send_envelope(
+        &self,
+        conn_id: &ConnId,
+        envelope: std::sync::Arc<mtw_protocol::SharedEnvelope>,
+    ) -> Result<(), MtwError> {
+        // Hot-path fanout: zero JSON/frame encoding per subscriber — just a
+        // `Bytes` refcount bump (binary) or a zero-copy Utf8Bytes wrap (text).
+        let ws_msg = if self.binary_connections.contains_key(conn_id) {
+            WsMessage::Binary(envelope.binary())
+        } else {
+            WsMessage::Text(envelope_text_utf8(&envelope))
+        };
+
+        if let Some(sender) = self.connections.get(conn_id) {
+            sender
+                .send(ws_msg)
+                .map_err(|_| MtwError::Transport("failed to send envelope".into()))?;
+            Ok(())
+        } else {
+            Err(MtwError::ConnectionNotFound(conn_id.clone()))
+        }
+    }
+
     async fn send_binary(&self, conn_id: &ConnId, data: &[u8]) -> Result<(), MtwError> {
-        let ws_msg = WsMessage::Binary(data.to_vec().into());
+        let ws_msg = WsMessage::Binary(Bytes::copy_from_slice(data));
 
         if let Some(sender) = self.connections.get(conn_id) {
             sender
@@ -329,7 +380,6 @@ impl MtwTransport for WebSocketTransport {
             }
         }
 
-        // Clean up dead connections
         for conn_id in errors {
             self.connections.remove(&conn_id);
         }
@@ -363,13 +413,54 @@ impl MtwTransport for WebSocketTransport {
             let _ = tx.send(());
         }
 
-        // Close all connections
         let conn_ids: Vec<ConnId> = self.connections.iter().map(|e| e.key().clone()).collect();
         for conn_id in conn_ids {
             let _ = self.close(&conn_id).await;
         }
 
         Ok(())
+    }
+}
+
+/// Pre-bound delivery handle resolved at subscribe time. The writer mpsc
+/// and the wire-format flag are captured once, so every broadcast avoids
+/// any conn-id lookup.
+struct WsConnTarget {
+    sender: mpsc::UnboundedSender<WsMessage>,
+    is_binary: bool,
+}
+
+impl ConnTarget for WsConnTarget {
+    fn deliver(&self, envelope: &Arc<SharedEnvelope>) {
+        let ws_msg = if self.is_binary {
+            WsMessage::Binary(envelope.binary())
+        } else {
+            WsMessage::Text(envelope_text_utf8(envelope))
+        };
+        let _ = self.sender.send(ws_msg);
+    }
+}
+
+/// Direct delivery sink. `deliver` is the slow path (DashMap lookup per
+/// call). `resolve` is the fast path: called once at subscribe time, its
+/// handle is cached on the subscriber entry so broadcasts never pay for
+/// a conn-id lookup after that.
+impl EnvelopeSink for WebSocketTransport {
+    fn deliver(&self, conn_id: &ConnId, envelope: &Arc<SharedEnvelope>) {
+        let ws_msg = if self.binary_connections.contains_key(conn_id) {
+            WsMessage::Binary(envelope.binary())
+        } else {
+            WsMessage::Text(envelope_text_utf8(envelope))
+        };
+        if let Some(sender) = self.connections.get(conn_id) {
+            let _ = sender.send(ws_msg);
+        }
+    }
+
+    fn resolve(&self, conn_id: &ConnId) -> Option<Arc<dyn ConnTarget>> {
+        let sender = self.connections.get(conn_id)?.clone();
+        let is_binary = self.binary_connections.contains_key(conn_id);
+        Some(Arc::new(WsConnTarget { sender, is_binary }))
     }
 }
 

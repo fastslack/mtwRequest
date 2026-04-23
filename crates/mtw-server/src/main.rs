@@ -134,16 +134,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let router = Arc::new(MtwRouter::new(channel_mgr, middleware));
     let transport = Arc::new(transport);
 
-    // ── Channel message forwarder ───────────────────────────
-    let transport_fwd = transport.clone();
-    tokio::spawn(async move {
-        while let Some((conn_id, msg)) = channel_rx.recv().await {
-            let msg = std::sync::Arc::unwrap_or_clone(msg);
-            if let Err(e) = transport_fwd.send(&conn_id, msg).await {
-                tracing::warn!(conn_id = %conn_id, error = %e, "failed to forward channel message");
-            }
-        }
-    });
+    // ── Direct delivery sink (no forwarder task) ───────────
+    // `Channel::publish` pushes envelopes straight into each connection's
+    // writer queue via this sink, eliminating the central forwarder hop.
+    // The `channel_rx` receiver still exists for other callers; we just
+    // don't drive it here.
+    drop(channel_rx);
+    router
+        .channels()
+        .set_direct_sink(transport.clone() as Arc<dyn mtw_protocol::EnvelopeSink>);
 
     // ── WhatsApp integration (optional) ─────────────────────
     let whatsapp_integration = if let Some(ref wa_cfg) = config.whatsapp {

@@ -29,7 +29,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create channel manager and router
     let mut channel_mgr = ChannelManager::new();
-    let mut channel_rx = channel_mgr.take_message_receiver().unwrap();
+    // We don't spawn a forwarder loop — publish delivers directly via the
+    // sink installed below. Drop the receiver so the unbounded mpsc is free.
+    drop(channel_mgr.take_message_receiver());
 
     // Pre-create some channels
     channel_mgr.create_channel("chat.general", false, Some(100), 50);
@@ -41,16 +43,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let transport = Arc::new(transport);
 
-    // Spawn channel message forwarder (delivers published messages to subscribers)
-    let transport_fwd = transport.clone();
-    tokio::spawn(async move {
-        while let Some((conn_id, msg)) = channel_rx.recv().await {
-            let msg = std::sync::Arc::unwrap_or_clone(msg);
-            if let Err(e) = transport_fwd.send(&conn_id, msg).await {
-                tracing::warn!(conn_id = %conn_id, error = %e, "failed to forward channel message");
-            }
-        }
-    });
+    // Hot-path direct delivery: publish pushes envelopes straight into each
+    // connection's writer mpsc, skipping the central forwarder.
+    router
+        .channels()
+        .set_direct_sink(transport.clone() as Arc<dyn mtw_protocol::EnvelopeSink>);
 
     // Main event loop
     tracing::info!("waiting for connections...");

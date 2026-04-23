@@ -2,8 +2,9 @@ pub mod ws;
 
 use async_trait::async_trait;
 use mtw_core::MtwError;
-use mtw_protocol::{ConnId, MtwMessage, TransportEvent};
+use mtw_protocol::{ConnId, MtwMessage, SharedEnvelope, TransportEvent};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 /// Transport trait — abstraction over WebSocket, HTTP, SSE, etc.
@@ -17,6 +18,20 @@ pub trait MtwTransport: Send + Sync {
 
     /// Send a message to a specific connection
     async fn send(&self, conn_id: &ConnId, msg: MtwMessage) -> Result<(), MtwError>;
+
+    /// Fan-out hot path for channel broadcasts: deliver a pre-built
+    /// envelope whose wire form is encoded at most once per format,
+    /// regardless of how many subscribers receive it.
+    ///
+    /// The default impl falls back to `send`, which re-encodes per-call —
+    /// override in real transports.
+    async fn send_envelope(
+        &self,
+        conn_id: &ConnId,
+        envelope: Arc<SharedEnvelope>,
+    ) -> Result<(), MtwError> {
+        self.send(conn_id, envelope.message.clone()).await
+    }
 
     /// Send raw binary data to a specific connection
     async fn send_binary(&self, conn_id: &ConnId, data: &[u8]) -> Result<(), MtwError>;
