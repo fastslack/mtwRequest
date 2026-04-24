@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="mtwRequest — a Rust real-time framework benchmarked against NATS, Centrifugo, and Socket.IO across fanout, echo and connect storm scenarios.">
+  <title>mtwRequest · a benchmark report</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/apexcharts@3.49.1/dist/apexcharts.min.js" defer></script>
+  <script src="script.js" defer></script>
+</head>
+<body>
+
+<!-- ─────────── Atmosphere ─────────── -->
+<div class="atmosphere" aria-hidden="true">
+  <div class="grain"></div>
+  <div class="glow glow-1"></div>
+  <div class="glow glow-2"></div>
+  <svg class="grid" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <pattern id="grid-pattern" width="48" height="48" patternUnits="userSpaceOnUse">
+        <path d="M 48 0 L 0 0 0 48" fill="none" stroke="rgba(255,255,255,0.02)" stroke-width="1"/>
+      </pattern>
+    </defs>
+    <rect width="100%" height="100%" fill="url(#grid-pattern)"/>
+  </svg>
+</div>
+
+<!-- ─────────── Nav ─────────── -->
+<header class="nav">
+  <a class="brand" href="#top">
+    <span class="brand-mark">m</span>
+    <span class="brand-slash">/</span>
+    <span class="brand-name">mtwRequest</span>
+  </a>
+  <nav class="nav-links" aria-label="Primary">
+    <a href="#scoreboard">Scoreboard</a>
+    <a href="#fanout">Fanout</a>
+    <a href="#echo-connect">Echo · Connect</a>
+    <a href="#journey">Journey</a>
+    <a href="#method">Method</a>
+  </nav>
+  <a class="nav-cta" href="https://github.com/fastslack/mtwRequest">
+    <span>GitHub</span>
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 11L11 3M11 3H5M11 3V9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </a>
+</header>
+
+<main>
+
+<!-- ─────────── Hero ─────────── -->
+<section class="hero" id="top">
+  <div class="container">
+    <div class="eyebrow reveal">
+      <span class="eyebrow-dot"></span>
+      <span>Rust real‑time benchmark</span>
+      <span class="eyebrow-sep">/</span>
+      <span>2026.04</span>
+      <span class="eyebrow-sep">/</span>
+      <span>v5.0</span>
+    </div>
+
+    <h1 class="hero-title reveal" style="--delay: 80ms">
+      Fast as <em>NATS</em>.<br>
+      Does <em>everything else</em> too.
+    </h1>
+
+    <p class="hero-sub reveal" style="--delay: 160ms">
+      mtwRequest is a modular real‑time framework in Rust. This page compares
+      it head‑to‑head against the three most cited open‑source alternatives in
+      fanout, round‑trip, and connect‑storm scenarios — on the same host,
+      same Docker limits, same payload.
+    </p>
+
+    <div class="hero-stats reveal" style="--delay: 240ms">
+      <figure class="stat">
+        <div class="stat-number" data-count="4.80" data-decimals="2" data-suffix=" ms">0.00 ms</div>
+        <figcaption class="stat-label">Fanout p50 <span class="stat-aside">50 subscribers · faster than NATS</span></figcaption>
+      </figure>
+      <figure class="stat">
+        <div class="stat-number" data-count="3.93" data-decimals="2" data-suffix="×">0.00×</div>
+        <figcaption class="stat-label">Ahead of Centrifugo <span class="stat-aside">fanout 50 subs · p50</span></figcaption>
+      </figure>
+      <figure class="stat">
+        <div class="stat-number" data-count="48.6" data-decimals="1" data-suffix="k/s">0.0k/s</div>
+        <figcaption class="stat-label">Connect rate <span class="stat-aside">2.7× over NATS</span></figcaption>
+      </figure>
+      <figure class="stat stat-accent">
+        <div class="stat-number" data-count="6.5" data-decimals="1" data-suffix="×">0.0×</div>
+        <figcaption class="stat-label">Versus baseline <span class="stat-aside">v0 → v5, fanout 500</span></figcaption>
+      </figure>
+    </div>
+
+    <div class="hero-context reveal" style="--delay: 320ms">
+      <span class="ctx-item"><span class="ctx-label">Rivals</span> NATS · Centrifugo · Socket.IO</span>
+      <span class="ctx-sep"></span>
+      <span class="ctx-item"><span class="ctx-label">Method</span> HdrHistogram · 128 B · same host</span>
+      <span class="ctx-sep"></span>
+      <span class="ctx-item"><span class="ctx-label">Caps</span> 2 CPU · 2 GB per competitor</span>
+    </div>
+  </div>
+</section>
+
+<hr class="section-rule">
+
+<!-- ─────────── §1 Scoreboard ─────────── -->
+<section class="section scoreboard" id="scoreboard">
+  <div class="container">
+    <header class="section-head">
+      <span class="section-num">§1</span>
+      <h2 class="section-title">Scoreboard</h2>
+      <p class="section-sub">Four scenarios, four systems, one glance. Gold is the winner by the primary metric of the scenario.</p>
+    </header>
+
+    <div class="scorecard">
+      <table class="score-table" aria-label="Benchmark medal scoreboard">
+        <thead>
+          <tr>
+            <th class="score-th-system" scope="col">System</th>
+            <th scope="col"><span class="score-scenario">Fanout<br><span class="score-scenario-note">50 subs · p50</span></span></th>
+            <th scope="col"><span class="score-scenario">Fanout<br><span class="score-scenario-note">500 subs · p50</span></span></th>
+            <th scope="col"><span class="score-scenario">Echo<br><span class="score-scenario-note">RTT · p50</span></span></th>
+            <th scope="col"><span class="score-scenario">Connect<br><span class="score-scenario-note">rate · higher is better</span></span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="score-row score-row-mtw">
+            <th scope="row"><span class="sys-dot sys-mtw"></span>mtwRequest</th>
+            <td><span class="medal medal-1">1</span><span class="medal-num">4.80 ms</span></td>
+            <td><span class="medal medal-1">1</span><span class="medal-num">52.46 ms</span></td>
+            <td><span class="medal medal-1">1</span><span class="medal-num">58.0 µs</span></td>
+            <td><span class="medal medal-1">1</span><span class="medal-num">48.6 k/s</span></td>
+          </tr>
+          <tr class="score-row">
+            <th scope="row"><span class="sys-dot sys-nats"></span>NATS</th>
+            <td><span class="medal medal-2">2</span><span class="medal-num">15.96 ms</span></td>
+            <td><span class="medal medal-2">2</span><span class="medal-num">55.15 ms</span></td>
+            <td><span class="medal medal-2">2</span><span class="medal-num">58.4 µs</span></td>
+            <td><span class="medal medal-3">3</span><span class="medal-num">18.1 k/s</span></td>
+          </tr>
+          <tr class="score-row">
+            <th scope="row"><span class="sys-dot sys-cent"></span>Centrifugo</th>
+            <td><span class="medal medal-3">3</span><span class="medal-num">18.87 ms</span></td>
+            <td><span class="medal medal-3">3</span><span class="medal-num">148.24 ms</span></td>
+            <td><span class="medal medal-3">3</span><span class="medal-num">63.4 µs</span></td>
+            <td><span class="medal medal-2">2</span><span class="medal-num">24.8 k/s</span></td>
+          </tr>
+          <tr class="score-row">
+            <th scope="row"><span class="sys-dot sys-sio"></span>Socket.IO</th>
+            <td><span class="medal medal-4">4</span><span class="medal-num">186.91 ms</span></td>
+            <td><span class="medal medal-4">4</span><span class="medal-num">2 130 ms</span></td>
+            <td><span class="medal medal-4">4</span><span class="medal-num">113.7 µs</span></td>
+            <td><span class="medal medal-4">4</span><span class="medal-num">182 /s</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="score-note">
+      With jemalloc as the allocator, mtwRequest takes <strong>gold in every
+      scenario</strong>. NATS — the purpose‑built pub/sub reference — is
+      silver in three of four. The margin in echo RTT is 0.4 µs (effectively
+      a tie); in fanout and connect mtwRequest is clearly ahead.
+    </p>
+  </div>
+</section>
+
+<hr class="section-rule">
+
+<!-- ─────────── §2 Fanout ─────────── -->
+<section class="section fanout" id="fanout">
+  <div class="container">
+    <header class="section-head">
+      <span class="section-num">§2</span>
+      <h2 class="section-title">Fanout <em>one publisher, many subscribers</em></h2>
+      <p class="section-sub">The headline scenario. A publisher writes one message; N subscribers each receive it. Measured from publisher‑side timestamp to subscriber‑side receive — lower is better.</p>
+    </header>
+
+    <div class="fanout-toolbar">
+      <div class="toggle-group" role="tablist" aria-label="Fanout subscriber count">
+        <button class="toggle active" role="tab" aria-selected="true" data-subs="50">
+          <span class="toggle-num">50</span>
+          <span class="toggle-unit">subscribers</span>
+        </button>
+        <button class="toggle" role="tab" aria-selected="false" data-subs="500">
+          <span class="toggle-num">500</span>
+          <span class="toggle-unit">subscribers</span>
+        </button>
+      </div>
+      <div class="scale-group" role="tablist" aria-label="Y‑axis scale">
+        <button class="scale active" role="tab" aria-selected="true" data-scale="linear">Linear</button>
+        <button class="scale" role="tab" aria-selected="false" data-scale="log">Log</button>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-head">
+        <div>
+          <div class="chart-eyebrow">Latency distribution</div>
+          <div class="chart-title" id="fanout-title">p50 &amp; p99 latency · 50 subscribers · lower is better</div>
+        </div>
+        <div class="chart-legend" id="fanout-legend">
+          <span class="legend-item"><i class="legend-dot" style="background:var(--mtw)"></i>mtwRequest</span>
+          <span class="legend-item"><i class="legend-dot" style="background:var(--nats)"></i>NATS</span>
+          <span class="legend-item"><i class="legend-dot" style="background:var(--cent)"></i>Centrifugo</span>
+          <span class="legend-item"><i class="legend-dot" style="background:var(--sio)"></i>Socket.IO</span>
+        </div>
+      </div>
+      <div class="chart-body" id="chart-fanout"></div>
+      <div class="chart-footnote" id="fanout-footnote">
+        At 500 subscribers Socket.IO reaches <span class="mono">2 130 ms</span> — literally off‑chart for a real‑time system.
+      </div>
+    </div>
+
+    <div class="callout-row">
+      <div class="callout">
+        <div class="callout-eyebrow">Throughput · deliveries per second</div>
+        <div class="callout-bars">
+          <div class="cb-row">
+            <span class="cb-name">mtwRequest</span>
+            <div class="cb-bar"><div class="cb-fill" style="--w: 18.7%; --c: var(--mtw)"></div></div>
+            <span class="cb-val mono">249.3 M/s</span>
+          </div>
+          <div class="cb-row">
+            <span class="cb-name">NATS</span>
+            <div class="cb-bar"><div class="cb-fill" style="--w: 100%; --c: var(--nats)"></div></div>
+            <span class="cb-val mono">1 329.2 M/s</span>
+          </div>
+          <div class="cb-row">
+            <span class="cb-name">Centrifugo</span>
+            <div class="cb-bar"><div class="cb-fill" style="--w: 11.2%; --c: var(--cent)"></div></div>
+            <span class="cb-val mono">148.8 M/s</span>
+          </div>
+          <div class="cb-row">
+            <span class="cb-name">Socket.IO</span>
+            <div class="cb-bar"><div class="cb-fill" style="--w: 0.9%; --c: var(--sio)"></div></div>
+            <span class="cb-val mono">11.9 M/s</span>
+          </div>
+        </div>
+        <p class="callout-note">
+          500 subscribers · raw delivery rate. NATS dominates here: TCP‑only
+          protocol, no WebSocket framing. It's a structural ceiling we don't
+          try to cross.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="section-rule">
+
+<!-- ─────────── §3 Echo + Connect ─────────── -->
+<section class="section echo-connect" id="echo-connect">
+  <div class="container">
+    <header class="section-head">
+      <span class="section-num">§3</span>
+      <h2 class="section-title">Echo <em>round‑trip</em> &amp; Connect <em>storm</em></h2>
+      <p class="section-sub">Round‑trip latency (ping → pong) and concurrent connection establishment. The other half of any real‑time workload.</p>
+    </header>
+
+    <div class="dual-chart">
+      <div class="chart-card">
+        <div class="chart-head">
+          <div>
+            <div class="chart-eyebrow">Echo · round‑trip</div>
+            <div class="chart-title">p50 &amp; p99 RTT · lower is better</div>
+          </div>
+        </div>
+        <div class="chart-body" id="chart-echo"></div>
+        <div class="chart-footnote">
+          mtwRequest and NATS are tied on RTT p50 within 0.4 µs. On p99 NATS is <span class="mono">8 µs</span> ahead — the last slice of tail latency where raw TCP still wins.
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-head">
+          <div>
+            <div class="chart-eyebrow">Connect storm · 200 concurrent</div>
+            <div class="chart-title">handshakes per second · higher is better</div>
+          </div>
+        </div>
+        <div class="chart-body" id="chart-connect"></div>
+        <div class="chart-footnote">
+          mtwRequest completes <span class="mono">2.0×</span> more handshakes/second than Centrifugo, <span class="mono">2.7×</span> more than NATS, <span class="mono">267×</span> more than Socket.IO.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="section-rule">
+
+<!-- ─────────── §4 Journey ─────────── -->
+<section class="section journey" id="journey">
+  <div class="container">
+    <header class="section-head">
+      <span class="section-num">§4</span>
+      <h2 class="section-title">The optimization <em>journey</em></h2>
+      <p class="section-sub">mtwRequest's fanout‑500‑subs p50 dropped from 418.9 ms to 64.5 ms across six versions. Each version is a targeted change in the hot path.</p>
+    </header>
+
+    <div class="journey-grid">
+      <div class="chart-card journey-chart-card">
+        <div class="chart-head">
+          <div>
+            <div class="chart-eyebrow">Fanout 500 subs · p50 latency over versions</div>
+            <div class="chart-title">Every change explained below. Hover for details.</div>
+          </div>
+        </div>
+        <div class="chart-body" id="chart-journey"></div>
+      </div>
+
+      <aside class="journey-callout">
+        <div class="callout-eyebrow">Net result</div>
+        <div class="callout-huge">
+          <span class="callout-huge-main" data-count="6.5" data-decimals="1" data-suffix="×">0.0×</span>
+          <span class="callout-huge-label">faster vs&nbsp;v0</span>
+        </div>
+        <dl class="journey-dl">
+          <dt>from</dt><dd class="mono">418.9 ms</dd>
+          <dt>to</dt><dd class="mono mtw">64.5 ms</dd>
+          <dt>delta</dt><dd class="mono">−354.4 ms</dd>
+        </dl>
+      </aside>
+    </div>
+
+    <ol class="journey-log">
+      <li>
+        <span class="jlog-tag">v1</span>
+        <span class="jlog-ms mono">282.3 ms</span>
+        <p class="jlog-desc"><strong>Encode‑once.</strong> <code>SharedEnvelope</code> lazily caches the wire bytes for each wire format. Fanout to N subscribers now serializes the message exactly once.</p>
+      </li>
+      <li>
+        <span class="jlog-tag">v2</span>
+        <span class="jlog-ms mono">130.7 ms</span>
+        <p class="jlog-desc"><strong>Direct‑sink + ArcSwap.</strong> Publish delivers straight into each connection's writer queue — no central forwarder. Subscriber list becomes a lock‑free atomic snapshot.</p>
+      </li>
+      <li>
+        <span class="jlog-tag">v3</span>
+        <span class="jlog-ms mono">169.0 ms</span>
+        <p class="jlog-desc"><strong>ConnTarget cache.</strong> Each subscriber resolves its writer handle once at subscribe time. Zero DashMap lookups on the hot path. <em>(Apparent regression was run‑to‑run noise.)</em></p>
+      </li>
+      <li>
+        <span class="jlog-tag">v4</span>
+        <span class="jlog-ms mono">107.0 ms</span>
+        <p class="jlog-desc"><strong>Write batching.</strong> Per‑connection writer does <code>feed</code> then one <code>flush</code> per burst. TCP syscalls drop by 10×.</p>
+      </li>
+      <li class="final">
+        <span class="jlog-tag">v5</span>
+        <span class="jlog-ms mono">64.5 ms</span>
+        <p class="jlog-desc"><strong>Zero‑copy text path.</strong> Upgrade to tokio‑tungstenite 0.29 and wrap cached <code>Bytes</code> as <code>Utf8Bytes</code> via an <code>unsafe</code> zero‑copy cast. Goodbye to one heap allocation per delivery.</p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<hr class="section-rule">
+
+<!-- ─────────── §5 Method ─────────── -->
+<section class="section method" id="method">
+  <div class="container">
+    <header class="section-head">
+      <span class="section-num">§5</span>
+      <h2 class="section-title">Method <em>the honest part</em></h2>
+      <p class="section-sub">Benchmarks lie by omission more often than by malice. Here are the conditions, so you can judge.</p>
+    </header>
+
+    <dl class="method-dl">
+      <div class="method-row">
+        <dt>Topology</dt>
+        <dd>Same host. Publisher, subscribers, and server on one machine. Relative numbers only — don't extrapolate to distributed deployments.</dd>
+      </div>
+      <div class="method-row">
+        <dt>Resource caps</dt>
+        <dd>Every competitor runs in Docker with <span class="mono">cpus: 2.0</span> and <span class="mono">mem_limit: 2g</span>. mtwRequest runs natively at equivalent concurrency.</dd>
+      </div>
+      <div class="method-row">
+        <dt>Histograms</dt>
+        <dd>HdrHistogram, 3 significant figures, 1 ns – 60 s range. Warm‑up phase excluded.</dd>
+      </div>
+      <div class="method-row">
+        <dt>Payload</dt>
+        <dd>128 bytes, with a 16‑byte u128 nanosecond timestamp in the leading bytes. Subscribers compute <span class="mono">now − sent</span> on receive.</dd>
+      </div>
+      <div class="method-row">
+        <dt>Isolation</dt>
+        <dd>The publisher never subscribes to the channel it publishes on — no self‑delivery is counted.</dd>
+      </div>
+      <div class="method-row">
+        <dt>Code</dt>
+        <dd><span class="mono">bench-suite/</span> is a reproducible Rust workspace with a runner, per‑system clients, and docker‑compose for the competitors.</dd>
+      </div>
+    </dl>
+  </div>
+</section>
+
+<hr class="section-rule">
+
+<!-- ─────────── Footer ─────────── -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <div class="footer-mark">m/</div>
+        <p>mtwRequest is a modular real‑time framework in Rust. One core for WebSocket, HTTP, AI agents, auth, trading, and MCP.</p>
+      </div>
+
+      <div class="footer-reproduce">
+        <div class="fr-label">Reproduce this report</div>
+        <pre class="fr-code"><code><span class="fr-comment"># 1. Spin up competitors</span>
+<span class="fr-cmd">cd</span> bench-suite
+<span class="fr-cmd">docker compose up</span> -d
+
+<span class="fr-comment"># 2. Build + run full matrix</span>
+./bench
+
+<span class="fr-comment"># 3. Inspect</span>
+<span class="fr-cmd">cat</span> results/*/summary.md</code></pre>
+      </div>
+
+      <div class="footer-links">
+        <div class="fl-label">Links</div>
+        <a href="https://github.com/fastslack/mtwRequest">Source · GitHub</a>
+        <a href="https://github.com/fastslack/mtwRequest/tree/main/bench-suite">bench‑suite/</a>
+        <a href="https://github.com/fastslack/mtwRequest/issues">Issues</a>
+      </div>
+    </div>
+
+    <div class="footer-base">
+      <div class="footer-colophon">
+        Built with <span class="rust">Rust</span> · tokio · tungstenite · ApexCharts
+      </div>
+      <div class="footer-copy">© mtwRequest · Apache 2.0</div>
+    </div>
+  </div>
+</footer>
+
+</main>
+
+</body>
+</html>
