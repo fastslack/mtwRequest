@@ -15,6 +15,13 @@ use mtw_transport::{ws::WebSocketTransport, MtwTransport};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+// jemalloc keeps allocation latency more predictable under burst patterns —
+// critical for the p99 tail in the echo scenario where a single slow alloc
+// shifts the tail by hundreds of µs.
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()

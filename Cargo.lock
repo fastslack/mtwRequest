@@ -1775,7 +1775,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-mcp"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "mtw-ai",
  "mtw-core",
@@ -1809,6 +1809,7 @@ version = "0.2.0"
 dependencies = [
  "base64",
  "bytes",
+ "rmp-serde",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -1998,6 +1999,7 @@ dependencies = [
  "mtw-codec",
  "mtw-core",
  "mtw-protocol",
+ "rmp-serde",
  "serde",
  "serde_json",
  "thiserror 2.0.18",

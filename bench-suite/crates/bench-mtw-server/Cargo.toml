@@ -26,3 +26,7 @@ mtw-transport = { workspace = true }
 mtw-router = { workspace = true }
 
 pprof = { version = "0.13", features = ["flamegraph"], optional = true }
+# jemalloc: lower p99 jitter vs system malloc under burst allocation patterns
+# (typical in broadcast fan-out). One-line swap of the global allocator.
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = "0.6"
