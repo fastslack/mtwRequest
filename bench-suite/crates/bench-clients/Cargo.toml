@@ -21,5 +21,6 @@ tokio-tungstenite = { workspace = true }
 rust_socketio = { workspace = true }
 async-nats = { workspace = true }
 base64 = "0.22"
+rmp-serde = "1"
 
 mtw-protocol = { workspace = true }

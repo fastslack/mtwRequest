@@ -19,16 +19,20 @@ use std::sync::{Arc, OnceLock};
 
 /// A message wrapped for broadcast, with lazily-cached wire encodings.
 ///
-/// Both `text` and `binary` caches are backed by `bytes::Bytes` so every
-/// subscriber's delivery gets a refcounted clone — O(1), no allocation,
-/// no memcpy. The per-delivery cost in the publisher hot path drops to
-/// a single atomic bump + one `mpsc::send`.
+/// All three wire forms are backed by `bytes::Bytes` so every subscriber's
+/// delivery gets a refcounted clone — O(1), no allocation, no memcpy.
+/// Each cache is independent: a channel whose subscribers all speak JSON
+/// never pays for MsgPack framing, and vice versa.
 pub struct SharedEnvelope {
     pub message: MtwMessage,
     /// Cached JSON bytes (UTF-8 guaranteed by `serde_json`).
     text: OnceLock<Bytes>,
     /// Cached MTW binary frame bytes.
     binary: OnceLock<Bytes>,
+    /// Cached MsgPack bytes (via `rmp-serde`). ~40-50 % smaller than JSON
+    /// and significantly faster to encode/decode — the wire format used
+    /// when a client negotiates `Sec-WebSocket-Protocol: mtw.msgpack.v1`.
+    msgpack: OnceLock<Bytes>,
 }
 
 impl SharedEnvelope {
@@ -37,6 +41,7 @@ impl SharedEnvelope {
             message,
             text: OnceLock::new(),
             binary: OnceLock::new(),
+            msgpack: OnceLock::new(),
         }
     }
 
@@ -66,6 +71,19 @@ impl SharedEnvelope {
     pub fn binary(&self) -> Bytes {
         self.binary
             .get_or_init(|| Frame::encode_message(&self.message).unwrap_or_default())
+            .clone()
+    }
+
+    /// MsgPack-encoded bytes. About 40-50 % smaller than JSON and
+    /// ~3× faster to encode thanks to native-typed integers and strings.
+    /// Sent on the wire as a WebSocket binary frame.
+    pub fn msgpack(&self) -> Bytes {
+        self.msgpack
+            .get_or_init(|| {
+                rmp_serde::to_vec_named(&self.message)
+                    .map(Bytes::from)
+                    .unwrap_or_default()
+            })
             .clone()
     }
 }

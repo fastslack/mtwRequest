@@ -11,13 +11,18 @@ use mtw_protocol::{
     Payload, SharedEnvelope, TransportEvent,
 };
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
+use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tokio_tungstenite::tungstenite::protocol::frame::Utf8Bytes;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 use crate::MtwTransport;
+
+/// WebSocket subprotocol advertised by MsgPack-capable clients.
+const SUBPROTOCOL_MSGPACK: &str = "mtw.msgpack.v1";
 
 /// Wrap a `SharedEnvelope`'s cached JSON bytes into `Utf8Bytes` without
 /// re-validating UTF-8. Safe because `serde_json::to_vec` always emits
@@ -39,8 +44,13 @@ pub struct WebSocketTransport {
     ping_interval: u64,
     /// Active connections: conn_id -> sender
     connections: Arc<DashMap<ConnId, WsSender>>,
-    /// Connections using binary frame protocol (vs JSON text)
+    /// Connections using the MTW binary frame protocol (vs JSON text).
+    /// Mutually exclusive with `msgpack_connections`.
     binary_connections: Arc<DashMap<ConnId, ()>>,
+    /// Connections that negotiated the `mtw.msgpack.v1` subprotocol.
+    /// Sent/received as WebSocket binary frames whose payload is a
+    /// MsgPack-encoded `MtwMessage`.
+    msgpack_connections: Arc<DashMap<ConnId, ()>>,
     /// Event channel
     event_tx: mpsc::UnboundedSender<TransportEvent>,
     event_rx: Option<mpsc::UnboundedReceiver<TransportEvent>>,
@@ -58,6 +68,7 @@ impl WebSocketTransport {
             ping_interval,
             connections: Arc::new(DashMap::new()),
             binary_connections: Arc::new(DashMap::new()),
+            msgpack_connections: Arc::new(DashMap::new()),
             event_tx,
             event_rx: Some(event_rx),
             codec: Arc::new(JsonCodec),
@@ -71,12 +82,42 @@ impl WebSocketTransport {
         addr: SocketAddr,
         connections: Arc<DashMap<ConnId, WsSender>>,
         binary_connections: Arc<DashMap<ConnId, ()>>,
+        msgpack_connections: Arc<DashMap<ConnId, ()>>,
         event_tx: mpsc::UnboundedSender<TransportEvent>,
         codec: Arc<dyn MtwCodec>,
         ping_interval: u64,
         mut shutdown_rx: tokio::sync::broadcast::Receiver<()>,
     ) {
-        let ws_stream = match tokio_tungstenite::accept_async(stream).await {
+        // Shared flag the subprotocol callback toggles on if the client
+        // advertised `Sec-WebSocket-Protocol: mtw.msgpack.v1`. After the
+        // handshake we read it back to route this conn through the
+        // MsgPack code path.
+        let msgpack_flag = Arc::new(AtomicBool::new(false));
+        let cb_flag = msgpack_flag.clone();
+
+        let callback =
+            move |req: &Request, mut resp: Response| -> Result<Response, ErrorResponse> {
+                // The header is a comma‑separated list of preferences; pick
+                // `mtw.msgpack.v1` if offered, fall back to default (JSON text)
+                // otherwise. Clients that don't send the header stay on JSON.
+                let wants_msgpack = req
+                    .headers()
+                    .get_all("Sec-WebSocket-Protocol")
+                    .iter()
+                    .filter_map(|h| h.to_str().ok())
+                    .flat_map(|s| s.split(','))
+                    .any(|p| p.trim() == SUBPROTOCOL_MSGPACK);
+                if wants_msgpack {
+                    cb_flag.store(true, Ordering::Relaxed);
+                    resp.headers_mut().insert(
+                        "Sec-WebSocket-Protocol",
+                        SUBPROTOCOL_MSGPACK.parse().unwrap(),
+                    );
+                }
+                Ok(resp)
+            };
+
+        let ws_stream = match tokio_tungstenite::accept_hdr_async(stream, callback).await {
             Ok(ws) => ws,
             Err(e) => {
                 tracing::error!(addr = %addr, error = %e, "websocket handshake failed");
@@ -84,12 +125,17 @@ impl WebSocketTransport {
             }
         };
 
+        let negotiated_msgpack = msgpack_flag.load(Ordering::Relaxed);
+
         let conn_id = ulid::Ulid::new().to_string();
         let (mut ws_sink, mut ws_stream_rx) = ws_stream.split();
 
         // Create a channel to send messages to this connection
         let (conn_tx, mut conn_rx) = mpsc::unbounded_channel::<WsMessage>();
         connections.insert(conn_id.clone(), conn_tx);
+        if negotiated_msgpack {
+            msgpack_connections.insert(conn_id.clone(), ());
+        }
 
         // Notify: connected
         let meta = ConnMetadata {
@@ -104,12 +150,21 @@ impl WebSocketTransport {
         };
         let _ = event_tx.send(TransportEvent::Connected(conn_id.clone(), meta));
 
-        // Send connect acknowledgment
-        let ack = MtwMessage::new(MsgType::Ack, Payload::Json(serde_json::json!({
-            "conn_id": conn_id,
-        })));
-        if let Ok(encoded) = codec.encode(&ack) {
-            let _ = ws_sink.send(WsMessage::Text(String::from_utf8(encoded.to_vec()).unwrap_or_default().into())).await;
+        // Send connect acknowledgment in the negotiated format.
+        let ack = MtwMessage::new(
+            MsgType::Ack,
+            Payload::Json(serde_json::json!({ "conn_id": conn_id })),
+        );
+        if negotiated_msgpack {
+            if let Ok(encoded) = rmp_serde::to_vec_named(&ack) {
+                let _ = ws_sink.send(WsMessage::Binary(encoded.into())).await;
+            }
+        } else if let Ok(encoded) = codec.encode(&ack) {
+            let _ = ws_sink
+                .send(WsMessage::Text(
+                    String::from_utf8(encoded.to_vec()).unwrap_or_default().into(),
+                ))
+                .await;
         }
 
         // Spawn task to forward messages from channel to WebSocket sink.
@@ -187,6 +242,26 @@ impl WebSocketTransport {
                             }
                         }
                         Some(Ok(WsMessage::Binary(data))) => {
+                            // MsgPack-negotiated connections carry the entire
+                            // MtwMessage as a bare MsgPack object in the WS
+                            // binary frame (no MTW Frame wrapper).
+                            if negotiated_msgpack {
+                                match rmp_serde::from_slice::<MtwMessage>(&data) {
+                                    Ok(mtw_msg) => {
+                                        let _ = event_tx.send(TransportEvent::Message(
+                                            conn_id.clone(),
+                                            mtw_msg,
+                                        ));
+                                    }
+                                    Err(e) => {
+                                        let _ = event_tx.send(TransportEvent::Error(
+                                            conn_id.clone(),
+                                            format!("msgpack decode error: {}", e),
+                                        ));
+                                    }
+                                }
+                                continue;
+                            }
                             let bytes = Bytes::from(data.to_vec());
                             match Frame::decode(bytes.clone()) {
                                 Ok((FrameType::Json, payload)) => {
@@ -251,6 +326,7 @@ impl WebSocketTransport {
         write_handle.abort();
         connections.remove(&conn_id);
         binary_connections.remove(&conn_id);
+        msgpack_connections.remove(&conn_id);
 
         let _ = event_tx.send(TransportEvent::Disconnected(
             conn_id.clone(),
@@ -277,6 +353,7 @@ impl MtwTransport for WebSocketTransport {
 
         let connections = self.connections.clone();
         let binary_connections = self.binary_connections.clone();
+        let msgpack_connections = self.msgpack_connections.clone();
         let event_tx = self.event_tx.clone();
         let codec = self.codec.clone();
         let ping_interval = self.ping_interval;
@@ -294,6 +371,7 @@ impl MtwTransport for WebSocketTransport {
                             addr,
                             connections.clone(),
                             binary_connections.clone(),
+                            msgpack_connections.clone(),
                             event_tx.clone(),
                             codec.clone(),
                             ping_interval,
@@ -311,7 +389,11 @@ impl MtwTransport for WebSocketTransport {
     }
 
     async fn send(&self, conn_id: &ConnId, msg: MtwMessage) -> Result<(), MtwError> {
-        let ws_msg = if self.binary_connections.contains_key(conn_id) {
+        let ws_msg = if self.msgpack_connections.contains_key(conn_id) {
+            let encoded = rmp_serde::to_vec_named(&msg)
+                .map_err(|e| MtwError::Transport(format!("msgpack encode error: {}", e)))?;
+            WsMessage::Binary(encoded.into())
+        } else if self.binary_connections.contains_key(conn_id) {
             let frame = Frame::encode_message(&msg)
                 .map_err(|e| MtwError::Transport(format!("frame encode error: {}", e)))?;
             WsMessage::Binary(frame)
@@ -335,9 +417,11 @@ impl MtwTransport for WebSocketTransport {
         conn_id: &ConnId,
         envelope: std::sync::Arc<mtw_protocol::SharedEnvelope>,
     ) -> Result<(), MtwError> {
-        // Hot-path fanout: zero JSON/frame encoding per subscriber — just a
-        // `Bytes` refcount bump (binary) or a zero-copy Utf8Bytes wrap (text).
-        let ws_msg = if self.binary_connections.contains_key(conn_id) {
+        // Hot-path fanout: zero encoding per subscriber — just a `Bytes`
+        // refcount bump (binary/msgpack) or a zero-copy Utf8Bytes wrap (text).
+        let ws_msg = if self.msgpack_connections.contains_key(conn_id) {
+            WsMessage::Binary(envelope.msgpack())
+        } else if self.binary_connections.contains_key(conn_id) {
             WsMessage::Binary(envelope.binary())
         } else {
             WsMessage::Text(envelope_text_utf8(&envelope))
@@ -425,17 +509,31 @@ impl MtwTransport for WebSocketTransport {
 /// Pre-bound delivery handle resolved at subscribe time. The writer mpsc
 /// and the wire-format flag are captured once, so every broadcast avoids
 /// any conn-id lookup.
+/// Wire format resolved at subscribe time. Captured once so the broadcast
+/// hot path picks the right cached bytes without a DashMap lookup.
+#[derive(Clone, Copy)]
+enum WireFormat {
+    /// Plain JSON sent as a WebSocket text frame. Default.
+    JsonText,
+    /// MTW `Frame`‑wrapped JSON sent as a WebSocket binary frame. Used by
+    /// clients that opted into the legacy binary framing.
+    MtwBinary,
+    /// MsgPack body sent as a WebSocket binary frame. Negotiated via the
+    /// `mtw.msgpack.v1` subprotocol.
+    MsgPack,
+}
+
 struct WsConnTarget {
     sender: mpsc::UnboundedSender<WsMessage>,
-    is_binary: bool,
+    format: WireFormat,
 }
 
 impl ConnTarget for WsConnTarget {
     fn deliver(&self, envelope: &Arc<SharedEnvelope>) {
-        let ws_msg = if self.is_binary {
-            WsMessage::Binary(envelope.binary())
-        } else {
-            WsMessage::Text(envelope_text_utf8(envelope))
+        let ws_msg = match self.format {
+            WireFormat::MsgPack => WsMessage::Binary(envelope.msgpack()),
+            WireFormat::MtwBinary => WsMessage::Binary(envelope.binary()),
+            WireFormat::JsonText => WsMessage::Text(envelope_text_utf8(envelope)),
         };
         let _ = self.sender.send(ws_msg);
     }
@@ -447,7 +545,9 @@ impl ConnTarget for WsConnTarget {
 /// a conn-id lookup after that.
 impl EnvelopeSink for WebSocketTransport {
     fn deliver(&self, conn_id: &ConnId, envelope: &Arc<SharedEnvelope>) {
-        let ws_msg = if self.binary_connections.contains_key(conn_id) {
+        let ws_msg = if self.msgpack_connections.contains_key(conn_id) {
+            WsMessage::Binary(envelope.msgpack())
+        } else if self.binary_connections.contains_key(conn_id) {
             WsMessage::Binary(envelope.binary())
         } else {
             WsMessage::Text(envelope_text_utf8(envelope))
@@ -459,8 +559,14 @@ impl EnvelopeSink for WebSocketTransport {
 
     fn resolve(&self, conn_id: &ConnId) -> Option<Arc<dyn ConnTarget>> {
         let sender = self.connections.get(conn_id)?.clone();
-        let is_binary = self.binary_connections.contains_key(conn_id);
-        Some(Arc::new(WsConnTarget { sender, is_binary }))
+        let format = if self.msgpack_connections.contains_key(conn_id) {
+            WireFormat::MsgPack
+        } else if self.binary_connections.contains_key(conn_id) {
+            WireFormat::MtwBinary
+        } else {
+            WireFormat::JsonText
+        };
+        Some(Arc::new(WsConnTarget { sender, format }))
     }
 }
 
