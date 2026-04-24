@@ -1177,6 +1177,129 @@ main {
   .journey-log li strong { margin-top: 6px; }
 }
 
+/* ── Wire format (§5) ──────────────────────────────────────────── */
+
+.wire-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-bottom: 28px;
+}
+
+@media (max-width: 760px) {
+  .wire-grid { grid-template-columns: 1fr; }
+}
+
+.wire-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px 28px 24px;
+  position: relative;
+  overflow: hidden;
+}
+
+.wire-card-accent {
+  background: linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%);
+  border-color: var(--border-2);
+}
+
+.wire-card-accent::before {
+  content: "";
+  position: absolute;
+  top: -80px;
+  right: -80px;
+  width: 280px;
+  height: 280px;
+  background: radial-gradient(circle, var(--mtw-glow) 0%, transparent 65%);
+  pointer-events: none;
+}
+
+.wire-compare {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 16px;
+  align-items: center;
+  margin-top: 20px;
+  position: relative;
+}
+
+.wc-side {
+  text-align: center;
+  padding: 14px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.wc-winner {
+  border-color: var(--mtw-deep);
+  background: var(--mtw-wash);
+}
+
+.wc-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ink-4);
+  margin-bottom: 8px;
+}
+
+.wc-winner .wc-label {
+  color: var(--mtw);
+}
+
+.wc-value {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 1.5rem;
+  font-weight: 500;
+  color: var(--ink-2);
+  letter-spacing: -0.02em;
+}
+
+.wc-winner .wc-value {
+  color: var(--mtw);
+}
+
+.wc-arrow {
+  font-family: "Instrument Serif", serif;
+  font-size: 1.75rem;
+  color: var(--ink-4);
+  font-style: italic;
+  padding: 0 6px;
+}
+
+.wire-delta {
+  margin-top: 20px;
+  text-align: center;
+  font-family: "Instrument Serif", serif;
+  font-style: italic;
+  font-size: 1.125rem;
+  color: var(--ink-2);
+  letter-spacing: -0.01em;
+  padding-top: 18px;
+  border-top: 1px dashed var(--border-2);
+}
+
+.wire-delta-big {
+  font-size: 1.625rem;
+  color: var(--mtw);
+}
+
+.wire-note {
+  margin-top: 18px;
+  font-size: 0.9375rem;
+  color: var(--ink-2);
+  line-height: 1.65;
+  max-width: 760px;
+}
+
+.wire-note strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
 /* ── Method ────────────────────────────────────────────────────── */
 
 .method-dl {

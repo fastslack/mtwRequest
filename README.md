@@ -472,6 +472,29 @@ xychart-beta
 | connect · p50 | **0.53 ms** | 1.61 ms | 1.34 ms | 158.99 ms |
 | connect · rate | **48.6 k/s** | 18.1 k/s | 24.8 k/s | 182 /s |
 
+### Wire format · JSON (default) vs MsgPack (opt-in)
+
+Clients can opt into a binary wire format by advertising
+`Sec-WebSocket-Protocol: mtw.msgpack.v1` in the WebSocket handshake.
+Server-side this routes the connection through a cached MsgPack path
+on the `SharedEnvelope`; bytes on the wire are ~50 % smaller and
+per-message CPU is lower. Measured across **10 alternating runs**
+of fanout 500 subs × 1000 msgs (each label shows median / IQR):
+
+| metric | JSON | MsgPack | delta |
+|---|---:|---:|---:|
+| p50 median | 54.14 ms | **44.65 ms** | −17.5 % |
+| p99 median | 86.97 ms | **79.30 ms** | −8.8 % |
+| **p99 IQR** | 24.45 ms | **5.17 ms** | **4.7× tighter** |
+
+The headline isn't the 17 % median improvement — it's the **4.7× tighter
+p99 distribution**. MsgPack's tail is predictable where JSON's isn't. For
+real-time systems that ship SLAs, tail predictability is what matters.
+
+All benchmark charts above use JSON — the default — so they compare fairly
+against NATS / Centrifugo / Socket.IO which don't offer a binary option
+of their own. MsgPack is there when every millisecond of tail counts.
+
 ### Caveats
 
 - **Same-host benchmark** — relative numbers only. Don't extrapolate to distributed deployments.

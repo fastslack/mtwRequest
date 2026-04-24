@@ -41,6 +41,7 @@
     <a href="#fanout">Fanout</a>
     <a href="#echo-connect">Echo · Connect</a>
     <a href="#journey">Journey</a>
+    <a href="#wire">Wire format</a>
     <a href="#method">Method</a>
   </nav>
   <a class="nav-cta" href="https://github.com/fastslack/mtwRequest">
@@ -359,11 +360,68 @@
 
 <hr class="section-rule">
 
-<!-- ─────────── §5 Method ─────────── -->
-<section class="section method" id="method">
+<!-- ─────────── §5 Wire format ─────────── -->
+<section class="section wire" id="wire">
   <div class="container">
     <header class="section-head">
       <span class="section-num">§5</span>
+      <h2 class="section-title">Wire format <em>JSON (default) vs MsgPack (opt-in)</em></h2>
+      <p class="section-sub">Clients can negotiate a binary wire format by advertising <span class="mono">Sec-WebSocket-Protocol: mtw.msgpack.v1</span> at handshake. Measured over 10 alternating runs of fanout 500 subs × 1000 msgs.</p>
+    </header>
+
+    <div class="wire-grid">
+      <div class="wire-card">
+        <div class="callout-eyebrow">p50 median</div>
+        <div class="wire-compare">
+          <div class="wc-side">
+            <div class="wc-label">JSON</div>
+            <div class="wc-value mono">54.14 ms</div>
+          </div>
+          <div class="wc-arrow">→</div>
+          <div class="wc-side wc-winner">
+            <div class="wc-label">MsgPack</div>
+            <div class="wc-value mono">44.65 ms</div>
+          </div>
+        </div>
+        <div class="wire-delta">−17.5 % faster</div>
+      </div>
+
+      <div class="wire-card wire-card-accent">
+        <div class="callout-eyebrow">p99 tail predictability · IQR</div>
+        <div class="wire-compare">
+          <div class="wc-side">
+            <div class="wc-label">JSON</div>
+            <div class="wc-value mono">24.45 ms</div>
+          </div>
+          <div class="wc-arrow">→</div>
+          <div class="wc-side wc-winner">
+            <div class="wc-label">MsgPack</div>
+            <div class="wc-value mono">5.17 ms</div>
+          </div>
+        </div>
+        <div class="wire-delta wire-delta-big">4.7× tighter</div>
+      </div>
+    </div>
+
+    <p class="wire-note">
+      The headline isn't the 17 % median improvement — it's the <strong>4.7×
+      tighter p99 distribution</strong>. MsgPack's tail is predictable where
+      JSON's isn't. For real-time systems that ship SLAs, tail
+      predictability is what matters. All charts above use JSON (the
+      default) so the head-to-head vs NATS / Centrifugo / Socket.IO is
+      apples-to-apples; MsgPack is there when every millisecond of tail
+      counts.
+    </p>
+  </div>
+</section>
+
+<hr class="section-rule">
+
+<!-- ─────────── §6 Method ─────────── -->
+<section class="section method" id="method">
+  <div class="container">
+    <header class="section-head">
+      <span class="section-num">§6</span>
       <h2 class="section-title">Method <em>the honest part</em></h2>
       <p class="section-sub">Benchmarks lie by omission more often than by malice. Here are the conditions, so you can judge.</p>
     </header>
