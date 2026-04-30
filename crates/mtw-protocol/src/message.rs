@@ -160,21 +160,24 @@ pub enum MsgType {
 
 /// Message payload variants
 ///
-/// Wire format is `snake_case` (`"none"`, `"text"`, `"json"`, `"binary"`),
-/// but pre-0.2 TS clients still emit `PascalCase` (`"None"`, `"Text"`, `"Json"`,
-/// `"Binary"`). The aliases below let the server keep accepting both shapes
-/// during the rolling client upgrade — drop them once every consumer is on
-/// the snake_case format.
+/// Wire format is **PascalCase** (`"None"`, `"Text"`, `"Json"`, `"Binary"`)
+/// because that's what the @matware/mtw-request-ts-client v0.1.x ships
+/// (kernel-side AND dashboard-side). Switching the server to snake_case
+/// breaks the dashboard silently — the browser decoder drops every frame.
+///
+/// Lowercase aliases are kept for forward-compat: any client that bumps to
+/// the snake_case format keeps working without a server change. Drop the
+/// aliases once every consumer has migrated AND the dashboard is verified.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "data", rename_all = "snake_case")]
+#[serde(tag = "kind", content = "data")]
 pub enum Payload {
-    #[serde(alias = "None")]
+    #[serde(alias = "none")]
     None,
-    #[serde(alias = "Text")]
+    #[serde(alias = "text")]
     Text(String),
-    #[serde(alias = "Json")]
+    #[serde(alias = "json")]
     Json(serde_json::Value),
-    #[serde(alias = "Binary", with = "base64_bytes")]
+    #[serde(alias = "binary", with = "base64_bytes")]
     Binary(Vec<u8>),
 }
 
