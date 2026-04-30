@@ -1,7 +1,11 @@
-//! mtw-mcp — MCP server for Claude Code
+//! mtw-mcp — MCP server for Claude Code.
 //!
-//! Exposes mtwRequest management tools via Model Context Protocol (stdio).
-//! Install in Claude Code: `claude mcp add mtw-mcp -- /path/to/mtw-mcp`
+//! Exposes the mtwRequest agents layer via the Model Context Protocol
+//! (JSON-RPC over stdio). Install with:
+//!   claude mcp add mtw-mcp -- /path/to/mtw-mcp
+//!
+//! The server registers eight tools, all rooted at `mtw_agents_*`. See
+//! `tools.rs` for the full surface.
 
 mod agents_ctx;
 mod protocol;
@@ -30,7 +34,7 @@ async fn main() {
         }
     };
 
-    let mut server = McpServer::new("mtw-request", "0.2.0");
+    let mut server = McpServer::new("mtw-request", env!("CARGO_PKG_VERSION"));
     tools::register_all(&mut server, &ctx);
     server.run().await;
 }

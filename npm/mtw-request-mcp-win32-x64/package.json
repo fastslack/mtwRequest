@@ -1,6 +1,6 @@
 {
   "name": "@matware/mtw-request-mcp-win32-x64",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "mtwRequest MCP binary for win32-x64",
   "license": "Apache-2.0",
   "author": "fastslack",

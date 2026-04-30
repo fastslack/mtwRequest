@@ -31,6 +31,11 @@ pub struct FederationPeer {
     pub sync_errors: u32,
     pub created_at: String,
     pub updated_at: String,
+    /// Hex-encoded iroh `NodeId` (Ed25519 pubkey) of the peer.
+    /// Required when sync is performed over the iroh transport; ignored by the
+    /// HTTP transport (which uses `url`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node_id: Option<String>,
 }
 
 /// Type of change action

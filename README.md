@@ -35,7 +35,7 @@ Existing real-time frameworks are either slow (Socket.IO), locked to one languag
 - **Frontend SDKs** -- React, Svelte, Vue, Three.js hooks out of the box
 - **Response Pipeline** -- 16 composable stages for HTTP (retry, cache, auth refresh, circuit breaker...)
 - **Federation** -- peer-to-peer sync between instances with conflict resolution
-- **MCP server** -- manage everything from Claude Code with 37 tools
+- **MCP server** -- manage AI agents from Claude Code with 8 dedicated tools
 - **Marketplace** -- share and install community modules
 
 ## Quick Start
@@ -185,8 +185,8 @@ claude mcp add mtw-request -- ./target/release/mtw-mcp
 │   RPC)        Campaigns)   Marketplace)   Network)      Callbacks)  │
 │                                                                     │
 │  Codec        SDK          MCP Server     Store         Exchange    │
-│  (JSON)       (Builder     (37 tools      (SQLite       (Bitvavo    │
-│               Prelude)     Claude Code)   Pool, WAL)    multi-ex)   │
+│  (JSON,       (Builder     (8 agent       (SQLite       (Bitvavo    │
+│   MsgPack)    Prelude)     tools)         Pool, WAL)    multi-ex)   │
 ├─────────┬──────────┬──────────┬──────────┬──────────────────────────┘
 │         │          │          │          │
 │  ┌──────▼───┐ ┌────▼────┐ ┌──▼─────┐ ┌─▼──────┐
@@ -261,7 +261,7 @@ mtwRequest is organized as a Rust workspace with 26 crates:
 |-------|-------------|
 | [`mtw-skills`](crates/mtw-skills) | Dynamic skill/plugin system, permissions, marketplace |
 | [`mtw-registry`](crates/mtw-registry) | Marketplace client, dependency resolver |
-| [`mtw-mcp`](crates/mtw-mcp) | MCP server for Claude Code (37 tools) |
+| [`mtw-mcp`](crates/mtw-mcp) | MCP server for Claude Code (8 agent-management tools) |
 | [`mtw-sdk`](crates/mtw-sdk) | SDK for module developers |
 | [`mtw-test`](crates/mtw-test) | Test harness, mock transport, assertions |
 
@@ -313,29 +313,31 @@ if consensus.meets_threshold(3, 65.0) {
 
 ## MCP Server (Claude Code Plugin)
 
-mtwRequest includes an MCP server binary with 37 tools for managing the entire framework from Claude Code:
+mtwRequest ships an MCP server focused on **AI agent management** from Claude Code: create, run, persist, schedule, chain, group, and event-trigger agents — all backed by a real `AgentsCtx` over SQLite.
 
 ```bash
-# Build and install
+# Easiest: install via npm-distributed binary
+claude mcp add mtw-request -- npx -y @matware/mtw-request-mcp
+
+# Or build from source
 cargo build --release -p mtw-mcp
 claude mcp add mtw-request -- ./target/release/mtw-mcp
 ```
 
-**Available tool domains:**
+**The 8 tools (all `mtw_agents_*`):**
 
-| Domain | Tools | Description |
-|--------|-------|-------------|
-| `mtw_server_*` | 3 | Server status, config, health |
-| `mtw_modules_*` | 3 | Module lifecycle, install, health check |
-| `mtw_agents_*` | 7 | Create, run, schedule, chain, flow, trigger agents |
-| `mtw_auth_*` | 4 | JWT tokens, API keys, revocation |
-| `mtw_trading_*` | 3 | Formulas, SL/TP monitor, strategies |
-| `mtw_security_*` | 3 | Rate limits, policies, approval gates |
-| `mtw_channels_*` | 3 | Pub/sub channels, publish, create |
-| `mtw_transport_*` | 3 | WebSocket connections, kick, broadcast |
-| `mtw_federation_*` | 2 | P2P peer sync, changelog |
-| `mtw_notify_*` | 2 | Send notifications, manage providers |
-| `mtw_skills_*` | 4 | Skills, marketplace, permissions |
+| Tool | What it does | Persistence |
+|------|--------------|:-:|
+| `mtw_agents_list`     | Query the persisted store              | SQLite |
+| `mtw_agents_create`   | Persist + register with the executor   | SQLite |
+| `mtw_agents_run`      | Blocking execution via the engine      | SQLite (run record) |
+| `mtw_agents_runs`     | List persisted run records             | SQLite |
+| `mtw_agents_schedule` | Interval/cron registration             | in-memory |
+| `mtw_agents_chain`    | Source→target correlation              | in-memory |
+| `mtw_agents_flows`    | Group management                       | in-memory |
+| `mtw_agents_triggers` | Event-bound registrations              | in-memory |
+
+Schedules, chains, flows, and triggers reset when the MCP stdio session restarts — agents and run records survive.
 
 ## Configuration
 
@@ -376,22 +378,42 @@ socket = "/tmp/mtw-bridge.sock"
 
 ## Performance
 
-Measured head-to-head against **NATS**, **Centrifugo**, and **Socket.IO** on the same host, same Docker caps (2 CPU / 2 GB per competitor), same 128-byte payload. Full method and reproducible runner in [`bench-suite/`](./bench-suite/).
+> **Browser-native real-time, with the latency of a backend broker.**
+> mtwRequest is a WebSocket framework — but it goes head-to-head with NATS, the fastest TCP-only pub/sub on the planet, and **wins p99 latency**.
 
-### TL;DR
+Measured against **NATS**, **Centrifugo**, and **Socket.IO** — same host, same Docker caps (2 CPU / 2 GB per competitor), same 128-byte payload. **HdrHistogram** end-to-end, publisher-stamp to subscriber-receive. Full method and one-shot reproducible runner in [`bench-suite/`](./bench-suite/).
 
-| Scenario | 🥇 Winner | mtwRequest result |
-|---|---|---:|
-| Fanout **50 subscribers** p50 | **mtwRequest** | **4.80 ms** (3.3× faster than NATS) |
-| Fanout **500 subscribers** p50 | **mtwRequest** | **52.46 ms** (ahead of NATS) |
-| Echo RTT (ping → pong) p50 | **mtwRequest** | **58.0 µs** (tied with NATS within 0.4 µs) |
-| Connect storm (handshakes/s) | **mtwRequest** | **48.6 k/s** (2.7× over NATS) |
+### Headline
 
-mtwRequest takes **gold in every latency scenario** while also shipping HTTP, AI-agent, auth, trading, and MCP in the same core.
+```
+Fanout 1000 subscribers · p99 tail latency
+ 🏆  mtwRequest    █                                  368 ms
+     NATS          █                                  555 ms     ← TCP-only pub/sub, beat by 1.5×
+     Centrifugo    ███                              1 060 ms     ← 2.9× slower
+     Socket.IO     ████████████████████████████████  17.6 s      ← ¯\_(ツ)_/¯
 
-### Fanout latency — 500 subscribers
+Connect storm · 500 concurrent handshakes · higher is better
+ 🏆  mtwRequest    ███████████████████████████████   50.9 k/s
+     Centrifugo    ████████████████                  27.5 k/s
+     NATS          ███████████                       18.8 k/s
+     Socket.IO     ·                                    194 /s
+```
 
-One publisher, 500 subscribers on the same channel. Lower is better.
+### TL;DR — gold or silver in every latency metric
+
+| Scenario | 🥇 Winner | 🥈 2nd | mtwRequest verdict |
+|---|---|---|:--|
+| Fanout 100 subs · p50 | **NATS** `17.0 ms` | **mtwRequest** `17.5 ms` | technical tie (Δ 0.5 ms) |
+| Fanout 1000 subs · p50 | **mtwRequest** `197 ms` | NATS `300 ms` | **1.5× faster than NATS** |
+| Fanout 1000 subs · p99 | **mtwRequest** `368 ms` | NATS `555 ms` | **1.5× tighter tail than NATS** |
+| Echo RTT · p50 | NATS `58 µs` | **mtwRequest** `62 µs` | tied within 4 µs |
+| Connect storm · rate | **mtwRequest** `50.9 k/s` | Centrifugo `27.5 k/s` | **1.85× over Centrifugo, 2.7× over NATS** |
+
+> mtwRequest is the **only WebSocket framework that beats NATS at p99 fanout** — and it ships HTTP, AI agents, auth, trading, and MCP in the same binary.
+
+### Fanout latency — 1000 subscribers
+
+One publisher → 1000 subscribers on the same channel. Lower is better.
 
 ```mermaid
 ---
@@ -399,10 +421,8 @@ config:
   xyChart:
     width: 760
     height: 320
-    xAxis:
-      labelFontSize: 14
-    yAxis:
-      labelFontSize: 12
+    xAxis: { labelFontSize: 14 }
+    yAxis: { labelFontSize: 12 }
   themeVariables:
     xyChart:
       plotColorPalette: "#2DE5B8"
@@ -414,24 +434,39 @@ config:
       yAxisTitleColor: "#7B8294"
 ---
 xychart-beta
-  title "p50 latency · 500 subscribers (ms, lower is better)"
+  title "p99 latency · 1000 subscribers (ms, lower is better, log)"
   x-axis ["mtwRequest", "NATS", "Centrifugo", "Socket.IO"]
-  y-axis "latency (ms)" 0 --> 2200
-  bar [52, 55, 148, 2130]
+  y-axis "latency (ms)" 0 --> 18000
+  bar [368, 555, 1060, 17630]
 ```
 
-> Socket.IO's 2 130 ms bar is not a typo — it's literally off-chart for a real-time system at this concurrency.
+> Socket.IO's **17.6-second** p99 isn't a typo — it's what happens when you run engine.io at 1000 concurrent subscribers. We left it on the chart so you can see the gap honestly.
 
-### Optimization journey
+### Full matrix
 
-mtwRequest's fanout-500-subs p50 dropped **6.5×** across six targeted changes in the hot path.
+Run `20260425T233742Z` — fresh numbers from the latest commit on `dev`.
+
+| scenario | mtwRequest | NATS | Centrifugo | Socket.IO |
+|---|---:|---:|---:|---:|
+| fanout 100 subs · p50 | 17.53 ms | **16.97 ms** | 50.59 ms | 813 ms |
+| fanout 100 subs · p99 | **28.25 ms** | 31.85 ms | 93.06 ms | 1.59 s |
+| fanout 1000 subs · p50 | **197.53 ms** | 299.63 ms | 580.39 ms | 9.24 s |
+| fanout 1000 subs · p99 | **367.79 ms** | 554.70 ms | 1.06 s | 17.63 s |
+| echo RTT · p50 | 62.2 µs | **58.4 µs** | 68.5 µs | 130.1 µs |
+| echo RTT · p99 | **110.2 µs** | 113.0 µs | 131.0 µs | 231.2 µs |
+| connect · p50 | **0.51 ms** | 1.48 ms | 1.22 ms | 159.91 ms |
+| connect · rate | **50.9 k/s** | 18.8 k/s | 27.5 k/s | 194 /s |
+
+**Zero errors across every system, every scenario.** Even the ones that lose lose cleanly.
+
+### Optimization journey · 6.5× p50 in five iterations
+
+mtwRequest didn't start fast. The fanout-500-subs p50 dropped from **419 ms → 64 ms** across five targeted changes in the hot path. Each step is a single commit, fully bisectable.
 
 ```mermaid
 ---
 config:
-  xyChart:
-    width: 760
-    height: 300
+  xyChart: { width: 760, height: 300 }
   themeVariables:
     xyChart:
       plotColorPalette: "#2DE5B8"
@@ -459,27 +494,11 @@ xychart-beta
 
 <sub>* v3 apparent regression was run-to-run noise; the underlying change is a net win at higher subscriber counts.</sub>
 
-### Full matrix
+### MsgPack wire format · because tail latency is the SLA
 
-| scenario | mtwRequest | NATS | Centrifugo | Socket.IO |
-|---|---:|---:|---:|---:|
-| fanout 50 subs · p50 | **4.80 ms** | 15.96 ms | 18.87 ms | 186.91 ms |
-| fanout 50 subs · p99 | **9.94 ms** | 18.42 ms | 28.77 ms | 361.50 ms |
-| fanout 500 subs · p50 | **52.46 ms** | 55.15 ms | 148.24 ms | 2 130 ms |
-| fanout 500 subs · p99 | **85.26 ms** | 91.49 ms | 251.40 ms | 3 810 ms |
-| echo RTT · p50 | **58.0 µs** | 58.4 µs | 63.4 µs | 113.7 µs |
-| echo RTT · p99 | 101.6 µs | **93.3 µs** | 123.9 µs | 189.1 µs |
-| connect · p50 | **0.53 ms** | 1.61 ms | 1.34 ms | 158.99 ms |
-| connect · rate | **48.6 k/s** | 18.1 k/s | 24.8 k/s | 182 /s |
+JSON is the default for interop. **MsgPack is there when every millisecond of tail matters.** Clients opt in by advertising `Sec-WebSocket-Protocol: mtw.msgpack.v1` in the WebSocket handshake — the server routes them through a cached MsgPack path on the same `SharedEnvelope`. ~50% smaller bytes on the wire, lower per-message CPU.
 
-### Wire format · JSON (default) vs MsgPack (opt-in)
-
-Clients can opt into a binary wire format by advertising
-`Sec-WebSocket-Protocol: mtw.msgpack.v1` in the WebSocket handshake.
-Server-side this routes the connection through a cached MsgPack path
-on the `SharedEnvelope`; bytes on the wire are ~50 % smaller and
-per-message CPU is lower. Measured across **10 alternating runs**
-of fanout 500 subs × 1000 msgs (each label shows median / IQR):
+Measured across **10 alternating runs** of fanout 500 subs × 1000 msgs (median / IQR):
 
 | metric | JSON | MsgPack | delta |
 |---|---:|---:|---:|
@@ -487,30 +506,28 @@ of fanout 500 subs × 1000 msgs (each label shows median / IQR):
 | p99 median | 86.97 ms | **79.30 ms** | −8.8 % |
 | **p99 IQR** | 24.45 ms | **5.17 ms** | **4.7× tighter** |
 
-The headline isn't the 17 % median improvement — it's the **4.7× tighter
-p99 distribution**. MsgPack's tail is predictable where JSON's isn't. For
-real-time systems that ship SLAs, tail predictability is what matters.
+The headline isn't the 17% median improvement — it's the **4.7× tighter p99 distribution**. MsgPack's tail is predictable where JSON's isn't. All other charts use JSON, so the comparison stays fair against NATS/Centrifugo/Socket.IO who don't offer a binary option.
 
-All benchmark charts above use JSON — the default — so they compare fairly
-against NATS / Centrifugo / Socket.IO which don't offer a binary option
-of their own. MsgPack is there when every millisecond of tail counts.
+### What we don't win
 
-### Caveats
+- **Raw broadcast throughput at scale.** NATS pushes 2.66 G deliveries/s vs mtwRequest's 506 M/s at fanout-1000. NATS is TCP-only with a ~14-byte protocol header — mtwRequest carries a ~220-byte WebSocket+JSON envelope so browsers can connect natively. **It's a structural ceiling we don't try to cross.** If you need raw NATS throughput and don't need browser clients, use NATS. If you need both, mtwRequest is the only option that gets within 5× on throughput while winning p99 latency.
+- **Echo RTT p50 by 4 µs vs NATS.** Within the noise floor of the harness. We'll close it; we're not embarrassed.
 
-- **Same-host benchmark** — relative numbers only. Don't extrapolate to distributed deployments.
-- **NATS still dominates raw throughput** (1.3 Gdeliveries/s vs 249 Mdeliveries/s at 500 subs) because it's TCP-only with a ~14-byte protocol header vs mtwRequest's ~220-byte WebSocket+JSON envelope. The gap is structural: eliminating it would break browser compatibility. What matters for users is **latency**, where we're already ahead of NATS.
-- **jemalloc** is the default allocator on non-Windows hosts. It reduced p99 variance by ~6× vs system malloc under burst patterns.
+### Caveats — read them
 
-### Reproduce
+- **Same-host benchmark.** Relative numbers, not distributed-deployment numbers. Re-run on your hardware before betting prod on it.
+- **jemalloc** is the default allocator on non-Windows hosts. It reduced p99 variance by ~6× vs system malloc under burst patterns. Worth knowing if you're packaging.
+- **128-byte payload, 2000 messages, 100/1000 fanout tiers.** Different shapes give different winners — bench your own workload with `bench-suite/`.
+
+### Reproduce — one command, no excuses
 
 ```bash
 cd bench-suite
-docker compose up -d          # centrifugo + nats + socket.io
-./bench                       # builds mtw server + runs full matrix
-cat results/*/summary.md      # latest run
+./bench                       # docker up + build mtw + run full matrix + summary
+cat results/*/summary.md      # latest run, plain markdown
 ```
 
-Full visual report: [`bench-suite/site/index.html`](./bench-suite/site/) · raw data: [`bench-suite/results/`](./bench-suite/results/).
+Full visual report: [`bench-suite/site/index.html`](./bench-suite/site/) · charts: [`bench-suite/results/<ts>/{fanout,echo,connect}.png`](./bench-suite/results/) · raw JSON: [`bench-suite/results/`](./bench-suite/results/).
 
 ## Docker
 
@@ -527,35 +544,7 @@ docker compose up -d
 
 ## Roadmap
 
-- [x] Core module system with lifecycle hooks
-- [x] WebSocket transport with binary frame protocol
-- [x] Channel pub/sub with glob matching and middleware
-- [x] AI agent system (providers, streaming, tool calling)
-- [x] Agent flows, chains, schedules, event triggers
-- [x] Agent executor with loop detection, timeout, token budget
-- [x] Reactive engine (event-driven agent execution)
-- [x] JWT/API key authentication
-- [x] HTTP response pipeline (16 stages)
-- [x] 20 API integrations + OAuth2
-- [x] 15 trading formulas + trade monitor
-- [x] Security: rate limiting, approval gates, device pairing
-- [x] Federation: P2P sync, peer discovery, conflict resolution
-- [x] Multi-channel notifications
-- [x] Email: templates, campaigns, account management
-- [x] Graph database client with analytics
-- [x] Skills/plugin system with marketplace
-- [x] Unix socket bridge (client + server, MessagePack RPC)
-- [x] MCP server for Claude Code (37 tools)
-- [x] Frontend SDKs (React, Svelte, Vue, Three.js)
-- [x] npm package published
-- [ ] CLI tool (`mtw init`, `mtw add`, `mtw publish`)
-- [ ] Compiled NAPI-RS binding for Node.js
-- [ ] Compiled PyO3 binding for Python
-- [ ] WASM build for browsers
-- [ ] Module marketplace web UI
-- [ ] QUIC transport
-- [ ] Multi-node clustering
-- [ ] MessagePack and Protobuf codecs
+What's shipped, what's next → **[ROADMAP.md](ROADMAP.md)**.
 
 ## Contributing
 

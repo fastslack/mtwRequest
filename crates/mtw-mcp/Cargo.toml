@@ -1,13 +1,16 @@
 [package]
 name = "mtw-mcp"
-version.workspace = true
+# Released independently of the workspace so the MCP can ship faster than
+# the rest of the framework. Match this with the `mcp-v*` git tag and the
+# npm package.json versions under npm/.
+version = "0.3.0"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 rust-version.workspace = true
-description = "MCP server for Claude Code — manage mtwRequest modules, agents, auth, trading, and more"
+description = "MCP server for Claude Code — manage mtwRequest AI agents: create, run, schedule, chain, group, and trigger."
 keywords = ["mcp", "claude", "agents", "ai-tools", "mtw"]
 categories = ["command-line-utilities", "development-tools"]
 

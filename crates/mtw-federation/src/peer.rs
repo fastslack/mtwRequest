@@ -123,6 +123,7 @@ mod tests {
             sync_errors: 0,
             created_at: now_string(),
             updated_at: now_string(),
+            node_id: None,
         }
     }
 

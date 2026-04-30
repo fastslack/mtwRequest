@@ -25,6 +25,13 @@ pub struct MtwMessage {
     /// Reference to another message ID (for request/response correlation)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ref_id: Option<String>,
+    /// Hex-encoded Ed25519 pubkey of the sender (set by `mtw-identity`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pubkey: Option<String>,
+    /// Hex-encoded Ed25519 signature over [`MtwMessage::signing_bytes`]
+    /// (set by `mtw-identity`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sig: Option<String>,
 }
 
 impl MtwMessage {
@@ -40,7 +47,23 @@ impl MtwMessage {
                 .unwrap_or_default()
                 .as_millis() as u64,
             ref_id: None,
+            pubkey: None,
+            sig: None,
         }
+    }
+
+    /// Canonical bytes used to compute / verify a signature on this message.
+    ///
+    /// The message is cloned with `pubkey` and `sig` cleared, then converted
+    /// to a `serde_json::Value` (whose `Map` is BTree-backed by default and
+    /// thus emits keys in alphabetic order) and serialized. This makes signing
+    /// independent of `metadata` insertion order.
+    pub fn signing_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
+        let mut clone = self.clone();
+        clone.pubkey = None;
+        clone.sig = None;
+        let value = serde_json::to_value(&clone)?;
+        serde_json::to_vec(&value)
     }
 
     pub fn with_channel(mut self, channel: impl Into<String>) -> Self {
@@ -136,13 +159,22 @@ pub enum MsgType {
 }
 
 /// Message payload variants
+///
+/// Wire format is `snake_case` (`"none"`, `"text"`, `"json"`, `"binary"`),
+/// but pre-0.2 TS clients still emit `PascalCase` (`"None"`, `"Text"`, `"Json"`,
+/// `"Binary"`). The aliases below let the server keep accepting both shapes
+/// during the rolling client upgrade — drop them once every consumer is on
+/// the snake_case format.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "data")]
+#[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Payload {
+    #[serde(alias = "None")]
     None,
+    #[serde(alias = "Text")]
     Text(String),
+    #[serde(alias = "Json")]
     Json(serde_json::Value),
-    #[serde(with = "base64_bytes")]
+    #[serde(alias = "Binary", with = "base64_bytes")]
     Binary(Vec<u8>),
 }
 

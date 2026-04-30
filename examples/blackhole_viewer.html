@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>mtwRequest · Black Hole</title>
+<style>
+  :root{
+    --bg: #020308;
+    --panel: rgba(10, 14, 24, .74);
+    --line: #1b2740;
+    --ink: #d6e1f5;
+    --ink-dim: #7a8bad;
+    --accent: #ff8ec4;   /* hot pink for black hole */
+    --warm: #ffd36b;
+    --ok: #7dff9f;
+    --bad: #ff6b8a;
+  }
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; overflow:hidden;}
+  canvas{display:block; cursor:crosshair;}
+  .panel{position:fixed; padding:14px 18px;
+    background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 10px 40px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.02);
+    font-size:12px; line-height:1.55;
+  }
+  #hud{ top:18px; left:18px; min-width:250px; }
+  #hud h1{margin:0 0 10px; font-size:11px; letter-spacing:.22em;
+    color:var(--accent); text-transform:uppercase; font-weight:600;
+    display:flex; align-items:center; gap:8px;
+  }
+  #hud h1 .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);
+    box-shadow:0 0 12px var(--accent); animation: pulse 1.6s ease-in-out infinite;}
+  @keyframes pulse { 0%,100%{opacity:.4} 50%{opacity:1} }
+  .row{display:flex; justify-content:space-between; gap:14px;}
+  .row span:first-child{color:var(--ink-dim);}
+  .row b{color:#e8f7ff; font-weight:600; font-variant-numeric: tabular-nums;}
+  .row b.accent{color:var(--accent);}  .row b.warm{color:var(--warm);}
+  .row b.ok{color:var(--ok);}          .row b.bad{color:var(--bad);}
+  #legend{bottom:18px; left:18px; max-width:330px; font-size:11px;
+    color:var(--ink-dim); line-height:1.65;}
+  #legend kbd{display:inline-block; padding:1px 6px; border-radius:4px;
+    border:1px solid var(--line); background:#0c1220; color:var(--ink); font-size:10.5px;}
+  #brand{position:fixed; bottom:14px; right:18px; font-size:10.5px;
+    color:#4a5777; letter-spacing:.28em; text-transform:uppercase;}
+  #brand b{color:var(--accent); font-weight:600;}
+</style>
+</head>
+<body>
+
+<div id="hud" class="panel">
+  <h1><span class="dot"></span>Black Hole · server-auth physics</h1>
+  <div class="row"><span>Viewers</span><b id="conns">—</b></div>
+  <div class="row"><span>Particles</span><b id="parts">—</b></div>
+  <div class="row"><span>Snap / sec</span><b class="accent" id="sps">30</b></div>
+  <div class="row"><span>Consumed</span><b class="bad" id="cn">—</b></div>
+  <div class="row"><span>Spawned</span><b class="ok" id="sp">—</b></div>
+  <div class="row"><span>Inbound / sec</span><b id="ins">—</b></div>
+  <div class="row"><span>Uptime</span><b id="up">—</b></div>
+  <div class="row"><span>Link</span><b id="lnk" class="ok">idle</b></div>
+  <div class="row"><span>Frame</span><b id="fps">—</b></div>
+</div>
+
+<div id="legend" class="panel">
+  <kbd>click</kbd> kick particles outward · <kbd>shift+click</kbd> spawn in orbit<br>
+  physics runs 120Hz server-side. snapshots broadcast 30Hz to every viewer.<br>
+  your click → server mutates state → every viewer sees it next frame.
+</div>
+
+<div id="brand"><b>mtwRequest</b> · black hole</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.162.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+const MAX_PARTICLES = 2000;
+
+// ─── scene ───────────────────────────────────────────────────────────────
+const scene = new THREE.Scene();
+const aspect = () => innerWidth / innerHeight;
+const cam = new THREE.OrthographicCamera(-1.3*aspect(), 1.3*aspect(), 1.3, -1.3, -10, 10);
+cam.position.z = 2;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference:'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.setClearColor(0x020308, 1);
+document.body.appendChild(renderer.domElement);
+addEventListener('resize', () => {
+  const a = aspect();
+  cam.left=-1.3*a; cam.right=1.3*a; cam.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ─── black hole (central dark disk + bright accretion glow) ──────────────
+{
+  const ringGeo = new THREE.RingGeometry(0.03, 0.24, 128);
+  const ringMat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
+    fragmentShader: `
+      varying vec2 vUv; uniform float uTime;
+      void main(){
+        float r = length(vUv - 0.5) * 2.0;
+        float ring = smoothstep(0.05, 0.18, r) * smoothstep(0.98, 0.55, r);
+        float angle = atan(vUv.y - 0.5, vUv.x - 0.5);
+        float swirl = 0.6 + 0.4 * sin(angle * 3.0 - uTime * 2.0);
+        vec3 col = mix(vec3(1.0, 0.55, 0.95), vec3(1.0, 0.35, 0.2), swirl);
+        gl_FragColor = vec4(col * ring * 0.9, ring * 0.8);
+      }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+  });
+  scene.add(new THREE.Mesh(ringGeo, ringMat));
+  // stash for animation
+  window.__bhRingMat = ringMat;
+
+  const holeGeo = new THREE.CircleGeometry(0.032, 64);
+  const holeMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+  const hole = new THREE.Mesh(holeGeo, holeMat);
+  hole.position.z = 0.01;
+  scene.add(hole);
+}
+
+// ─── particle buffer ─────────────────────────────────────────────────────
+const positions = new Float32Array(MAX_PARTICLES * 3);
+const hues = new Float32Array(MAX_PARTICLES);
+const geo = new THREE.BufferGeometry();
+geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+geo.setAttribute('aHue',     new THREE.BufferAttribute(hues, 1));
+geo.setDrawRange(0, 0);
+
+const mat = new THREE.ShaderMaterial({
+  uniforms: { uPixel: { value: renderer.getPixelRatio() } },
+  vertexShader: `
+    attribute float aHue;
+    uniform float uPixel;
+    varying vec3 vColor;
+    vec3 hsv2rgb(vec3 c){
+      vec4 K = vec4(1.0,2.0/3.0,1.0/3.0,3.0);
+      vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+      return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+    }
+    void main(){
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.);
+      vColor = hsv2rgb(vec3(aHue, 0.85, 1.0));
+      // size based on proximity to centre — closer particles are hotter/bigger
+      float r = length(position.xy);
+      float heat = clamp(0.35 / (r + 0.1), 0.4, 3.5);
+      gl_PointSize = (2.5 + heat * 1.8) * uPixel;
+    }`,
+  fragmentShader: `
+    varying vec3 vColor;
+    void main(){
+      vec2 uv = gl_PointCoord - 0.5;
+      float r = length(uv);
+      if (r > 0.5) discard;
+      float disk = smoothstep(0.5, 0.0, r);
+      gl_FragColor = vec4(vColor * (0.5 + 1.2 * disk) * disk, disk);
+    }`,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+});
+const points = new THREE.Points(geo, mat);
+scene.add(points);
+
+// ─── HUD ─────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const fmt  = n => n==null?'—':Number(n).toLocaleString('en');
+const fmtT = s => { s = Math.floor(s||0);
+  const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), sec=s%60;
+  return h?`${h}h ${m}m`:m?`${m}m ${sec}s`:`${sec}s`; };
+function setLink(s){
+  const el = $('lnk'); el.textContent = s;
+  el.className = ({live:'ok',connecting:'warm',closed:'bad',error:'bad',idle:''})[s] || '';
+}
+
+// ─── WS ──────────────────────────────────────────────────────────────────
+const qp   = new URLSearchParams(location.search);
+const host = qp.get('host') || location.hostname || '127.0.0.1';
+const port = qp.get('port') || '17743';
+const wsUrl = qp.get('ws') || `ws://${host}:${port}/ws`;
+console.log('[blackhole-viewer] connecting to', wsUrl);
+
+let ws;
+function connect(){
+  setLink('connecting');
+  ws = new WebSocket(wsUrl);
+  ws.addEventListener('open',  () => setLink('live'));
+  ws.addEventListener('close', () => { setLink('closed'); setTimeout(connect, 900); });
+  ws.addEventListener('error', () => setLink('error'));
+  ws.addEventListener('message', onWsMsg);
+}
+connect();
+
+let _sawSnap = false;
+function onWsMsg(e){
+  let m; try { m = JSON.parse(e.data); } catch { return; }
+  const p = m && m.payload;
+  if (!p || p.kind !== 'json' || !p.data) return;
+  const d = p.data;
+  if (d.t === 'snap') {
+    if (!_sawSnap) { console.log('[blackhole-viewer] first snap:', d.p.length/2, 'particles'); _sawSnap = true; }
+    const ps = d.p, hs = d.h;
+    const n = Math.min(MAX_PARTICLES, hs.length);
+    for (let k = 0; k < n; k++){
+      positions[k*3+0] = ps[k*2+0];
+      positions[k*3+1] = ps[k*2+1];
+      positions[k*3+2] = 0;
+      hues[k] = (hs[k] % 360) / 360;
+    }
+    geo.setDrawRange(0, n);
+    geo.attributes.position.needsUpdate = true;
+    geo.attributes.aHue.needsUpdate = true;
+    $('sp').textContent = fmt(d.sp);
+    $('cn').textContent = fmt(d.cn);
+  } else if (d.t === 'metrics') {
+    $('conns').textContent = fmt(d.conns);
+    $('ins'  ).textContent = fmt(d.inbound_per_sec);
+    $('up'   ).textContent = fmtT(d.uptime_s);
+    $('parts').textContent = fmt(d.particles);
+  }
+}
+
+// ─── click → impulse/spawn ───────────────────────────────────────────────
+function worldFromEvent(ev){
+  const rect = renderer.domElement.getBoundingClientRect();
+  const ndcX =  ((ev.clientX - rect.left) / rect.width ) * 2 - 1;
+  const ndcY = -((ev.clientY - rect.top ) / rect.height) * 2 + 1;
+  // orthographic: simple linear map to camera bounds
+  const x = ndcX * (cam.right  - cam.position.x); // cam.position.x=0 so this is ndcX*cam.right
+  const y = ndcY * (cam.top    - cam.position.y);
+  return { x: ndcX * cam.right, y: ndcY * cam.top };
+}
+renderer.domElement.addEventListener('pointerdown', ev => {
+  if (!(ws && ws.readyState === 1)) return;
+  const { x, y } = worldFromEvent(ev);
+  ws.send(JSON.stringify({
+    id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())),
+    type: 'event',
+    payload: { kind: 'json', data: ev.shiftKey
+      ? { t: 'spawn', x, y }
+      : { t: 'impulse', x, y, s: 0.35 }
+    },
+    timestamp: Date.now()
+  }));
+});
+
+// ─── render loop ─────────────────────────────────────────────────────────
+let frames = 0, fpsLast = performance.now();
+function tick(){
+  const t = performance.now() / 1000;
+  if (window.__bhRingMat) window.__bhRingMat.uniforms.uTime.value = t;
+  renderer.render(scene, cam);
+  frames++;
+  const now = performance.now();
+  if (now - fpsLast > 500){
+    $('fps').textContent = Math.round(frames*1000/(now-fpsLast)) + ' fps';
+    frames = 0; fpsLast = now;
+  }
+  requestAnimationFrame(tick);
+}
+tick();
+</script>
+</body>
+</html>

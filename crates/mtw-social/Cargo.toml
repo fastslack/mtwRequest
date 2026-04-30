@@ -1,0 +1,20 @@
+[package]
+name = "mtw-social"
+description = "Decentralized social primitives — profiles, posts, follows, reactions — over signed mtwRequest messages"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+keywords = ["social", "decentralized", "p2p", "nostr-like", "mtw"]
+categories = ["network-programming"]
+
+[dependencies]
+mtw-protocol = { workspace = true }
+mtw-identity = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

@@ -29,3 +29,27 @@ path = "demo_client.rs"
 [[bin]]
 name = "iris-demo"
 path = "iris_demo.rs"
+
+[[bin]]
+name = "swarm-server"
+path = "swarm_server.rs"
+
+[[bin]]
+name = "swarm-bot"
+path = "swarm_bot.rs"
+
+[[bin]]
+name = "hive-server"
+path = "hive_server.rs"
+
+[[bin]]
+name = "hive-bot"
+path = "hive_bot.rs"
+
+[[bin]]
+name = "blackhole-server"
+path = "blackhole_server.rs"
+
+[[bin]]
+name = "rain-server"
+path = "rain_server.rs"

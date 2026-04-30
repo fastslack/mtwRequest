@@ -270,6 +270,7 @@ mod tests {
             sync_errors: 0,
             created_at: "0".into(),
             updated_at: "0".into(),
+            node_id: None,
         }
     }
 

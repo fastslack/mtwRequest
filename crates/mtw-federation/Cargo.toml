@@ -11,6 +11,12 @@ description = "Peer-to-peer data synchronization between mtwRequest instances"
 keywords = ["federation", "p2p", "sync", "distributed", "mtw"]
 categories = ["network-programming", "asynchronous"]
 
+[features]
+default = []
+# Enable QUIC peer-to-peer sync transport built on iroh.
+# Pulls in ~200 transitive deps; opt in only where you need it.
+iroh = ["dep:iroh", "dep:mtw-identity", "dep:thiserror"]
+
 [dependencies]
 mtw-core = { path = "../mtw-core" }
 mtw-protocol = { path = "../mtw-protocol" }
@@ -22,3 +28,13 @@ tracing = { workspace = true }
 dashmap = { workspace = true }
 ulid = { workspace = true }
 reqwest = { workspace = true }
+
+# Optional: iroh-based P2P transport (gated by the `iroh` feature)
+iroh = { version = "0.29", optional = true }
+mtw-identity = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
+
+[dev-dependencies]
+mtw-identity = { workspace = true }
+iroh = "0.29"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

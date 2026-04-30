@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>mtwRequest · Agent Rain</title>
+<style>
+  :root{
+    --bg: #010408;
+    --panel: rgba(10, 14, 24, .74);
+    --line: #1b2740;
+    --ink: #d6e1f5;
+    --ink-dim: #7a8bad;
+    --accent: #7dffc1;  /* phosphor green-cyan */
+    --warm: #ffd36b;
+    --ok: #7dff9f;
+    --bad: #ff6b8a;
+  }
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; overflow:hidden;}
+  canvas{display:block; position:absolute; inset:0;}
+  .panel{position:fixed; padding:14px 18px;
+    background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 10px 40px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.02);
+    font-size:12px; line-height:1.55; z-index:10;
+  }
+  #hud{top:18px; left:18px; min-width:260px;}
+  #hud h1{margin:0 0 10px; font-size:11px; letter-spacing:.22em;
+    color:var(--accent); text-transform:uppercase; font-weight:600;
+    display:flex; align-items:center; gap:8px;
+  }
+  #hud h1 .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);
+    box-shadow:0 0 12px var(--accent); animation: pulse 1.6s ease-in-out infinite;}
+  @keyframes pulse { 0%,100%{opacity:.4} 50%{opacity:1} }
+  .row{display:flex; justify-content:space-between; gap:14px;}
+  .row span:first-child{color:var(--ink-dim);}
+  .row b{color:#e8f7ff; font-weight:600; font-variant-numeric: tabular-nums;}
+  .row b.accent{color:var(--accent);}  .row b.warm{color:var(--warm);}
+  .row b.ok{color:var(--ok);}          .row b.bad{color:var(--bad);}
+  #legend{bottom:18px; left:18px; max-width:340px; font-size:11px;
+    color:var(--ink-dim); line-height:1.65;}
+  #brand{position:fixed; bottom:14px; right:18px; font-size:10.5px;
+    color:#4a5777; letter-spacing:.28em; text-transform:uppercase; z-index:10;}
+  #brand b{color:var(--accent); font-weight:600;}
+</style>
+</head>
+<body>
+
+<canvas id="cv"></canvas>
+
+<div id="hud" class="panel">
+  <h1><span class="dot"></span>Agent Rain · N streams</h1>
+  <div class="row"><span>Viewers</span><b id="conns">—</b></div>
+  <div class="row"><span>Agents</span><b id="agents">—</b></div>
+  <div class="row"><span>Active streams</span><b class="accent" id="active">—</b></div>
+  <div class="row"><span>Tokens / sec</span><b class="warm" id="tps">—</b></div>
+  <div class="row"><span>Starts / sec</span><b id="sps">—</b></div>
+  <div class="row"><span>Outbound / sec</span><b id="outs">—</b></div>
+  <div class="row"><span>Streams total</span><b id="total">—</b></div>
+  <div class="row"><span>Uptime</span><b id="up">—</b></div>
+  <div class="row"><span>Link</span><b id="lnk" class="ok">idle</b></div>
+</div>
+
+<div id="legend" class="panel">
+  each column is a live agent stream — MsgType::AgentTask kicks it off,<br>
+  MsgType::Stream chunks tumble down, MsgType::StreamEnd fades the tail.<br>
+  every stream is a full round-trip through mtwRequest's broadcast path.
+</div>
+
+<div id="brand"><b>mtwRequest</b> · agent rain</div>
+
+<script>
+// ─── canvas setup ────────────────────────────────────────────────────────
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d', { alpha: false });
+const DPR = Math.min(devicePixelRatio, 2);
+
+const FONT_PX = 16;           // token font size in device-independent px
+const LINE_H  = 20;           // vertical advance between tokens
+const COL_W   = 100;          // column width (avg)
+function fitCanvas(){
+  cv.width  = innerWidth * DPR;
+  cv.height = innerHeight * DPR;
+  cv.style.width  = innerWidth + 'px';
+  cv.style.height = innerHeight + 'px';
+  ctx.scale(DPR, DPR);
+  ctx.font = `500 ${FONT_PX}px ui-monospace, "SFMono-Regular", Menlo, monospace`;
+  ctx.textBaseline = 'top';
+}
+fitCanvas();
+addEventListener('resize', () => { fitCanvas(); layoutColumns(); });
+
+// ─── columns ─────────────────────────────────────────────────────────────
+// Each active stream (keyed by task id / ref_id) occupies a column slot.
+// We pre-allocate slots on a grid; assignment is LRU when we run out.
+let COLS = 1, COL_X = 0;
+function layoutColumns(){
+  COLS  = Math.max(1, Math.floor(innerWidth / COL_W));
+  COL_X = innerWidth / COLS;
+}
+layoutColumns();
+
+// slotId -> { streamId, tokens[{text, y, fresh}], hue, mood, lastT, yCursor, idle }
+const slots = [];
+const streamToSlot = new Map();
+let slotCursor = 0;
+
+function assignSlot(streamId, hue, mood){
+  let slot = streamToSlot.get(streamId);
+  if (slot !== undefined) return slot;
+  // pick a free slot, else reuse the oldest idle one
+  if (slotCursor < 512) {
+    slot = slotCursor++;
+  } else {
+    // LRU reuse
+    let worst = 0, worstT = Infinity;
+    for (let i = 0; i < slots.length; i++){
+      const s = slots[i];
+      if (s && s.lastT < worstT && s.ended){
+        worstT = s.lastT; worst = i;
+      }
+    }
+    slot = worst;
+    const old = slots[worst];
+    if (old) streamToSlot.delete(old.streamId);
+  }
+  // column index on the grid — spread new streams across columns to avoid
+  // clustering on the left
+  const col = slot % COLS;
+  slots[slot] = {
+    streamId, hue, mood,
+    col,
+    tokens: [],
+    yCursor: -LINE_H,
+    lastT: performance.now() / 1000,
+    ended: false,
+    fadeT: 0,
+  };
+  streamToSlot.set(streamId, slot);
+  return slot;
+}
+
+function onToken(streamId, token, hue, mood){
+  const slot = assignSlot(streamId, hue, mood);
+  const s = slots[slot];
+  if (!s) return;
+  s.hue = hue; s.mood = mood;
+  s.yCursor += LINE_H;
+  if (s.yCursor > innerHeight - LINE_H) s.yCursor = 0;
+  s.tokens.push({
+    text: token,
+    x: s.col * COL_X + 6,
+    y: s.yCursor,
+    born: performance.now() / 1000,
+  });
+  if (s.tokens.length > 80) s.tokens.shift();
+  s.lastT = performance.now() / 1000;
+}
+
+function onStreamEnd(streamId){
+  const slot = streamToSlot.get(streamId);
+  if (slot === undefined) return;
+  const s = slots[slot];
+  if (s) { s.ended = true; s.fadeT = performance.now() / 1000; }
+}
+
+// mood → color base
+function hueFor(mood, idx){
+  if (mood === 'code')  return (120 + (idx * 17) % 80) % 360;      // greens
+  if (mood === 'data')  return (45  + (idx * 23) % 25) % 360;      // amber
+  return (180 + (idx * 37) % 120) % 360;                           // cyans/blues
+}
+
+// ─── HUD ─────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const fmt = n => n==null?'—':Number(n).toLocaleString('en');
+const fmtT = s => { s = Math.floor(s||0);
+  const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), sec=s%60;
+  return h?`${h}h ${m}m`:m?`${m}m ${sec}s`:`${sec}s`; };
+function setLink(s){
+  const el = $('lnk'); el.textContent = s;
+  el.className = ({live:'ok',connecting:'warm',closed:'bad',error:'bad',idle:''})[s] || '';
+}
+
+// ─── WS ──────────────────────────────────────────────────────────────────
+const qp   = new URLSearchParams(location.search);
+const host = qp.get('host') || location.hostname || '127.0.0.1';
+const port = qp.get('port') || '17744';
+const wsUrl = qp.get('ws') || `ws://${host}:${port}/ws`;
+console.log('[rain-viewer] connecting to', wsUrl);
+
+// task id → {hue, mood} captured on AgentTask message, used when chunks arrive
+const taskMeta = new Map();
+
+let ws;
+function connect(){
+  setLink('connecting');
+  ws = new WebSocket(wsUrl);
+  ws.addEventListener('open',  () => setLink('live'));
+  ws.addEventListener('close', () => { setLink('closed'); setTimeout(connect, 900); });
+  ws.addEventListener('error', () => setLink('error'));
+  ws.addEventListener('message', onWsMsg);
+}
+connect();
+
+function onWsMsg(e){
+  let m; try { m = JSON.parse(e.data); } catch { return; }
+  if (!m || !m.type) return;
+
+  if (m.type === 'agent_task') {
+    // new stream started — remember its metadata
+    const meta = m.metadata || {};
+    const mood = (meta.mood) || 'prose';
+    const idx  = Number(meta.agent_idx || 0);
+    taskMeta.set(m.id, { hue: hueFor(mood, idx), mood, idx });
+  } else if (m.type === 'stream') {
+    // a chunk — ref_id points to the AgentTask message
+    const taskId = m.ref_id;
+    const meta = taskMeta.get(taskId) || { hue: 200, mood: 'prose' };
+    const tok = (m.payload && m.payload.kind === 'text') ? m.payload.data : '';
+    if (tok) onToken(taskId, tok, meta.hue, meta.mood);
+  } else if (m.type === 'stream_end') {
+    onStreamEnd(m.ref_id);
+    // keep meta around a tick so any late chunks render
+    setTimeout(() => taskMeta.delete(m.ref_id), 2000);
+  } else if (m.type === 'event') {
+    const p = m.payload;
+    if (p && p.kind === 'json' && p.data && p.data.t === 'metrics') {
+      const d = p.data;
+      $('conns' ).textContent = fmt(d.conns);
+      $('agents').textContent = fmt(d.agents);
+      $('active').textContent = fmt(d.active_streams);
+      $('tps'   ).textContent = fmt(d.tokens_per_sec);
+      $('sps'   ).textContent = fmt(d.starts_per_sec);
+      $('outs'  ).textContent = fmt(d.outbound_per_sec);
+      $('total' ).textContent = fmt(d.streams_started);
+      $('up'    ).textContent = fmtT(d.uptime_s);
+    }
+  }
+}
+
+// ─── render loop ─────────────────────────────────────────────────────────
+// classic rain: every frame, darken the whole canvas a touch; then draw new
+// tokens. Older tokens remain on screen, fading with each frame.
+function tick(){
+  // global fade
+  ctx.fillStyle = 'rgba(1, 4, 8, 0.11)';
+  ctx.fillRect(0, 0, innerWidth, innerHeight);
+
+  const tNow = performance.now() / 1000;
+
+  for (let i = 0; i < slots.length; i++){
+    const s = slots[i]; if (!s) continue;
+    const fade = s.ended ? Math.max(0, 1 - (tNow - s.fadeT) * 0.5) : 1;
+    if (fade <= 0) continue;
+    const hue = s.hue;
+    // draw each recent token at its fixed (x,y); freshest one glows
+    for (let j = 0; j < s.tokens.length; j++){
+      const t = s.tokens[j];
+      const age = tNow - t.born;
+      const bright = Math.max(0, 1 - age * 0.45) * fade;
+      if (bright <= 0.02) continue;
+      const isHead = (j === s.tokens.length - 1) && !s.ended;
+      // outer glow on head
+      if (isHead){
+        ctx.fillStyle = `hsla(${hue}, 95%, 72%, ${bright})`;
+        ctx.shadowColor = `hsl(${hue}, 90%, 60%)`;
+        ctx.shadowBlur = 12;
+      } else {
+        ctx.fillStyle = `hsla(${hue}, 70%, ${30 + 30 * bright}%, ${bright * 0.95})`;
+        ctx.shadowBlur = 0;
+      }
+      ctx.fillText(t.text, t.x, t.y);
+    }
+    ctx.shadowBlur = 0;
+  }
+  requestAnimationFrame(tick);
+}
+tick();
+</script>
+</body>
+</html>

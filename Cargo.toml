@@ -22,6 +22,8 @@ members = [
     "crates/mtw-notify",
     "crates/mtw-security",
     "crates/mtw-federation",
+    "crates/mtw-identity",
+    "crates/mtw-social",
     "crates/mtw-trading",
     "crates/mtw-graph",
     "crates/mtw-mcp",
@@ -34,7 +36,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["fastslack"]
@@ -93,6 +95,8 @@ mtw-skills = { path = "crates/mtw-skills" }
 mtw-notify = { path = "crates/mtw-notify" }
 mtw-security = { path = "crates/mtw-security" }
 mtw-federation = { path = "crates/mtw-federation" }
+mtw-identity = { path = "crates/mtw-identity" }
+mtw-social = { path = "crates/mtw-social" }
 mtw-trading = { path = "crates/mtw-trading" }
 mtw-graph = { path = "crates/mtw-graph" }
 mtw-mcp = { path = "crates/mtw-mcp" }
