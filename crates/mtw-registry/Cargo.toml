@@ -19,6 +19,7 @@ toml = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 reqwest = { workspace = true, features = ["multipart"] }
+mtw-net = { workspace = true }
 tokio = { workspace = true }
 wasmtime = { version = "24", default-features = false, features = ["cranelift", "runtime"] }
 

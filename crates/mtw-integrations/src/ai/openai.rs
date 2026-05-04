@@ -137,7 +137,10 @@ impl OpenAiProvider {
     }
 
     fn http_client(&self) -> reqwest::Client {
-        reqwest::Client::builder()
+        // Inherits the process-wide outbound profile (mtw-net global).
+        // OpenAI sees plaintext content regardless — egress profile
+        // only hides the destination from the ISP.
+        mtw_net::default_client_builder()
             .timeout(std::time::Duration::from_secs(self.config.timeout_secs))
             .build()
             .unwrap_or_default()

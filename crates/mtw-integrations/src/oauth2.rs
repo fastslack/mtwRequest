@@ -73,9 +73,11 @@ pub struct OAuth2Client {
 
 impl OAuth2Client {
     pub fn new(config: OAuth2Config) -> Self {
+        // OAuth2 token exchanges go to remote IdPs (GitHub, Google, …)
+        // — route through the installed outbound profile.
         Self {
             config,
-            http_client: reqwest::Client::new(),
+            http_client: mtw_net::default_client(),
             cache: Arc::new(RwLock::new(None)),
         }
     }

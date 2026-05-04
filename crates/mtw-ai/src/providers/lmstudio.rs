@@ -93,6 +93,10 @@ pub struct LMStudioProvider {
 
 impl LMStudioProvider {
     pub fn new(config: LMStudioConfig) -> Self {
+        // LMStudio is a local provider (default base_url
+        // http://localhost:1234). Same rationale as Ollama: skip the
+        // egress profile to avoid breaking localhost connectivity
+        // when a SOCKS5/Tor proxy is installed process-wide.
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(300))
             .build()

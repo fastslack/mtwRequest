@@ -27,8 +27,12 @@ pub struct BitvavoProvider {
 
 impl BitvavoProvider {
     /// Create a new Bitvavo REST provider.
+    ///
+    /// Inherits the process-wide outbound profile from
+    /// [`mtw_net::default_client_builder`] — order placement and
+    /// market data go through the configured VPN/Tor/proxy.
     pub fn new(credentials: ExchangeCredentials, rate_limiter: Arc<dyn RateLimiter>) -> Self {
-        let client = Client::builder()
+        let client = mtw_net::default_client_builder()
             .pool_max_idle_per_host(10)
             .timeout(std::time::Duration::from_secs(10))
             .gzip(true)

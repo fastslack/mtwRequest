@@ -20,6 +20,31 @@ max_message_size = "10MB"
 [codec]
 default = "json"
 
+# ── Outbound network profile ────────────────────────────────
+# Routes every reqwest::Client across mtw-ai (cloud), mtw-exchange,
+# mtw-integrations (oauth2 + cloud AI), mtw-registry, mtw-federation,
+# mtw-http, and mtw-torrent webseeds through the chosen profile.
+# Local providers (Ollama, LM Studio) bypass this on purpose.
+#
+# Default behaviour with no [net] section: direct egress (same as
+# pre-0.4.0). Set `default_profile = "tor-trackers"` (or any defined
+# profile) to opt into a routed egress.
+[net]
+default_profile = "clear"
+https_only = false        # true rejects http:// at request time
+min_tls_version = "1.2"   # or "1.3"
+
+[net.profiles.clear]
+type = "direct"
+
+# Tor SOCKS5 (assumes a running tor or arti daemon). Honest scope:
+# only HTTP traffic through reqwest is anonymised. BitTorrent peer
+# wires (TCP/uTP) and DHT (UDP) cannot ride Tor — see docs/security.md.
+# [net.profiles.tor-socks]
+# type = "proxy"
+# url = "socks5h://127.0.0.1:9050"
+# no_proxy = ["127.0.0.1", "localhost", "::1"]
+
 # ── Data Store ──────────────────────────────────────────────
 # Connect to any SQLite database — just set the path.
 # mtwRequest reads directly (fast), writes go through the bridge.

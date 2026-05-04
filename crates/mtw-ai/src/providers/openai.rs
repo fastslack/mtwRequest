@@ -192,7 +192,12 @@ pub struct OpenAIProvider {
 
 impl OpenAIProvider {
     pub fn new(config: OpenAIConfig) -> Self {
-        let client = Client::builder()
+        // Inherits the process-wide outbound profile when one is
+        // installed via `mtw_net::install`. Note OpenAI sees the
+        // plaintext content regardless — egress profiles only hide
+        // the *fact* you're talking to OpenAI from the ISP, not the
+        // contents from OpenAI itself.
+        let client = mtw_net::default_client_builder()
             .timeout(std::time::Duration::from_secs(120))
             .build()
             .expect("failed to build HTTP client");

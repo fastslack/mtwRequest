@@ -124,6 +124,14 @@ pub struct OllamaProvider {
 
 impl OllamaProvider {
     pub fn new(config: OllamaConfig) -> Self {
+        // Ollama is a local provider (default base_url
+        // http://localhost:11434). We deliberately do NOT route it
+        // through `mtw_net::default_client_builder()` — sending
+        // localhost traffic through a SOCKS5/Tor proxy would break it,
+        // and there's no privacy upside since the request never
+        // leaves the host. If you point Ollama at a remote box,
+        // override here or set `no_proxy = ["192.168.0.0/16"]` on
+        // your egress profile.
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(300)) // local models can be slow
             .build()

@@ -32,9 +32,13 @@ pub struct HttpSyncTransport {
 }
 
 impl HttpSyncTransport {
+    /// Inherits the process-wide outbound profile installed via
+    /// [`mtw_net::install`] — federation HTTP fallback (when iroh is
+    /// not in use) goes through the same VPN/Tor/proxy as the rest of
+    /// the app.
     pub fn new() -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: mtw_net::default_client(),
             timeout: std::time::Duration::from_secs(30),
         }
     }

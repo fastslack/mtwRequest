@@ -25,6 +25,7 @@ tracing = { workspace = true }
 dashmap = { workspace = true }
 ulid = { workspace = true }
 reqwest = { workspace = true }
+mtw-net = { workspace = true }
 bytes = { workspace = true }
 async-stream = { workspace = true }
 rusqlite = { workspace = true }

@@ -23,6 +23,7 @@ tracing = { workspace = true }
 dashmap = { workspace = true }
 thiserror = { workspace = true }
 reqwest = { workspace = true }
+mtw-net = { workspace = true }
 tokio-tungstenite = { workspace = true }
 ulid = { workspace = true }
 

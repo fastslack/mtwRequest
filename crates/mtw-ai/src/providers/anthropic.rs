@@ -203,7 +203,11 @@ pub struct AnthropicProvider {
 
 impl AnthropicProvider {
     pub fn new(config: AnthropicConfig) -> Self {
-        let client = Client::builder()
+        // Inherits the process-wide outbound profile. Same caveat as
+        // OpenAI: Anthropic still sees plaintext prompts — only
+        // local models (Ollama/LMStudio) hide content from the
+        // provider.
+        let client = mtw_net::default_client_builder()
             .timeout(std::time::Duration::from_secs(120))
             .build()
             .expect("failed to build HTTP client");

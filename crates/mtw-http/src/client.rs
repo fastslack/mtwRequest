@@ -20,9 +20,15 @@ pub struct MtwHttpClient {
 
 impl MtwHttpClient {
     /// Create a new client with default settings.
+    ///
+    /// The underlying `reqwest::Client` comes from
+    /// [`mtw_net::default_client`], which honours the process-wide
+    /// outbound profile installed at boot. When no profile is
+    /// installed, behaviour matches `reqwest::Client::new()` exactly —
+    /// callers that don't care about egress policy aren't affected.
     pub fn new() -> Self {
         Self {
-            inner: reqwest::Client::new(),
+            inner: mtw_net::default_client(),
             pipeline: ResponsePipeline::new(),
             base_url: None,
             default_headers: HeaderMap::new(),
@@ -262,11 +268,18 @@ impl MtwHttpClientBuilder {
     }
 
     pub fn build(self) -> MtwHttpClient {
-        let mut reqwest_builder = reqwest::Client::builder();
+        // Seed the underlying reqwest builder with the installed
+        // outbound profile (if any), so `MtwHttpClient` clients
+        // automatically respect the process-wide egress policy. If no
+        // profile is installed this returns a stock builder — same
+        // behaviour as before.
+        let mut reqwest_builder = mtw_net::default_client_builder();
         if let Some(timeout) = self.timeout {
             reqwest_builder = reqwest_builder.timeout(timeout);
         }
-        let inner = reqwest_builder.build().unwrap_or_else(|_| reqwest::Client::new());
+        let inner = reqwest_builder
+            .build()
+            .unwrap_or_else(|_| mtw_net::default_client());
 
         MtwHttpClient {
             inner,

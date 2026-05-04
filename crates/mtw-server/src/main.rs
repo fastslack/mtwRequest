@@ -31,7 +31,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     // Load config
-    let config = load_config()?;
+    let (config, raw_toml) = load_config()?;
+
+    // ── Outbound networking profile ─────────────────────────
+    // Install the process-wide reqwest factory BEFORE constructing
+    // any AI/exchange/integration provider — those pick up the
+    // installed profile through `mtw_net::default_client_builder()`.
+    // Missing `[net]` falls back to a stock direct client (same as
+    // pre-0.4.0 behaviour).
+    if let Some(raw) = raw_toml.as_deref() {
+        match mtw_net::NetConfig::from_mtw_toml(raw) {
+            Ok(net_cfg) => {
+                let default_profile = net_cfg.default_profile.clone();
+                let factory = mtw_net::NetFactory::new(net_cfg);
+                if mtw_net::install(factory).is_ok() {
+                    tracing::info!(
+                        profile = %default_profile,
+                        "outbound profile installed"
+                    );
+                } else {
+                    tracing::warn!("net factory already installed — keeping prior");
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "could not parse [net] — falling back to direct egress");
+            }
+        }
+    }
 
     let host = std::env::var("MTW_HOST").unwrap_or_else(|_| config.server.host.clone());
     let port: u16 = std::env::var("MTW_PORT")
@@ -181,8 +207,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Load config from file or create default
-fn load_config() -> Result<MtwConfig, Box<dyn std::error::Error>> {
+/// Load config from file or create default. Also returns the raw TOML
+/// content (when a file was found) so callers can parse extra sections
+/// — e.g. mtw-net's `[net]` — without re-reading from disk.
+fn load_config() -> Result<(MtwConfig, Option<String>), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     let config_path = if let Some(idx) = args.iter().position(|a| a == "--config") {
         args.get(idx + 1).map(|s| s.as_str())
@@ -192,18 +220,20 @@ fn load_config() -> Result<MtwConfig, Box<dyn std::error::Error>> {
 
     if let Some(path) = config_path {
         tracing::info!(path = %path, "loading config");
-        return Ok(MtwConfig::from_file(path)?);
+        let raw = std::fs::read_to_string(path)?;
+        return Ok((MtwConfig::from_str(&raw)?, Some(raw)));
     }
 
     for path in &["mtw.toml", "config/mtw.toml", "/etc/mtw/mtw.toml"] {
         if std::path::Path::new(path).exists() {
             tracing::info!(path = %path, "loading config");
-            return Ok(MtwConfig::from_file(path)?);
+            let raw = std::fs::read_to_string(path)?;
+            return Ok((MtwConfig::from_str(&raw)?, Some(raw)));
         }
     }
 
     tracing::info!("no config file found, using defaults");
-    Ok(MtwConfig::default_config())
+    Ok((MtwConfig::default_config(), None))
 }
 
 /// Handle a single transport event

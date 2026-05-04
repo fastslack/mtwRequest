@@ -105,9 +105,14 @@ pub struct RegistryClient {
 }
 
 impl RegistryClient {
-    /// Create a new registry client
+    /// Create a new registry client.
+    ///
+    /// Inherits the process-wide outbound profile from
+    /// [`mtw_net::default_client_builder`] when one is installed, so a
+    /// single `[net].default_profile` flag covers registry traffic
+    /// alongside everything else.
     pub fn new(config: RegistryConfig) -> Self {
-        let http = Client::builder()
+        let http = mtw_net::default_client_builder()
             .timeout(Duration::from_secs(config.timeout_secs))
             .user_agent(concat!("mtw-cli/", env!("CARGO_PKG_VERSION")))
             .build()
