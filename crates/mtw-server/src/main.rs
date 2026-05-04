@@ -107,6 +107,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let services = rust_services::RustServices::new();
     let bridge_server = mtw_bridge::server::BridgeServer::new(&bridge_socket);
     services.register_all(&bridge_server, bridge.clone());
+
+    // ── Torrent module (optional, gated by `torrent` cargo feature) ──
+    #[cfg(feature = "torrent")]
+    let _torrent_service = init_torrent_module(&bridge_server).await;
+
     let _bridge_handle = bridge_server.start().await?;
     tracing::info!(
         socket = %bridge_socket,
@@ -429,4 +434,52 @@ async fn handle_request(
 
     // ── Fallback: echo ──
     MtwMessage::response(&msg.id, msg.payload.clone())
+}
+
+/// Initialise the torrent module on top of the existing bridge server.
+///
+/// Reads `[torrent]` from `mtw.toml` if present (loaded into a partial
+/// `serde_json::Value`-shaped struct elsewhere); otherwise uses the
+/// crate's defaults (clear-only profile, default storage path,
+/// `127.0.0.1:9999` data plane).
+///
+/// Failures are logged and absorbed — the rest of the server still
+/// starts, the kernel-side capability detection (`torrent.health`) just
+/// returns nothing and the kernel falls back to the legacy path.
+#[cfg(feature = "torrent")]
+async fn init_torrent_module(
+    bridge: &mtw_bridge::server::BridgeServer,
+) -> Option<mtw_torrent::TorrentService> {
+    let mut cfg = mtw_torrent::TorrentConfig::default();
+    if let Ok(path) = std::env::var("TORRENT_STORAGE_PATH") {
+        cfg.storage_path = Some(std::path::PathBuf::from(path));
+    }
+    if let Ok(listen) = std::env::var("TORRENT_HTTP_LISTEN") {
+        cfg.http_listen = listen;
+    }
+    if let Ok(profile) = std::env::var("TORRENT_DEFAULT_PROFILE") {
+        cfg.default_profile = profile;
+    }
+    if let Ok(quota) = std::env::var("TORRENT_STORAGE_QUOTA_BYTES") {
+        if let Ok(n) = quota.parse() {
+            cfg.storage_quota_bytes = Some(n);
+        }
+    }
+    if let Ok(file) = std::env::var("TORRENT_PROFILES_FILE") {
+        cfg.profiles_file = Some(std::path::PathBuf::from(file));
+    }
+    if std::env::var("TORRENT_ENABLED").as_deref() == Ok("false") {
+        cfg.enabled = false;
+    }
+
+    match mtw_torrent::init(cfg, bridge).await {
+        Ok(svc) => {
+            tracing::info!("torrent module ready");
+            Some(svc)
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "torrent module init failed — kernel will fall back to legacy");
+            None
+        }
+    }
 }

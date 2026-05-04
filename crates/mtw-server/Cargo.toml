@@ -15,6 +15,13 @@ categories = ["web-programming", "command-line-utilities"]
 name = "mtw-server"
 path = "src/main.rs"
 
+[features]
+# Default build keeps the binary lean. Opt into the torrent module
+# (and its librqbit + axum + tower-http transitive deps) explicitly:
+#   cargo build -p mtw-server --features torrent
+default = []
+torrent = ["dep:mtw-torrent", "mtw-torrent/librqbit-engine"]
+
 [dependencies]
 mtw-core = { workspace = true }
 mtw-protocol = { workspace = true }
@@ -27,6 +34,7 @@ mtw-trading = { path = "../mtw-trading", features = ["module"] }
 mtw-security = { path = "../mtw-security" }
 mtw-ai = { path = "../mtw-ai" }
 mtw-whatsapp = { workspace = true }
+mtw-torrent = { workspace = true, optional = true }
 tokio = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }

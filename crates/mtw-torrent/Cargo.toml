@@ -1,0 +1,47 @@
+[package]
+name = "mtw-torrent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "Torrent engine module for mtwRequest — exposes torrent.* tools over the bridge"
+keywords = ["bittorrent", "p2p", "magnet", "streaming", "mtw"]
+categories = ["network-programming", "asynchronous"]
+
+[features]
+default = []
+# Enables the librqbit-backed engine + its embedded HTTP data-plane
+# server. Pulls axum/tower-http and ~40 transitive crates — keep off
+# for environments that don't actually run torrents.
+librqbit-engine = ["dep:librqbit", "dep:bytes"]
+
+[dependencies]
+mtw-core = { workspace = true }
+mtw-bridge = { workspace = true }
+mtw-net = { workspace = true }
+
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_bytes = "0.11"
+thiserror = { workspace = true }
+tracing = { workspace = true }
+ulid = { workspace = true }
+dashmap = { workspace = true }
+toml = { workspace = true }
+hex = { workspace = true }
+
+# Optional: real BitTorrent engine. Pinned to a known stable; refresh in
+# Cargo.lock when bumping. `rust-tls` keeps everything on rustls so the
+# build doesn't pull in the system OpenSSL. `http-api` enables the
+# embedded data-plane server with HTTP Range support.
+librqbit = { version = "8", optional = true, default-features = false, features = ["rust-tls", "http-api", "http-api-client", "tracing-subscriber-utils"] }
+bytes = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "test-util", "macros"] }
+tempfile = { workspace = true }

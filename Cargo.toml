@@ -33,6 +33,7 @@ members = [
     "crates/mtw-cli",
     "crates/mtw-benches",
     "crates/mtw-net",
+    "crates/mtw-torrent",
     "examples",
 ]
 
@@ -55,7 +56,9 @@ pin-project-lite = "0.2"
 async-stream = "0.3"
 
 # Serialization
-serde = { version = "1", features = ["derive"] }
+# `rc` lets serde derive Deserialize for Arc<T>/Rc<T>; required by
+# librqbit 8.x and harmless elsewhere.
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 
 # WebSocket
@@ -104,6 +107,7 @@ mtw-mcp = { path = "crates/mtw-mcp" }
 mtw-iris = { path = "crates/mtw-iris" }
 mtw-whatsapp = { path = "crates/mtw-whatsapp" }
 mtw-net = { path = "crates/mtw-net" }
+mtw-torrent = { path = "crates/mtw-torrent" }
 reqwest = { version = "0.12", features = ["json", "gzip", "brotli", "stream"] }
 
 # SQLite
