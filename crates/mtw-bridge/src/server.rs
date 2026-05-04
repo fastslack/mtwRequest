@@ -46,7 +46,8 @@ use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 
-use crate::protocol::{read_frame_length, BridgeRequest, BridgeResponse};
+use crate::events::BridgeEventBus;
+use crate::protocol::{read_frame_length, BridgeEventFrame, BridgeRequest, BridgeResponse};
 
 /// Handler function for a bridge tool.
 ///
@@ -65,6 +66,7 @@ pub struct BridgeServer {
     socket_path: String,
     tools: Arc<DashMap<String, BridgeToolHandler>>,
     shutdown: Arc<AtomicBool>,
+    events: BridgeEventBus,
 }
 
 impl BridgeServer {
@@ -76,6 +78,7 @@ impl BridgeServer {
             socket_path: socket_path.into(),
             tools: Arc::new(DashMap::new()),
             shutdown: Arc::new(AtomicBool::new(false)),
+            events: BridgeEventBus::default(),
         }
     }
 
@@ -91,6 +94,13 @@ impl BridgeServer {
         self.tools.len()
     }
 
+    /// Returns the event bus. Tool handlers (or any module holding a
+    /// reference to the server) clone this and call `emit(topic, data)`
+    /// to push frames to every connected client.
+    pub fn event_bus(&self) -> BridgeEventBus {
+        self.events.clone()
+    }
+
     /// Start listening for connections.
     ///
     /// Returns a `JoinHandle` for the accept loop. The server runs until
@@ -102,11 +112,42 @@ impl BridgeServer {
         let listener = UnixListener::bind(&self.socket_path)
             .map_err(|e| MtwError::Transport(format!("bridge server bind '{}': {}", self.socket_path, e)))?;
 
+        // Make the socket reachable from non-root callers (e.g. the
+        // mtwKernel container running as uid 1000). Override via
+        // `MTW_BRIDGE_SOCKET_MODE=0600` for hardened deployments where
+        // both ends share a uid. Failure here is logged but not fatal —
+        // the bridge still works for the user that owns the socket.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::env::var("MTW_BRIDGE_SOCKET_MODE")
+                .ok()
+                .and_then(|v| u32::from_str_radix(v.trim_start_matches("0o").trim_start_matches('0'), 8).ok())
+                .unwrap_or(0o666);
+            if let Err(e) = std::fs::set_permissions(
+                &self.socket_path,
+                std::fs::Permissions::from_mode(mode),
+            ) {
+                tracing::warn!(
+                    error = %e,
+                    path = %self.socket_path,
+                    "bridge server: chmod socket failed (continuing — non-root clients may fail to connect)"
+                );
+            } else {
+                tracing::debug!(
+                    path = %self.socket_path,
+                    mode = format!("{:o}", mode),
+                    "bridge server: socket mode set"
+                );
+            }
+        }
+
         tracing::info!(path = %self.socket_path, tools = self.tools.len(), "bridge server listening");
 
         let tools = Arc::clone(&self.tools);
         let shutdown = Arc::clone(&self.shutdown);
         let socket_path = self.socket_path.clone();
+        let events = self.events.clone();
 
         let handle = tokio::spawn(async move {
             loop {
@@ -126,7 +167,8 @@ impl BridgeServer {
                     Some(Ok((stream, _addr))) => {
                         tracing::debug!("bridge server: new connection");
                         let tools = Arc::clone(&tools);
-                        tokio::spawn(handle_connection(stream, tools));
+                        let events = events.clone();
+                        tokio::spawn(handle_connection(stream, tools, events));
                     }
                     Some(Err(e)) => {
                         if shutdown.load(Ordering::Relaxed) {
@@ -161,15 +203,97 @@ impl BridgeServer {
     }
 }
 
-/// Handle a single persistent connection, reading requests in a loop.
+/// Outbound frame multiplexed onto a single connection's writer task —
+/// either a response to a request or a server-pushed event.
+enum OutFrame {
+    Response(BridgeResponse),
+    Event(BridgeEventFrame),
+}
+
+impl OutFrame {
+    fn encode(&self) -> Result<Vec<u8>, rmp_serde::encode::Error> {
+        let payload = match self {
+            OutFrame::Response(r) => rmp_serde::to_vec_named(r)?,
+            OutFrame::Event(e) => rmp_serde::to_vec_named(e)?,
+        };
+        let len = (payload.len() as u32).to_be_bytes();
+        let mut frame = Vec::with_capacity(4 + payload.len());
+        frame.extend_from_slice(&len);
+        frame.extend_from_slice(&payload);
+        Ok(frame)
+    }
+}
+
+/// Handle a single persistent connection.
+///
+/// The connection is split in half:
+/// - the **reader** task reads requests, dispatches handlers, and pushes
+///   responses through an internal mpsc;
+/// - the **writer** task owns the write half and serializes both
+///   responses and broadcast events into the socket;
+/// - the **event pump** subscribes to the shared `BridgeEventBus` and
+///   forwards every event into the writer's mpsc.
+///
+/// Splitting writes through a single mpsc avoids interleaving response
+/// bytes with event bytes mid-frame.
 async fn handle_connection(
-    mut stream: UnixStream,
+    stream: UnixStream,
     tools: Arc<DashMap<String, BridgeToolHandler>>,
+    events: BridgeEventBus,
 ) {
+    let (mut reader, mut writer) = stream.into_split();
+
+    let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<OutFrame>();
+
+    // Writer task — single point of socket writes.
+    let writer_task = tokio::spawn(async move {
+        while let Some(frame) = out_rx.recv().await {
+            let bytes = match frame.encode() {
+                Ok(b) => b,
+                Err(e) => {
+                    tracing::error!(error = %e, "bridge server: encode out-frame");
+                    continue;
+                }
+            };
+            if let Err(e) = writer.write_all(&bytes).await {
+                tracing::debug!(error = %e, "bridge server: write failed, closing writer");
+                break;
+            }
+            if let Err(e) = writer.flush().await {
+                tracing::debug!(error = %e, "bridge server: flush failed, closing writer");
+                break;
+            }
+        }
+    });
+
+    // Event pump — broadcasts events into this connection's writer.
+    let pump_tx = out_tx.clone();
+    let mut event_rx = events.subscribe();
+    let pump_task = tokio::spawn(async move {
+        loop {
+            match event_rx.recv().await {
+                Ok(frame) => {
+                    if pump_tx.send(OutFrame::Event(frame)).is_err() {
+                        // Writer is gone; connection is closing.
+                        break;
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    tracing::warn!(
+                        skipped = n,
+                        "bridge server: event subscriber lagged, skipping frames"
+                    );
+                    continue;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+
+    // Reader loop — request → response.
     loop {
-        // Read 4-byte length prefix
         let mut len_buf = [0u8; 4];
-        match stream.read_exact(&mut len_buf).await {
+        match reader.read_exact(&mut len_buf).await {
             Ok(_) => {}
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::UnexpectedEof {
@@ -177,30 +301,36 @@ async fn handle_connection(
                 } else {
                     tracing::debug!(error = %e, "bridge server: read error, closing connection");
                 }
-                return;
+                break;
             }
         }
 
         let payload_len = read_frame_length(&len_buf);
         if payload_len > 10 * 1024 * 1024 {
             tracing::error!(len = payload_len, "bridge server: request too large, closing connection");
-            let _ = send_error_response(&mut stream, "unknown", "request too large").await;
-            return;
+            let _ = out_tx.send(OutFrame::Response(BridgeResponse {
+                id: "unknown".into(),
+                result: None,
+                error: Some("request too large".into()),
+            }));
+            break;
         }
 
-        // Read payload
         let mut payload = vec![0u8; payload_len];
-        if let Err(e) = stream.read_exact(&mut payload).await {
+        if let Err(e) = reader.read_exact(&mut payload).await {
             tracing::error!(error = %e, "bridge server: failed to read payload");
-            return;
+            break;
         }
 
-        // Decode request
         let request = match rmp_serde::from_slice::<BridgeRequest>(&payload) {
             Ok(req) => req,
             Err(e) => {
                 tracing::error!(error = %e, "bridge server: failed to decode request");
-                let _ = send_error_response(&mut stream, "unknown", &format!("decode error: {}", e)).await;
+                let _ = out_tx.send(OutFrame::Response(BridgeResponse {
+                    id: "unknown".into(),
+                    result: None,
+                    error: Some(format!("decode error: {}", e)),
+                }));
                 continue;
             }
         };
@@ -208,8 +338,6 @@ async fn handle_connection(
         let req_id = request.id.clone();
         let tool_name = request.tool.clone();
 
-        // Look up and invoke tool handler directly (no spawn overhead).
-        // Handlers are trusted internal code — panic isolation is not needed.
         let response = if let Some(handler) = tools.get(&tool_name) {
             let handler = handler.value().clone();
             match handler(request.args).await {
@@ -232,53 +360,17 @@ async fn handle_connection(
             }
         };
 
-        // Encode and send response
-        if let Err(e) = send_response(&mut stream, &response).await {
-            tracing::error!(error = %e, "bridge server: failed to send response");
-            return;
+        if out_tx.send(OutFrame::Response(response)).is_err() {
+            tracing::debug!("bridge server: writer closed, ending reader");
+            break;
         }
     }
-}
 
-/// Encode a `BridgeResponse` as a length-prefixed MessagePack frame and write it.
-/// Combines length header + payload into a single write to reduce syscalls.
-async fn send_response(
-    stream: &mut UnixStream,
-    response: &BridgeResponse,
-) -> Result<(), MtwError> {
-    let payload = rmp_serde::to_vec_named(response)
-        .map_err(|e| MtwError::Internal(format!("encode response: {}", e)))?;
-    let len = (payload.len() as u32).to_be_bytes();
-
-    // Single allocation: 4-byte length header + payload
-    let mut frame = Vec::with_capacity(4 + payload.len());
-    frame.extend_from_slice(&len);
-    frame.extend_from_slice(&payload);
-
-    stream
-        .write_all(&frame)
-        .await
-        .map_err(|e| MtwError::Transport(format!("write response: {}", e)))?;
-    stream
-        .flush()
-        .await
-        .map_err(|e| MtwError::Transport(format!("flush response: {}", e)))?;
-
-    Ok(())
-}
-
-/// Send a quick error response when we don't have a proper request ID.
-async fn send_error_response(
-    stream: &mut UnixStream,
-    id: &str,
-    error: &str,
-) -> Result<(), MtwError> {
-    let response = BridgeResponse {
-        id: id.to_string(),
-        result: None,
-        error: Some(error.to_string()),
-    };
-    send_response(stream, &response).await
+    // Closing the channel triggers writer/pump tear-down.
+    drop(out_tx);
+    let _ = writer_task.await;
+    pump_task.abort();
+    let _ = pump_task.await;
 }
 
 #[cfg(test)]
@@ -448,6 +540,77 @@ mod tests {
 
         assert!(resp.is_error());
         assert!(resp.error.unwrap().contains("something went wrong"));
+
+        server.shutdown();
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(1), handle).await;
+        let _ = std::fs::remove_file(&socket_path);
+    }
+
+    #[tokio::test]
+    async fn test_event_bus_pushes_to_connected_client() {
+        let socket_path = format!("/tmp/mtw-bridge-test-{}.sock", ulid::Ulid::new());
+        let server = BridgeServer::new(&socket_path);
+
+        // A handler that emits an event partway through its execution.
+        let bus = server.event_bus();
+        server.register_tool(
+            "trigger",
+            Arc::new(move |_args| {
+                let bus = bus.clone();
+                Box::pin(async move {
+                    bus.emit(
+                        "torrent.progress",
+                        serde_json::json!({"infohash": "abc", "progress": 0.42}),
+                    );
+                    Ok(serde_json::json!({"ok": true}))
+                })
+            }),
+        );
+
+        let handle = server.start().await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let mut client = UnixStream::connect(&socket_path).await.unwrap();
+
+        // Send the request that triggers the event.
+        let req = BridgeRequest::new("trigger", serde_json::json!({}));
+        let frame = req.encode().unwrap();
+        client.write_all(&frame).await.unwrap();
+
+        // We expect to read TWO frames now: one event, one response.
+        // Order is technically race-y (the writer task pulls from a single
+        // mpsc that both response and event push into), but since the
+        // handler emits the event before returning Ok, the event arrives
+        // first in practice. Decode both and identify by `type` field.
+        let mut got_event = false;
+        let mut got_response = false;
+        for _ in 0..2 {
+            let mut len_buf = [0u8; 4];
+            tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                client.read_exact(&mut len_buf),
+            )
+            .await
+            .expect("timeout reading frame")
+            .unwrap();
+            let payload_len = read_frame_length(&len_buf);
+            let mut payload = vec![0u8; payload_len];
+            client.read_exact(&mut payload).await.unwrap();
+
+            let v: serde_json::Value = rmp_serde::from_slice(&payload).unwrap();
+            if v.get("type").and_then(|t| t.as_str()) == Some("event") {
+                assert_eq!(v["topic"], "torrent.progress");
+                assert_eq!(v["data"]["infohash"], "abc");
+                got_event = true;
+            } else if v.get("id").is_some() {
+                assert_eq!(v["result"]["ok"], true);
+                got_response = true;
+            } else {
+                panic!("unexpected frame: {}", v);
+            }
+        }
+        assert!(got_event, "did not receive event frame");
+        assert!(got_response, "did not receive response frame");
 
         server.shutdown();
         let _ = tokio::time::timeout(std::time::Duration::from_secs(1), handle).await;

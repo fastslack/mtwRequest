@@ -33,6 +33,46 @@ pub struct BridgeResponse {
     pub error: Option<String>,
 }
 
+/// Server-pushed event frame, multiplexed onto the same socket as
+/// `BridgeResponse`. Distinguished from a response by the presence of
+/// the `type: "event"` discriminator field (responses have `id`+
+/// `result`/`error`, never `type`). Backwards-compatible: clients that
+/// don't recognise events can ignore them.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BridgeEventFrame {
+    /// Always the literal string `"event"`. Encoded under field `type`.
+    #[serde(rename = "type")]
+    pub kind: String,
+
+    /// Topic identifier, e.g., `"torrent.progress"`.
+    pub topic: String,
+
+    /// Arbitrary event payload.
+    pub data: serde_json::Value,
+}
+
+impl BridgeEventFrame {
+    /// Create a new event frame for `topic` with `data` as payload.
+    pub fn new(topic: impl Into<String>, data: serde_json::Value) -> Self {
+        Self {
+            kind: "event".into(),
+            topic: topic.into(),
+            data,
+        }
+    }
+
+    /// Encode to MessagePack bytes with length prefix (same wire format
+    /// as [`BridgeRequest::encode`] / [`BridgeResponse`]).
+    pub fn encode(&self) -> Result<Vec<u8>, rmp_serde::encode::Error> {
+        let payload = rmp_serde::to_vec_named(self)?;
+        let len = (payload.len() as u32).to_be_bytes();
+        let mut frame = Vec::with_capacity(4 + payload.len());
+        frame.extend_from_slice(&len);
+        frame.extend_from_slice(&payload);
+        Ok(frame)
+    }
+}
+
 impl BridgeRequest {
     pub fn new(tool: impl Into<String>, args: serde_json::Value) -> Self {
         Self {

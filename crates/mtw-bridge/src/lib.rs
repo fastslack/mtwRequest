@@ -17,10 +17,13 @@
 //! address = "127.0.0.1:3087"
 //! ```
 
+pub mod events;
 pub mod protocol;
 pub mod server;
 pub mod unix;
 
+pub use events::BridgeEventBus;
+pub use protocol::BridgeEventFrame;
 pub use server::{BridgeServer, BridgeToolHandler};
 
 use async_trait::async_trait;
