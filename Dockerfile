@@ -11,7 +11,9 @@
 #   RUST_BRIDGE_SOCKET=/tmp/mtw-rust.sock
 
 # --- Builder stage ---
-FROM rust:1.86-slim AS builder
+# rustc >= 1.88 needed for the torrent feature: librqbit's transitive deps
+# (darling 0.23, serde_with 3.19) bumped their MSRV to 1.88.
+FROM rust:1.88-slim AS builder
 
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 
@@ -44,6 +46,10 @@ COPY crates/mtw-graph/Cargo.toml crates/mtw-graph/Cargo.toml
 COPY crates/mtw-skills/Cargo.toml crates/mtw-skills/Cargo.toml
 COPY crates/mtw-orchestrator/Cargo.toml crates/mtw-orchestrator/Cargo.toml
 COPY crates/mtw-server/Cargo.toml crates/mtw-server/Cargo.toml
+# Crates added in the torrent-engine work — needed by the workspace
+# resolver before any cargo invocation, even if the feature is off.
+COPY crates/mtw-net/Cargo.toml crates/mtw-net/Cargo.toml
+COPY crates/mtw-torrent/Cargo.toml crates/mtw-torrent/Cargo.toml
 COPY examples/Cargo.toml examples/Cargo.toml
 
 # Create dummy source files for dependency caching
@@ -72,11 +78,13 @@ RUN mkdir -p crates/mtw-protocol/src && echo "" > crates/mtw-protocol/src/lib.rs
     mkdir -p crates/mtw-skills/src && echo "" > crates/mtw-skills/src/lib.rs && \
     mkdir -p crates/mtw-orchestrator/src && echo "" > crates/mtw-orchestrator/src/lib.rs && \
     mkdir -p crates/mtw-server/src && echo "fn main() {}" > crates/mtw-server/src/main.rs && \
+    mkdir -p crates/mtw-net/src && echo "" > crates/mtw-net/src/lib.rs && \
+    mkdir -p crates/mtw-torrent/src && echo "" > crates/mtw-torrent/src/lib.rs && \
     mkdir -p examples && echo "fn main() {}" > examples/demo_server.rs && \
     echo "fn main() {}" > examples/demo_client.rs
 
 # Build dependencies only (cached layer)
-RUN cargo build --release -p mtw-server 2>/dev/null || true
+RUN cargo build --release -p mtw-server --features torrent 2>/dev/null || true
 
 # Now copy real source code
 COPY crates/ crates/
@@ -87,7 +95,7 @@ COPY examples/ examples/
 RUN find crates/ examples/ -name "*.rs" -exec touch {} +
 
 # Build the actual binary
-RUN cargo build --release -p mtw-server
+RUN cargo build --release -p mtw-server --features torrent
 
 # --- Runtime stage ---
 FROM debian:bookworm-slim
@@ -102,13 +110,21 @@ COPY --from=builder /build/target/release/mtw-server /app/mtw-server
 # Copy default config
 COPY mtw.toml /app/mtw.toml
 
-# Expose default port
+# WebSocket transport
 EXPOSE 7741
+# Torrent data-plane (librqbit HTTP API with Range support).
+# Reachable from the kernel container as e.g. http://mtw-server:9999/.
+EXPOSE 9999
 
 # Environment defaults
 ENV RUST_LOG=info,mtw=debug
 ENV MTW_HOST=0.0.0.0
 ENV MTW_PORT=7741
 ENV RUST_BRIDGE_SOCKET=/tmp/mtw-rust.sock
+# Bind torrent data plane on all interfaces by default in container.
+# Override on host with `TORRENT_HTTP_LISTEN=127.0.0.1:9999`.
+ENV TORRENT_HTTP_LISTEN=0.0.0.0:9999
+# Volume-mountable storage: state.json + downloaded files live here.
+ENV TORRENT_STORAGE_PATH=/var/lib/mtwrequest/torrents
 
 CMD ["/app/mtw-server"]

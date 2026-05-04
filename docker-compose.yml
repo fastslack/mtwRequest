@@ -17,6 +17,10 @@ services:
     container_name: mtw-server
     ports:
       - "${MTW_PORT:-7741}:7741"
+      # Torrent data-plane (librqbit HTTP API). The kernel proxies this
+      # for browser <video> stream requests. Bind to localhost on host
+      # in production — only the kernel needs it.
+      - "${TORRENT_HTTP_PORT:-9999}:9999"
     environment:
       - RUST_LOG=${RUST_LOG:-info,mtw=debug}
       - MTW_HOST=0.0.0.0
@@ -24,9 +28,24 @@ services:
       # Must match whatsapp-bridge's MTW_WHATSAPP_SOCKET. Both containers
       # see the socket file through the shared named volume.
       - MTW_WHATSAPP_SOCKET=/var/run/mtw-whatsapp/whatsapp.sock
+      # Torrent module — enabled in this build via `--features torrent`.
+      # Override TORRENT_HTTP_LISTEN/PROFILES_FILE/STORAGE_QUOTA_BYTES
+      # in your `.env` if needed.
+      - TORRENT_HTTP_LISTEN=0.0.0.0:9999
+      - TORRENT_STORAGE_PATH=/var/lib/mtwrequest/torrents
+      # Bridge socket mode: kernel container probably runs as uid != 0,
+      # so expose the socket world-rw. Tighten with 0660 + matching gid
+      # in production deployments. The 0666 default lets `chmod` go away.
+      - MTW_BRIDGE_SOCKET_MODE=0666
+      # Path is shared with mtwKernel — change here AND in the kernel's
+      # docker-compose if you move it.
+      - RUST_BRIDGE_SOCKET=/tmp/mtw-rust.sock
     volumes:
       - ./mtw.toml:/app/mtw.toml:ro
       - mtw-whatsapp-sock:/var/run/mtw-whatsapp
+      # Torrent files (downloads + librqbit resume state). Persists
+      # across `docker compose up -d --build`.
+      - mtw-torrent-data:/var/lib/mtwrequest/torrents
     depends_on:
       whatsapp-bridge:
         condition: service_started
@@ -77,3 +96,6 @@ volumes:
   mtw-whatsapp-sock:
   # Persists the whatsmeow session DB so the user only scans the QR once.
   mtw-whatsapp-data:
+  # Torrent downloads + librqbit `_meta/state.json` (resume data).
+  # Survives container rebuilds.
+  mtw-torrent-data:
