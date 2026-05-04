@@ -1,0 +1,33 @@
+[package]
+name = "mtw-net"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "Centralized outbound networking — reqwest factory with profile-based egress (clear/proxy/vpn/tor/i2p) for mtwRequest"
+keywords = ["http", "proxy", "vpn", "tor", "mtw"]
+categories = ["network-programming"]
+
+[features]
+default = []
+# Reserved for future userspace WireGuard via boringtun. Off by default.
+wireguard = []
+# Reserved for future Tor integration via arti. Off by default.
+arti-tor = []
+
+[dependencies]
+mtw-core = { workspace = true }
+
+reqwest = { workspace = true, features = ["socks"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+toml = { workspace = true }
+dashmap = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "test-util"] }
