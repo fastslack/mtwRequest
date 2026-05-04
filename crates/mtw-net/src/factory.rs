@@ -7,10 +7,17 @@ use mtw_core::MtwError;
 use crate::config::{NetConfig, TlsVersionFloor};
 use crate::profile::OutboundProfile;
 
-/// Build a `reqwest::Client` configured for the given profile under the
-/// given `NetConfig`. Each call materializes a fresh client; for repeated
-/// use prefer [`NetFactory`], which caches one client per profile name.
-pub fn build_client(config: &NetConfig, profile_name: &str) -> Result<reqwest::Client, MtwError> {
+/// Build a `reqwest::ClientBuilder` configured for the given profile —
+/// the caller can layer extra options (custom timeouts, default
+/// headers, …) before calling `.build()`. Use this when you can't use
+/// a pre-built client because you need per-call-site reqwest options.
+///
+/// Most callers should reach for [`build_client`] / [`NetFactory`]
+/// instead.
+pub fn build_client_builder(
+    config: &NetConfig,
+    profile_name: &str,
+) -> Result<reqwest::ClientBuilder, MtwError> {
     let profile = config.lookup(profile_name).ok_or_else(|| {
         MtwError::Config(format!(
             "mtw-net: profile '{}' not found (available: {:?})",
@@ -75,7 +82,14 @@ pub fn build_client(config: &NetConfig, profile_name: &str) -> Result<reqwest::C
         }
     }
 
-    builder
+    Ok(builder)
+}
+
+/// Build a `reqwest::Client` configured for the given profile under the
+/// given `NetConfig`. Each call materializes a fresh client; for repeated
+/// use prefer [`NetFactory`], which caches one client per profile name.
+pub fn build_client(config: &NetConfig, profile_name: &str) -> Result<reqwest::Client, MtwError> {
+    build_client_builder(config, profile_name)?
         .build()
         .map_err(|e| MtwError::Internal(format!("mtw-net: build reqwest client: {}", e)))
 }

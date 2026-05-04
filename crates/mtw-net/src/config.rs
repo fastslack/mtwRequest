@@ -132,6 +132,29 @@ impl NetConfig {
         names.sort();
         names
     }
+
+    /// Parse the `[net]` section out of a full mtw.toml content. Returns
+    /// the default config when the section is absent so callers don't
+    /// have to special-case "no `[net]`".
+    ///
+    /// We parse twice (once here, once in `MtwConfig::from_str`) on
+    /// purpose: it keeps mtw-core decoupled from mtw-net. Toml parsing
+    /// is fast (~tens of µs) and only runs at boot.
+    pub fn from_mtw_toml(content: &str) -> Result<Self, mtw_core::MtwError> {
+        #[derive(serde::Deserialize)]
+        struct Wrap {
+            #[serde(default)]
+            net: Option<NetConfig>,
+        }
+        // We can't share env-expansion with MtwConfig's loader (lives
+        // in mtw-core); callers that need `${ENV}` expansion should
+        // pre-expand and pass the result here.
+        let wrap: Wrap = toml::from_str(content)
+            .map_err(|e| mtw_core::MtwError::Config(format!("[net] parse: {}", e)))?;
+        let mut cfg = wrap.net.unwrap_or_default();
+        cfg.ensure_clear_profile();
+        Ok(cfg)
+    }
 }
 
 #[cfg(test)]

@@ -40,7 +40,12 @@
 pub mod config;
 pub mod profile;
 pub mod factory;
+pub mod global;
 
 pub use config::{NetConfig, TlsVersionFloor};
-pub use factory::{build_client, NetFactory};
+pub use factory::{build_client, build_client_builder, NetFactory};
+pub use global::{
+    client_for, client_for_strict, default_client, default_client_builder, factory, install,
+    is_installed,
+};
 pub use profile::{OutboundProfile, ProxyScheme};
