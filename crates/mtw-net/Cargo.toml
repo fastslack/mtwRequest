@@ -13,8 +13,10 @@ categories = ["network-programming"]
 
 [features]
 default = []
-# Reserved for future userspace WireGuard via boringtun. Off by default.
-wireguard = []
+# Userspace WireGuard via Cloudflare's boringtun. Phase B.1 ships
+# the handshake + encap/decap primitive; the userspace TCP/IP glue
+# (smoltcp) and reqwest/librqbit dialers come in B.2/B.3.
+wireguard = ["dep:boringtun", "dep:base64", "dep:tokio", "dep:rand"]
 # Reserved for future Tor integration via arti. Off by default.
 arti-tor = []
 
@@ -29,5 +31,14 @@ tracing = { workspace = true }
 toml = { workspace = true }
 dashmap = { workspace = true }
 
+# `wireguard` feature deps. Optional so default builds (and the
+# torrent module's `clear` profile) don't pull in 30+ extra crates.
+boringtun = { version = "0.7", optional = true, default-features = false }
+base64 = { version = "0.22", optional = true }
+tokio = { workspace = true, optional = true }
+rand = { version = "0.8", optional = true }
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
+rand = "0.8"
+base64 = "0.22"
