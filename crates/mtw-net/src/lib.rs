@@ -45,6 +45,9 @@ pub mod global;
 #[cfg(feature = "wireguard")]
 pub mod wireguard;
 
+#[cfg(feature = "wireguard")]
+pub mod wireguard_stack;
+
 pub use config::{NetConfig, TlsVersionFloor};
 pub use factory::{build_client, build_client_builder, NetFactory};
 pub use global::{

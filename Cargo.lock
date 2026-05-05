@@ -453,12 +453,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "blake2"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46502ad458c9a52b69d4d4d32775c788b7a1b85e8bc9d482d92250fc0e3f8efe"
+dependencies = [
+ "digest",
+]
+
+[[package]]
 name = "block-buffer"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
 dependencies = [
  "generic-array 0.14.7",
+]
+
+[[package]]
+name = "boringtun"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15dd6a8a89cbe8997f37ca0cf035e6ea4d64cd2ecea4aed83ffb9f99f7126939"
+dependencies = [
+ "aead",
+ "base64",
+ "blake2",
+ "chacha20poly1305",
+ "hex",
+ "hmac",
+ "ip_network",
+ "ip_network_table",
+ "libc",
+ "nix 0.31.2",
+ "parking_lot",
+ "portable-atomic",
+ "rand_core 0.6.4",
+ "ring",
+ "tracing",
+ "untrusted 0.9.0",
+ "x25519-dalek",
 ]
 
 [[package]]
@@ -573,6 +607,19 @@ dependencies = [
  "cfg-if",
  "cpufeatures 0.3.0",
  "rand_core 0.10.0",
+]
+
+[[package]]
+name = "chacha20poly1305"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10cd79432192d1c0f4e1a0fef9527696cc039165d729fb41b3f4f4f354c2dc35"
+dependencies = [
+ "aead",
+ "chacha20 0.9.1",
+ "cipher",
+ "poly1305",
+ "zeroize",
 ]
 
 [[package]]
@@ -1154,6 +1201,47 @@ name = "data-encoding"
 version = "2.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
+
+[[package]]
+name = "defmt"
+version = "0.3.100"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0963443817029b2024136fc4dd07a5107eb8f977eaf18fcd1fdeb11306b64ad"
+dependencies = [
+ "defmt 1.0.1",
+]
+
+[[package]]
+name = "defmt"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "548d977b6da32fa1d1fda2876453da1e7df63ad0304c8b3dae4dbe7b96f39b78"
+dependencies = [
+ "bitflags 1.3.2",
+ "defmt-macros",
+]
+
+[[package]]
+name = "defmt-macros"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d4fc12a85bcf441cfe44344c4b72d58493178ce635338a3f3b78943aceb258e"
+dependencies = [
+ "defmt-parser",
+ "proc-macro-error2",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
+name = "defmt-parser"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10d60334b3b2e7c9d91ef8150abfb6fa4c1c39ebbcf4a81c2e346aad939fee3e"
+dependencies = [
+ "thiserror 2.0.18",
+]
 
 [[package]]
 name = "der"
@@ -1935,6 +2023,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hash32"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47d60b12902ba28e2730cd37e95b8c9223af2808df9e902d4df49588d1470606"
+dependencies = [
+ "byteorder",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1986,6 +2083,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ba4ff7128dee98c7dc9794b6a411377e1404dba1c97deb8d1a55297bd25d8af"
 dependencies = [
  "hashbrown 0.14.5",
+]
+
+[[package]]
+name = "heapless"
+version = "0.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25ba4bd83f9415b58b4ed8dc5714c76e626a105be4646c02630ad730ad3b5aa4"
+dependencies = [
+ "hash32",
+ "stable_deref_trait",
 ]
 
 [[package]]
@@ -2456,6 +2563,28 @@ checksum = "270bc34e57047cab801a8c871c124d9dc7132f6473c6401f645524f4e6edd111"
 dependencies = [
  "smallvec",
 ]
+
+[[package]]
+name = "ip_network"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa2f047c0a98b2f299aa5d6d7088443570faae494e9ae1305e48be000c9e0eb1"
+
+[[package]]
+name = "ip_network_table"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4099b7cfc5c5e2fe8c5edf3f6f7adf7a714c9cc697534f63a5a5da30397cb2c0"
+dependencies = [
+ "ip_network",
+ "ip_network_table-deps-treebitmap",
+]
+
+[[package]]
+name = "ip_network_table-deps-treebitmap"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e537132deb99c0eb4b752f0346b6a836200eaaa3516dd7e5514b63930a09e5d"
 
 [[package]]
 name = "ipconfig"
@@ -3286,6 +3415,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "managed"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ca88d725a0a943b096803bd34e73a4437208b6077654cc4ecb2947a5f91618d"
+
+[[package]]
 name = "matchers"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3375,7 +3510,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-ai"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3383,6 +3518,7 @@ dependencies = [
  "dashmap",
  "futures",
  "mtw-core",
+ "mtw-net",
  "mtw-protocol",
  "pin-project-lite",
  "r2d2",
@@ -3400,7 +3536,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-auth"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -3418,7 +3554,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-benches"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "criterion",
@@ -3433,7 +3569,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-bridge"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -3450,7 +3586,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-cli"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "clap",
  "mtw-registry",
@@ -3463,7 +3599,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-codec"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3476,7 +3612,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-comms"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -3492,7 +3628,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -3527,7 +3663,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-exchange"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -3535,6 +3671,7 @@ dependencies = [
  "hex",
  "hmac",
  "mtw-core",
+ "mtw-net",
  "mtw-protocol",
  "reqwest",
  "serde",
@@ -3551,13 +3688,14 @@ dependencies = [
 
 [[package]]
 name = "mtw-federation"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "dashmap",
  "iroh",
  "mtw-core",
  "mtw-identity",
+ "mtw-net",
  "mtw-protocol",
  "reqwest",
  "serde",
@@ -3570,7 +3708,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-graph"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -3583,13 +3721,14 @@ dependencies = [
 
 [[package]]
 name = "mtw-http"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "bytes",
  "dashmap",
  "futures",
  "mtw-core",
+ "mtw-net",
  "reqwest",
  "serde",
  "serde_json",
@@ -3601,7 +3740,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-identity"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "ed25519-dalek",
  "hex",
@@ -3615,12 +3754,13 @@ dependencies = [
 
 [[package]]
 name = "mtw-integrations"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "bytes",
  "futures",
  "mtw-core",
+ "mtw-net",
  "reqwest",
  "serde",
  "serde_json",
@@ -3630,7 +3770,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-iris"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -3664,13 +3804,17 @@ dependencies = [
 
 [[package]]
 name = "mtw-net"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
+ "base64",
+ "boringtun",
  "dashmap",
  "mtw-core",
+ "rand 0.8.5",
  "reqwest",
  "serde",
  "serde_json",
+ "smoltcp",
  "thiserror 2.0.18",
  "tokio",
  "toml",
@@ -3679,7 +3823,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-notify"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -3694,7 +3838,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-protocol"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64",
  "bytes",
@@ -3707,9 +3851,10 @@ dependencies = [
 
 [[package]]
 name = "mtw-registry"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "mtw-core",
+ "mtw-net",
  "reqwest",
  "serde",
  "serde_json",
@@ -3723,7 +3868,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-router"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -3741,7 +3886,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-sdk"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "mtw-codec",
@@ -3755,7 +3900,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-security"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -3770,13 +3915,14 @@ dependencies = [
 
 [[package]]
 name = "mtw-server"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "dashmap",
  "mtw-ai",
  "mtw-bridge",
  "mtw-codec",
  "mtw-core",
+ "mtw-net",
  "mtw-protocol",
  "mtw-router",
  "mtw-security",
@@ -3795,7 +3941,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-skills"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -3810,7 +3956,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-social"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "mtw-identity",
  "mtw-protocol",
@@ -3822,7 +3968,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-state"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -3836,7 +3982,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-store"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -3857,7 +4003,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-test"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -3877,7 +4023,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-torrent"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3900,7 +4046,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-trading"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -3915,7 +4061,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-transport"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3936,7 +4082,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-whatsapp"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -4151,6 +4297,18 @@ checksum = "2eb04e9c688eff1c89d72b407f168cf79bb9e867a9d3323ed6c01519eb9cc053"
 dependencies = [
  "bitflags 2.11.0",
  "cfg-if",
+ "libc",
+]
+
+[[package]]
+name = "nix"
+version = "0.31.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d6d0705320c1e6ba1d912b5e37cf18071b6c2e9b7fa8215a1e8a7651966f5d3"
+dependencies = [
+ "bitflags 2.11.0",
+ "cfg-if",
+ "cfg_aliases",
  "libc",
 ]
 
@@ -4895,6 +5053,28 @@ dependencies = [
  "syn 1.0.109",
  "syn-mid",
  "version_check",
+]
+
+[[package]]
+name = "proc-macro-error-attr2"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "96de42df36bb9bba5542fe9f1a054b8cc87e172759a1868aa05c1f3acc89dfc5"
+dependencies = [
+ "proc-macro2",
+ "quote",
+]
+
+[[package]]
+name = "proc-macro-error2"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11ec05c52be0a07b08061f7dd003e7d7092e0472bc731b4af7bb1ef876109802"
+dependencies = [
+ "proc-macro-error-attr2",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -6028,6 +6208,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "smoltcp"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f73d40463bba65efc9adc6370b56df76d563cc46e2482bba58351b4afb7535e"
+dependencies = [
+ "bitflags 1.3.2",
+ "byteorder",
+ "cfg-if",
+ "defmt 0.3.100",
+ "heapless",
+ "log",
+ "managed",
 ]
 
 [[package]]
@@ -8086,6 +8281,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "x25519-dalek"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7e468321c81fb07fa7f4c636c3972b9100f0346e5b6a9f2bd0603a52f7ed277"
+dependencies = [
+ "curve25519-dalek",
+ "rand_core 0.6.4",
+ "serde",
+ "zeroize",
+]
+
+[[package]]
 name = "x509-parser"
 version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8201,6 +8408,20 @@ name = "zeroize"
 version = "1.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b97154e67e32c85465826e8bcc1c59429aaaf107c1e4a9e53c8d8ccd5eff88d0"
+dependencies = [
+ "zeroize_derive",
+]
+
+[[package]]
+name = "zeroize_derive"
+version = "1.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85a5b4158499876c763cb03bc4e49185d3cccbabb15b33c627f7884f43db852e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
 
 [[package]]
 name = "zerotrie"

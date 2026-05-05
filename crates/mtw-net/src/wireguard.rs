@@ -46,7 +46,7 @@ use boringtun::noise::{Tunn, TunnResult};
 use boringtun::x25519;
 use mtw_core::MtwError;
 use tokio::net::UdpSocket;
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 
 /// Maximum WireGuard packet size on the wire (per the protocol). The
 /// data path overhead is 32 bytes on top of the inner IP packet, so
@@ -140,10 +140,25 @@ fn decode_x25519_key(s: &str, label: &str) -> Result<[u8; 32], MtwError> {
 /// socket bound to the peer endpoint. Construction of a tunnel does
 /// NOT yet exchange handshakes — call [`Self::connect`] to drive the
 /// initial handshake to completion.
+///
+/// **Bridging to a TCP/IP stack.** On `connect()`, the tunnel spawns a
+/// driver task that pushes decapsulated inner-IP packets to
+/// `inbound_tx` and listens on `outbound_rx` for IP packets to
+/// encapsulate and ship to the WG peer. Code that wants to actually
+/// move application traffic (the [`crate::wireguard_stack`] glue, in
+/// B.2) moves these channels into a smoltcp-backed stack.
 pub struct WireGuardTunnel {
     tunn: Arc<Mutex<Tunn>>,
     socket: Arc<UdpSocket>,
     endpoint: SocketAddr,
+    /// Received here: inner-IP payloads that the WG peer sent us
+    /// (after boringtun decap). The smoltcp stack consumes them.
+    inbound_rx: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
+    /// Senders cloned from this push inner-IP packets through the
+    /// tunnel (encapsulate + send to WG peer).
+    outbound_tx: mpsc::UnboundedSender<Vec<u8>>,
+    inbound_tx: mpsc::UnboundedSender<Vec<u8>>,
+    outbound_rx: Mutex<Option<mpsc::UnboundedReceiver<Vec<u8>>>>,
 }
 
 impl WireGuardTunnel {
@@ -175,11 +190,30 @@ impl WireGuardTunnel {
             .await
             .map_err(|e| MtwError::Transport(format!("wireguard: UDP connect to {}: {}", keys.endpoint, e)))?;
 
+        let (in_tx, in_rx) = mpsc::unbounded_channel();
+        let (out_tx, out_rx) = mpsc::unbounded_channel();
+
         Ok(Self {
             tunn: Arc::new(Mutex::new(tunn)),
             socket: Arc::new(socket),
             endpoint: keys.endpoint,
+            inbound_rx: Some(in_rx),
+            outbound_tx: out_tx,
+            inbound_tx: in_tx,
+            outbound_rx: Mutex::new(Some(out_rx)),
         })
+    }
+
+    /// Clone of the outbound channel sender — push inner-IP packets
+    /// here to have them encapsulated and shipped to the WG peer.
+    pub fn outbound_sender(&self) -> mpsc::UnboundedSender<Vec<u8>> {
+        self.outbound_tx.clone()
+    }
+
+    /// Take the inbound channel for inner-IP packets the WG peer sent
+    /// us. Single-consumer: returns `None` if already taken.
+    pub fn take_inbound_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<Vec<u8>>> {
+        self.inbound_rx.take()
     }
 
     /// Drive the handshake until either (a) `time_since_last_handshake`
@@ -192,13 +226,19 @@ impl WireGuardTunnel {
         // generate it inside `format_handshake_initiation`.
         self.send_handshake_init().await?;
 
-        // Spawn the steady-state timer driver. It also drains incoming
-        // UDP packets and feeds them back through decapsulate so the
-        // session can complete and sustain.
+        // Spawn the steady-state driver: timers + UDP recv → decap to
+        // inbound channel + outbound channel → encap + UDP send.
         let driver_tunn = self.tunn.clone();
         let driver_sock = self.socket.clone();
+        let driver_in_tx = self.inbound_tx.clone();
+        let outbound_rx = self
+            .outbound_rx
+            .lock()
+            .await
+            .take()
+            .ok_or_else(|| MtwError::Internal("wireguard: connect() called twice".into()))?;
         tokio::spawn(async move {
-            run_timer_loop(driver_tunn, driver_sock).await;
+            run_driver(driver_tunn, driver_sock, driver_in_tx, outbound_rx).await;
         });
 
         // Wait for the session to be alive.
@@ -322,10 +362,21 @@ impl WireGuardTunnel {
     }
 }
 
-/// Long-running task that ticks `update_timers` every 250 ms (so
-/// handshakes initiate, re-key, and keepalives fire) and drains
-/// incoming UDP packets so the session can complete.
-async fn run_timer_loop(tunn: Arc<Mutex<Tunn>>, socket: Arc<UdpSocket>) {
+/// Long-running driver. Handles three concurrent paths:
+///
+/// 1. **Timer ticks** every `TIMER_TICK_INTERVAL` so boringtun can
+///    rotate sessions, retransmit handshakes, and emit keepalives.
+/// 2. **Incoming UDP** from the WG peer → decap. Inner-IP payloads are
+///    pushed to `inbound_tx` (where the smoltcp stack picks them up).
+///    Handshake replies / cookies are bounced back to the peer.
+/// 3. **Outbound IP** from the smoltcp stack on `outbound_rx` →
+///    encap → UDP send.
+async fn run_driver(
+    tunn: Arc<Mutex<Tunn>>,
+    socket: Arc<UdpSocket>,
+    inbound_tx: mpsc::UnboundedSender<Vec<u8>>,
+    mut outbound_rx: mpsc::UnboundedReceiver<Vec<u8>>,
+) {
     let mut interval = tokio::time::interval(TIMER_TICK_INTERVAL);
     let mut net_buf = [0u8; MAX_WG_PACKET];
     let mut out_buf = [0u8; MAX_WG_PACKET];
@@ -351,15 +402,41 @@ async fn run_timer_loop(tunn: Arc<Mutex<Tunn>>, socket: Arc<UdpSocket>) {
                     _ => {}
                 }
             }
-            // Incoming UDP from peer — feed into decapsulate and ship
-            // any reply boringtun asks us to send (handshake response,
-            // cookie reply, etc.). Inner IP payloads aren't yet routed
-            // anywhere — that's B.2/B.3 work.
+            // Inner-IP packet from the smoltcp stack — encapsulate +
+            // forward to peer.
+            req = outbound_rx.recv() => {
+                let Some(packet) = req else {
+                    tracing::debug!("wireguard: outbound channel closed, driver exiting");
+                    return;
+                };
+                let mut t = tunn.lock().await;
+                match t.encapsulate(&packet, &mut out_buf) {
+                    TunnResult::WriteToNetwork(out) => {
+                        let len = out.len();
+                        drop(t);
+                        if let Err(e) = socket.send(&out_buf[..len]).await {
+                            tracing::debug!(error = %e, "wireguard: outbound encap send failed");
+                        }
+                    }
+                    TunnResult::Done => {
+                        // boringtun queued the packet because no
+                        // active session — that's fine, will flush
+                        // when handshake completes.
+                    }
+                    TunnResult::Err(e) => {
+                        tracing::debug!(error = ?e, "wireguard: outbound encap error");
+                    }
+                    _ => {}
+                }
+            }
+            // Incoming UDP from peer — feed into decapsulate. Handshake
+            // replies bounce back to peer; data payloads go to the
+            // inbound channel for the smoltcp stack to consume.
             r = socket.recv(&mut net_buf) => {
                 let n = match r {
                     Ok(n) => n,
                     Err(e) => {
-                        tracing::debug!(error = %e, "wireguard: recv error, exiting timer loop");
+                        tracing::debug!(error = %e, "wireguard: recv error, exiting driver");
                         return;
                     }
                 };
@@ -372,16 +449,29 @@ async fn run_timer_loop(tunn: Arc<Mutex<Tunn>>, socket: Arc<UdpSocket>) {
                         if let Err(e) = socket.send(&out_buf[..len]).await {
                             tracing::debug!(error = %e, "wireguard: reply send failed");
                         }
+                        // After processing a handshake reply,
+                        // boringtun may have queued data packets —
+                        // drain them now by calling decapsulate with
+                        // an empty slice.
+                        loop {
+                            let mut t2 = tunn.lock().await;
+                            match t2.decapsulate(None, &[], &mut out_buf) {
+                                TunnResult::WriteToNetwork(out) => {
+                                    let len = out.len();
+                                    drop(t2);
+                                    if socket.send(&out_buf[..len]).await.is_err() {
+                                        break;
+                                    }
+                                }
+                                _ => break,
+                            }
+                        }
                     }
-                    TunnResult::WriteToTunnelV4(_, _) | TunnResult::WriteToTunnelV6(_, _) => {
-                        // Application data arrived — when B.2 lands
-                        // we'll forward this to smoltcp. For B.1,
-                        // dropping it on the floor is fine: handshake
-                        // negotiation packets land in the other arms,
-                        // and end-to-end traffic isn't routed yet.
+                    TunnResult::WriteToTunnelV4(payload, _) | TunnResult::WriteToTunnelV6(payload, _) => {
+                        let _ = inbound_tx.send(payload.to_vec());
                     }
                     TunnResult::Err(e) => {
-                        tracing::debug!(error = ?e, "wireguard: decap error in timer loop");
+                        tracing::debug!(error = ?e, "wireguard: decap error in driver");
                     }
                 }
             }

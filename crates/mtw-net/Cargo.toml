@@ -16,7 +16,7 @@ default = []
 # Userspace WireGuard via Cloudflare's boringtun. Phase B.1 ships
 # the handshake + encap/decap primitive; the userspace TCP/IP glue
 # (smoltcp) and reqwest/librqbit dialers come in B.2/B.3.
-wireguard = ["dep:boringtun", "dep:base64", "dep:tokio", "dep:rand"]
+wireguard = ["dep:boringtun", "dep:base64", "dep:tokio", "dep:rand", "dep:smoltcp"]
 # Reserved for future Tor integration via arti. Off by default.
 arti-tor = []
 
@@ -37,6 +37,19 @@ boringtun = { version = "0.7", optional = true, default-features = false }
 base64 = { version = "0.22", optional = true }
 tokio = { workspace = true, optional = true }
 rand = { version = "0.8", optional = true }
+# Userspace TCP/IP stack — runs above the WG tunnel. We pick the
+# feature set explicitly because smoltcp's defaults pull a few
+# things (DHCPv4, DNS) we don't want in this layer.
+smoltcp = { version = "0.13", optional = true, default-features = false, features = [
+    "std",
+    "log",
+    "medium-ip",
+    "proto-ipv4",
+    "proto-ipv6",
+    "socket-tcp",
+    "socket-udp",
+    "async",
+] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
