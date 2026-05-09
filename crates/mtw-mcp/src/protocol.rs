@@ -86,6 +86,10 @@ pub struct ToolResult {
     /// Optional UI payload (HTML or component JSON). Only emitted when the
     /// client declared the `experimental.applications` capability.
     pub ui: Option<UiContent>,
+    /// Optional side-effects manifest the attestation layer signs into the
+    /// receipt. Empty / `None` for pure read-only tools. The format is the
+    /// same as `Receipt::side_effects` — see `mtw-attest`.
+    pub side_effects: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -98,11 +102,11 @@ pub struct UiContent {
 
 impl ToolResult {
     pub fn text(t: impl Into<String>) -> Self {
-        Self { text: t.into(), structured: None, ui: None }
+        Self { text: t.into(), structured: None, ui: None, side_effects: None }
     }
 
     pub fn structured(t: impl Into<String>, value: Value) -> Self {
-        Self { text: t.into(), structured: Some(value), ui: None }
+        Self { text: t.into(), structured: Some(value), ui: None, side_effects: None }
     }
 
     pub fn ui(t: impl Into<String>, mime_type: impl Into<String>, body: impl Into<String>) -> Self {
@@ -110,7 +114,16 @@ impl ToolResult {
             text: t.into(),
             structured: None,
             ui: Some(UiContent { mime_type: mime_type.into(), body: body.into() }),
+            side_effects: None,
         }
+    }
+
+    /// Attach a side-effects manifest that ends up in the signed receipt.
+    /// Convention: `"<resource>.<verb>:<count>"`, e.g.
+    /// `"agent.run.scheduled:1"`, `"channel.broadcast:42"`.
+    pub fn with_side_effects(mut self, effects: Vec<String>) -> Self {
+        self.side_effects = Some(effects);
+        self
     }
 }
 
@@ -247,6 +260,12 @@ pub struct McpServer {
     resources: Option<Arc<dyn ResourceProvider>>,
     prompts: Option<Arc<dyn PromptProvider>>,
     tasks: Option<Arc<dyn TaskProvider>>,
+    /// Optional Ed25519 attestation identity. When present, every
+    /// successful `tools/call` response carries a signed `_meta.receipt`
+    /// — see `mtw-attest`. When absent the server behaves exactly as
+    /// before (no receipts) so legacy deployments aren't forced to roll
+    /// out a keypair before they're ready.
+    identity: Option<Arc<mtw_attest::Identity>>,
     /// Set by `initialize`; read by every other handler that needs to know
     /// the negotiated version or client caps.
     session: Arc<RwLock<NegotiatedSession>>,
@@ -262,8 +281,18 @@ impl McpServer {
             resources: None,
             prompts: None,
             tasks: None,
+            identity: None,
             session: Arc::new(RwLock::new(NegotiatedSession::legacy())),
         }
+    }
+
+    pub fn with_identity(mut self, identity: Arc<mtw_attest::Identity>) -> Self {
+        self.identity = Some(identity);
+        self
+    }
+
+    pub fn identity(&self) -> Option<&Arc<mtw_attest::Identity>> {
+        self.identity.as_ref()
     }
 
     /// Register a tool. Back-compat 4-arg signature — handlers returning
@@ -459,27 +488,67 @@ impl McpServer {
     }
 
     async fn handle_tools_call(&self, id: Value, params: Value) -> JsonRpcResponse {
-        let tool_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let tool_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let args = params
             .get("arguments")
             .cloned()
             .unwrap_or(Value::Object(serde_json::Map::new()));
 
-        let Some(handler) = self.handlers.get(tool_name) else {
+        let Some(handler) = self.handlers.get(&tool_name) else {
             return JsonRpcResponse::error(id, -32601, &format!("tool not found: {}", tool_name));
         };
+
+        // Snapshot args for the receipt before handing them to the
+        // handler — the handler is allowed to mutate its own copy.
+        let args_for_receipt = args.clone();
 
         match (handler)(args).await {
             Ok(result) => {
                 let session = self.session.read().await.clone();
-                JsonRpcResponse::success(id, encode_tool_result(&result, &session, false))
+                let receipt = self.maybe_sign_receipt(&tool_name, &args_for_receipt, &result, false);
+                JsonRpcResponse::success(id, encode_tool_result(&result, &session, false, receipt))
             }
             Err(err) => {
                 let session = self.session.read().await.clone();
                 let result = ToolResult::text(err);
-                JsonRpcResponse::success(id, encode_tool_result(&result, &session, true))
+                let receipt = self.maybe_sign_receipt(&tool_name, &args_for_receipt, &result, true);
+                JsonRpcResponse::success(id, encode_tool_result(&result, &session, true, receipt))
             }
         }
+    }
+
+    /// Build a signed [`mtw_attest::Receipt`] for one tool invocation when
+    /// the server has an identity configured, otherwise return `None`.
+    /// The receipt hashes:
+    ///   * input — the raw `arguments` object the client sent
+    ///   * output — a stable projection of the tool result (text +
+    ///     structured payload + ui mimetype if present + isError)
+    /// so downstream verifiers can replay the call with the same
+    /// arguments and confirm the produced output matches.
+    fn maybe_sign_receipt(
+        &self,
+        tool: &str,
+        args: &Value,
+        result: &ToolResult,
+        is_error: bool,
+    ) -> Option<mtw_attest::Receipt> {
+        let identity = self.identity.as_ref()?;
+        let input_hash = mtw_attest::hash_json(args);
+        let output_value = output_canonical_value(result, is_error);
+        let output_hash = mtw_attest::hash_json(&output_value);
+        let ts_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let side_effects = result.side_effects.clone().unwrap_or_default();
+        Some(mtw_attest::Receipt::sign(
+            identity,
+            tool,
+            input_hash,
+            output_hash,
+            side_effects,
+            ts_ms,
+        ))
     }
 
     // ── Resources ───────────────────────────────────────────────────────────
@@ -602,11 +671,15 @@ impl McpServer {
     }
 }
 
-/// Build the `tools/call` response payload, version-aware.
+/// Build the `tools/call` response payload, version-aware. When a
+/// `receipt` is provided (server has an attestation identity), it gets
+/// attached under `_meta.receipt` — the spec-blessed extension slot for
+/// transport-level metadata, so legacy clients ignore it cleanly.
 fn encode_tool_result(
     result: &ToolResult,
     session: &NegotiatedSession,
     is_error: bool,
+    receipt: Option<mtw_attest::Receipt>,
 ) -> Value {
     // Always emit the canonical text content for back-compat.
     let mut content = vec![json!({ "type": "text", "text": result.text })];
@@ -634,7 +707,41 @@ fn encode_tool_result(
         }
     }
 
+    if let Some(r) = receipt {
+        // `_meta` is the standard MCP slot for transport metadata. We
+        // namespace under `mtw.attestation` so a future spec-level
+        // `_meta.receipt` field can land without colliding.
+        out["_meta"] = json!({
+            "mtw.attestation": serde_json::to_value(&r).unwrap_or(Value::Null)
+        });
+    }
+
     out
+}
+
+/// Canonical projection of a [`ToolResult`] used for receipt hashing.
+///
+/// Verifiers reconstruct this from the same `tools/call` response shape
+/// the server emitted, so the fields here MUST be a function of *what
+/// goes on the wire*, not of internal state. Specifically:
+///   * text content array (in order)
+///   * structuredContent (if present)
+///   * ui mimeType (the body itself is independent client-rendered
+///     surface and not always shipped — we hash mimeType so swapping
+///     content type is detectable, but not the body itself)
+///   * isError flag
+/// Side-effects live in the receipt body, not here.
+fn output_canonical_value(result: &ToolResult, is_error: bool) -> Value {
+    let mut obj = serde_json::Map::new();
+    obj.insert("text".into(), Value::String(result.text.clone()));
+    obj.insert("isError".into(), Value::Bool(is_error));
+    if let Some(s) = &result.structured {
+        obj.insert("structuredContent".into(), s.clone());
+    }
+    if let Some(ui) = &result.ui {
+        obj.insert("uiMimeType".into(), Value::String(ui.mime_type.clone()));
+    }
+    Value::Object(obj)
 }
 
 #[cfg(test)]
@@ -833,5 +940,76 @@ mod tests {
         assert_eq!(v["content"][0]["type"], "text");
         assert_eq!(v["content"][0]["text"], "hello");
         assert!(v.get("structuredContent").is_none());
+    }
+
+    #[tokio::test]
+    async fn no_identity_means_no_receipt_in_meta() {
+        let mut server = McpServer::new("t", "0.0.0");
+        server.tool(
+            "echo",
+            "echo",
+            json!({}),
+            Arc::new(|_| Box::pin(async { Ok(ToolResult::text("hello")) })),
+        );
+        server
+            .handle_request(req(
+                "initialize",
+                json!({"protocolVersion": "2025-06-18"}),
+                1,
+            ))
+            .await;
+        let resp = server
+            .handle_request(req("tools/call", json!({"name": "echo"}), 2))
+            .await
+            .unwrap();
+        let v = resp.result.unwrap();
+        assert!(v.get("_meta").is_none(), "no identity → no receipt");
+    }
+
+    #[tokio::test]
+    async fn identity_present_emits_signed_receipt() {
+        let identity = Arc::new(mtw_attest::Identity::generate());
+        let server_id = identity.server_id();
+        let mut server = McpServer::new("t", "0.0.0").with_identity(identity);
+        server.tool(
+            "demo",
+            "demo",
+            json!({}),
+            Arc::new(|_| {
+                Box::pin(async {
+                    Ok(ToolResult::structured(
+                        "ok".to_string(),
+                        json!({"answer": 42}),
+                    )
+                    .with_side_effects(vec!["log.appended:1".into()]))
+                })
+            }),
+        );
+        server
+            .handle_request(req(
+                "initialize",
+                json!({"protocolVersion": "2025-06-18"}),
+                1,
+            ))
+            .await;
+        let resp = server
+            .handle_request(req(
+                "tools/call",
+                json!({"name": "demo", "arguments": {"q": "hi"}}),
+                2,
+            ))
+            .await
+            .unwrap();
+        let v = resp.result.unwrap();
+
+        // Receipt is parked under _meta.mtw.attestation.
+        let receipt_v = v["_meta"]["mtw.attestation"].clone();
+        assert!(!receipt_v.is_null(), "expected attestation receipt");
+
+        let receipt: mtw_attest::Receipt = serde_json::from_value(receipt_v).unwrap();
+        assert_eq!(receipt.tool, "demo");
+        assert_eq!(receipt.server_id, server_id);
+        assert_eq!(receipt.side_effects, vec!["log.appended:1".to_string()]);
+        receipt.verify().expect("signature must round-trip");
     }
 }

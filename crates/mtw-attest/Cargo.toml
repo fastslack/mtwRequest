@@ -1,0 +1,22 @@
+[package]
+name = "mtw-attest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "Cryptographic attestation receipts for mtw tool calls — Ed25519 signed, side-effect manifest, deterministic input/output hashing."
+keywords = ["mcp", "attestation", "ed25519", "audit", "mtw"]
+categories = ["cryptography", "authentication"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+sha2 = { workspace = true }
+ed25519-dalek = { version = "2", features = ["std", "rand_core"] }
+rand = "0.8"
+base64 = "0.22"
+hex = { workspace = true }

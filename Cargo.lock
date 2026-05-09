@@ -3630,6 +3630,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "mtw-attest"
+version = "0.4.0"
+dependencies = [
+ "base64",
+ "ed25519-dalek",
+ "hex",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "mtw-auth"
 version = "0.4.0"
 dependencies = [
@@ -3891,6 +3905,7 @@ dependencies = [
  "dashmap",
  "futures",
  "mtw-ai",
+ "mtw-attest",
  "mtw-core",
  "mtw-protocol",
  "mtw-skills",

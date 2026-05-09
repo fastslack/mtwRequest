@@ -32,6 +32,7 @@
 //! negotiation and protocol-version checks.
 
 mod agents_ctx;
+mod attest_tools;
 mod code_mode;
 mod elicitation;
 mod kernel_client;
@@ -132,11 +133,54 @@ async fn main() {
         }
     };
 
+    // Attestation identity. Per-install, persisted to:
+    //   $MTW_ATTEST_KEY (if set)
+    //   else  $MTW_AGENTS_DB's parent dir + /server-identity.key
+    //   else  ./data/server-identity.key
+    // Generated on first run, reloaded on every restart. Disable
+    // attestation entirely with MTW_ATTEST=0.
+    let identity = if std::env::var("MTW_ATTEST").as_deref() == Ok("0") {
+        None
+    } else {
+        let path = std::env::var("MTW_ATTEST_KEY").unwrap_or_else(|_| {
+            let agents_db = std::env::var("MTW_AGENTS_DB")
+                .unwrap_or_else(|_| "./data/agents.db".to_string());
+            let parent = std::path::Path::new(&agents_db)
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| std::path::PathBuf::from("./data"));
+            parent.join("server-identity.key").to_string_lossy().into_owned()
+        });
+        match mtw_attest::Identity::load_or_create(&path) {
+            Ok(id) => {
+                tracing::info!("mtw-mcp attestation enabled, server_id={}", id.server_id());
+                Some(Arc::new(id))
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "mtw-mcp: failed to load/create attestation identity at {}: {} \
+                     — running without receipts",
+                    path,
+                    e
+                );
+                None
+            }
+        }
+    };
+
     let mut server = McpServer::new("mtw-request", env!("CARGO_PKG_VERSION"));
+    if let Some(id) = identity.clone() {
+        server = server.with_identity(id);
+    }
 
     // Core tool surface (back-compat with v0.3.x).
     tools::register_all(&mut server, &ctx);
     kernel_tools::register_all(&mut server);
+
+    // Attestation tools (mtw_attest_identity / _verify). Registered
+    // unconditionally so clients can ask "is attestation on?" without
+    // a separate capability check.
+    attest_tools::register(&mut server);
 
     // Progressive discovery — registered AFTER core tools so it can
     // snapshot the full catalog.

@@ -33,6 +33,7 @@ mtw-core = { path = "../mtw-core" }
 mtw-protocol = { path = "../mtw-protocol" }
 mtw-ai = { path = "../mtw-ai" }
 mtw-skills = { path = "../mtw-skills" }
+mtw-attest = { path = "../mtw-attest" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
