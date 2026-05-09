@@ -1,10 +1,6 @@
 //! MCP tools for managing mtwRequest AI agents.
 //!
-//! This crate exposes the agent layer via the Model Context Protocol:
-//! create/run/persist agents, schedule them, chain them, group them into
-//! flows, and bind event triggers to them.
-//!
-//! All eight tools are live against a real `AgentsCtx`:
+//! Eight `mtw_agents_*` tools, all live against a real `AgentsCtx`:
 //!   * `mtw_agents_list`     — query the persisted store
 //!   * `mtw_agents_create`   — persist + register with the executor
 //!   * `mtw_agents_run`      — blocking execution via the engine
@@ -14,29 +10,29 @@
 //!   * `mtw_agents_flows`    — group management (in-memory)
 //!   * `mtw_agents_triggers` — event-bound registrations (in-memory)
 //!
-//! Persistence: agents and runs hit SQLite via `AgentStore`. Schedules,
-//! chains, flows, and triggers live only in the MCP process's memory —
-//! they reset when the MCP stdio session restarts.
+//! Each tool now declares an `outputSchema` so clients running protocol
+//! ≥ 2025-03-26 get type information for programmatic tool calling. The
+//! tool *names* and *inputSchemas* are unchanged from v0.3.x — anything
+//! that hardcoded those keeps working.
 
 use crate::agents_ctx::AgentsCtx;
-use crate::protocol::{McpServer, ToolHandler};
+use crate::protocol::{McpServer, ToolHandler, ToolResult};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-/// Register the eight `mtw_agents_*` tools on the MCP server.
 pub fn register_all(server: &mut McpServer, ctx: &AgentsCtx) {
     register_agent_tools(server, ctx);
 }
 
 fn register_agent_tools(server: &mut McpServer, ctx: &AgentsCtx) {
     use mtw_ai::chain::{AgentChain, ChainCondition};
-    use mtw_ai::executor::{AgentConfig, ExecutionConfig, MtwAgentExecutor};
+    use mtw_ai::executor::{AgentConfig, ExecutionConfig};
     use mtw_ai::flow::AgentFlow;
     use mtw_ai::schedule::AgentSchedule;
     use mtw_ai::store::RunFilter;
     use mtw_ai::trigger::EventTrigger;
+    use mtw_ai::MtwAgentExecutor;
 
-    // Wall-clock timestamp used for created_at/updated_at columns.
     fn now() -> String {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -47,22 +43,28 @@ fn register_agent_tools(server: &mut McpServer, ctx: &AgentsCtx) {
 
     // -- mtw_agents_list --------------------------------------------------
     let c = ctx.clone();
-    server.tool(
+    server.tool_full(
         "mtw_agents_list",
         "List all AI agents with their provider, model, and tool list.",
         json!({ "type": "object", "properties": {
             "limit": { "type": "integer", "default": 100 }
         }, "required": [] }),
+        Some(json!({
+            "type": "object",
+            "properties": {
+                "agents": { "type": "array" },
+                "total": { "type": "integer" }
+            },
+            "required": ["agents", "total"]
+        })),
+        vec!["agents".into(), "list".into(), "discovery".into()],
         handler(move |_args| {
             let c = c.clone();
             async move {
                 match c.store.list_agents().await {
                     Ok(agents) => {
-                        let out = json!({
-                            "agents": agents,
-                            "total": agents.len(),
-                        });
-                        Ok(out.to_string())
+                        let out = json!({ "agents": agents, "total": agents.len() });
+                        Ok(ToolResult::structured(out.to_string(), out))
                     }
                     Err(e) => Err(format!("list_agents failed: {}", e)),
                 }
@@ -72,7 +74,7 @@ fn register_agent_tools(server: &mut McpServer, ctx: &AgentsCtx) {
 
     // -- mtw_agents_create ------------------------------------------------
     let c = ctx.clone();
-    server.tool(
+    server.tool_full(
         "mtw_agents_create",
         "Create or update an AI agent. Persists to the store and registers with the executor.",
         json!({ "type": "object", "properties": {
@@ -84,6 +86,16 @@ fn register_agent_tools(server: &mut McpServer, ctx: &AgentsCtx) {
             "tool_names":    { "type": "array", "items": { "type": "string" } },
             "token_budget":  { "type": "integer", "default": 0 }
         }, "required": ["name"] }),
+        Some(json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "status": { "type": "string", "enum": ["created"] }
+            },
+            "required": ["id", "name", "status"]
+        })),
+        vec!["agents".into(), "create".into(), "write".into()],
         handler(move |args| {
             let c = c.clone();
             async move {
@@ -91,44 +103,33 @@ fn register_agent_tools(server: &mut McpServer, ctx: &AgentsCtx) {
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| ulid::Ulid::new().to_string());
                 let name = args.get("name").and_then(|v| v.as_str())
-                    .ok_or("missing 'name'")?
-                    .to_string();
-                let provider = args.get("provider").and_then(|v| v.as_str())
-                    .unwrap_or("").to_string();
-                let model = args.get("model").and_then(|v| v.as_str())
-                    .unwrap_or("").to_string();
-                let system_prompt = args.get("system_prompt").and_then(|v| v.as_str())
-                    .unwrap_or("").to_string();
+                    .ok_or("missing 'name'")?.to_string();
+                let provider = args.get("provider").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let model = args.get("model").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let system_prompt = args.get("system_prompt").and_then(|v| v.as_str()).unwrap_or("").to_string();
                 let tool_names: Vec<String> = args.get("tool_names")
                     .and_then(|v| v.as_array())
-                    .map(|arr| arr.iter()
-                        .filter_map(|x| x.as_str().map(|s| s.to_string()))
-                        .collect())
+                    .map(|arr| arr.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
                     .unwrap_or_default();
-                let token_budget = args.get("token_budget").and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32;
+                let token_budget = args.get("token_budget").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
 
                 let agent = AgentConfig {
                     id: id.clone(), name, provider, model, system_prompt,
                     tool_names, token_budget,
                 };
 
-                c.store.save_agent(&agent).await
-                    .map_err(|e| format!("save_agent: {}", e))?;
+                c.store.save_agent(&agent).await.map_err(|e| format!("save_agent: {}", e))?;
                 c.engine.register_agent_config(agent.clone());
 
-                Ok(json!({
-                    "id": agent.id,
-                    "name": agent.name,
-                    "status": "created",
-                }).to_string())
+                let out = json!({ "id": agent.id, "name": agent.name, "status": "created" });
+                Ok(ToolResult::structured(out.to_string(), out))
             }
         }),
     );
 
     // -- mtw_agents_run ---------------------------------------------------
     let c = ctx.clone();
-    server.tool(
+    server.tool_full(
         "mtw_agents_run",
         "Execute an agent with a goal. Blocks until the run completes; returns run summary + result.",
         json!({ "type": "object", "properties": {
@@ -138,15 +139,26 @@ fn register_agent_tools(server: &mut McpServer, ctx: &AgentsCtx) {
             "timeout_ms":      { "type": "integer", "default": 300000 },
             "max_errors":      { "type": "integer", "default": 3 }
         }, "required": ["agent_id", "goal"] }),
+        Some(json!({
+            "type": "object",
+            "properties": {
+                "agent_id": { "type": "string" },
+                "status": { "type": "string" },
+                "result": {},
+                "error": { "type": ["string", "null"] },
+                "steps_count": { "type": "integer" },
+                "tokens_used": { "type": "integer" }
+            },
+            "required": ["agent_id", "status"]
+        })),
+        vec!["agents".into(), "run".into(), "execute".into()],
         handler(move |args| {
             let c = c.clone();
             async move {
                 let agent_id = args.get("agent_id").and_then(|v| v.as_str())
-                    .ok_or("missing 'agent_id'")?
-                    .to_string();
+                    .ok_or("missing 'agent_id'")?.to_string();
                 let goal = args.get("goal").and_then(|v| v.as_str())
-                    .ok_or("missing 'goal'")?
-                    .to_string();
+                    .ok_or("missing 'goal'")?.to_string();
 
                 let mut config = ExecutionConfig::default();
                 if let Some(v) = args.get("max_iterations").and_then(|v| v.as_u64()) {
@@ -160,14 +172,17 @@ fn register_agent_tools(server: &mut McpServer, ctx: &AgentsCtx) {
                 }
 
                 match c.engine.execute(&agent_id, &goal, &config).await {
-                    Ok(result) => Ok(json!({
-                        "agent_id": agent_id,
-                        "status": result.status,
-                        "result": result.result,
-                        "error": result.error,
-                        "steps_count": result.steps_count,
-                        "tokens_used": result.tokens_used,
-                    }).to_string()),
+                    Ok(result) => {
+                        let out = json!({
+                            "agent_id": agent_id,
+                            "status": result.status,
+                            "result": result.result,
+                            "error": result.error,
+                            "steps_count": result.steps_count,
+                            "tokens_used": result.tokens_used,
+                        });
+                        Ok(ToolResult::structured(out.to_string(), out))
+                    }
                     Err(e) => Err(format!("execute: {}", e)),
                 }
             }
@@ -176,7 +191,7 @@ fn register_agent_tools(server: &mut McpServer, ctx: &AgentsCtx) {
 
     // -- mtw_agents_runs --------------------------------------------------
     let c = ctx.clone();
-    server.tool(
+    server.tool_full(
         "mtw_agents_runs",
         "List persisted runs, optionally filtered by agent or status.",
         json!({ "type": "object", "properties": {
@@ -184,6 +199,15 @@ fn register_agent_tools(server: &mut McpServer, ctx: &AgentsCtx) {
             "status":   { "type": "string", "enum": ["pending", "running", "completed", "failed", "cancelled"] },
             "limit":    { "type": "integer", "default": 20 }
         }, "required": [] }),
+        Some(json!({
+            "type": "object",
+            "properties": {
+                "runs": { "type": "array" },
+                "total": { "type": "integer" }
+            },
+            "required": ["runs", "total"]
+        })),
+        vec!["agents".into(), "runs".into(), "history".into()],
         handler(move |args| {
             let c = c.clone();
             async move {
@@ -195,7 +219,10 @@ fn register_agent_tools(server: &mut McpServer, ctx: &AgentsCtx) {
                     limit: args.get("limit").and_then(|v| v.as_u64()).map(|v| v as u32),
                 };
                 match c.store.list_runs(&filter).await {
-                    Ok(runs) => Ok(json!({ "runs": runs, "total": runs.len() }).to_string()),
+                    Ok(runs) => {
+                        let out = json!({ "runs": runs, "total": runs.len() });
+                        Ok(ToolResult::structured(out.to_string(), out))
+                    }
                     Err(e) => Err(format!("list_runs: {}", e)),
                 }
             }
@@ -204,7 +231,7 @@ fn register_agent_tools(server: &mut McpServer, ctx: &AgentsCtx) {
 
     // -- mtw_agents_schedule ----------------------------------------------
     let c = ctx.clone();
-    server.tool(
+    server.tool_full(
         "mtw_agents_schedule",
         "Create an interval- or cron-based schedule for an agent (in-memory for this process).",
         json!({ "type": "object", "properties": {
@@ -214,12 +241,17 @@ fn register_agent_tools(server: &mut McpServer, ctx: &AgentsCtx) {
             "goal_override": { "type": "string" },
             "active":        { "type": "boolean", "default": true }
         }, "required": ["agent_id"] }),
+        Some(json!({
+            "type": "object",
+            "properties": { "schedule": { "type": "object" } },
+            "required": ["schedule"]
+        })),
+        vec!["agents".into(), "schedule".into(), "cron".into()],
         handler(move |args| {
             let c = c.clone();
             async move {
                 let agent_id = args.get("agent_id").and_then(|v| v.as_str())
-                    .ok_or("missing 'agent_id'")?
-                    .to_string();
+                    .ok_or("missing 'agent_id'")?.to_string();
                 let schedule = AgentSchedule {
                     id: ulid::Ulid::new().to_string(),
                     agent_id,
@@ -232,14 +264,15 @@ fn register_agent_tools(server: &mut McpServer, ctx: &AgentsCtx) {
                     created_at: now(),
                 };
                 c.schedules.add(schedule.clone());
-                Ok(json!({ "schedule": schedule }).to_string())
+                let out = json!({ "schedule": schedule });
+                Ok(ToolResult::structured(out.to_string(), out))
             }
         }),
     );
 
     // -- mtw_agents_chain -------------------------------------------------
     let c = ctx.clone();
-    server.tool(
+    server.tool_full(
         "mtw_agents_chain",
         "Create a chain: when source agent finishes, target agent is invoked automatically.",
         json!({ "type": "object", "properties": {
@@ -250,15 +283,19 @@ fn register_agent_tools(server: &mut McpServer, ctx: &AgentsCtx) {
             "delay_ms":        { "type": "integer", "default": 0 },
             "label":           { "type": "string" }
         }, "required": ["source_agent_id", "target_agent_id"] }),
+        Some(json!({
+            "type": "object",
+            "properties": { "chain": { "type": "object" } },
+            "required": ["chain"]
+        })),
+        vec!["agents".into(), "chain".into(), "orchestration".into()],
         handler(move |args| {
             let c = c.clone();
             async move {
                 let source = args.get("source_agent_id").and_then(|v| v.as_str())
-                    .ok_or("missing 'source_agent_id'")?
-                    .to_string();
+                    .ok_or("missing 'source_agent_id'")?.to_string();
                 let target = args.get("target_agent_id").and_then(|v| v.as_str())
-                    .ok_or("missing 'target_agent_id'")?
-                    .to_string();
+                    .ok_or("missing 'target_agent_id'")?.to_string();
                 let condition: ChainCondition = args.get("condition")
                     .and_then(|v| v.as_str())
                     .and_then(|s| serde_json::from_value(json!(s)).ok())
@@ -275,14 +312,15 @@ fn register_agent_tools(server: &mut McpServer, ctx: &AgentsCtx) {
                     created_at: now(),
                 };
                 c.chains.add(chain.clone()).map_err(|e| format!("{}", e))?;
-                Ok(json!({ "chain": chain }).to_string())
+                let out = json!({ "chain": chain });
+                Ok(ToolResult::structured(out.to_string(), out))
             }
         }),
     );
 
     // -- mtw_agents_flows -------------------------------------------------
     let c = ctx.clone();
-    server.tool(
+    server.tool_full(
         "mtw_agents_flows",
         "Manage agent flow groups: list, create, or delete.",
         json!({ "type": "object", "properties": {
@@ -291,37 +329,40 @@ fn register_agent_tools(server: &mut McpServer, ctx: &AgentsCtx) {
             "description": { "type": "string" },
             "flow_id":     { "type": "string" }
         }, "required": [] }),
+        Some(json!({ "type": "object" })),
+        vec!["agents".into(), "flows".into(), "groups".into()],
         handler(move |args| {
             let c = c.clone();
             async move {
                 let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("list");
-                match action {
+                let out = match action {
                     "list" => {
                         let flows = c.flows.list();
-                        Ok(json!({ "flows": flows, "total": flows.len() }).to_string())
+                        json!({ "flows": flows, "total": flows.len() })
                     }
                     "create" => {
                         let name = args.get("name").and_then(|v| v.as_str())
                             .ok_or("missing 'name'")?;
                         let description = args.get("description").and_then(|v| v.as_str()).unwrap_or("");
                         let flow: AgentFlow = c.flows.create(name, description);
-                        Ok(json!({ "flow": flow }).to_string())
+                        json!({ "flow": flow })
                     }
                     "delete" => {
                         let id = args.get("flow_id").and_then(|v| v.as_str())
                             .ok_or("missing 'flow_id'")?;
                         let ok = c.flows.delete(id);
-                        Ok(json!({ "deleted": ok }).to_string())
+                        json!({ "deleted": ok })
                     }
-                    other => Err(format!("unknown action: {}", other)),
-                }
+                    other => return Err(format!("unknown action: {}", other)),
+                };
+                Ok(ToolResult::structured(out.to_string(), out))
             }
         }),
     );
 
     // -- mtw_agents_triggers ----------------------------------------------
     let c = ctx.clone();
-    server.tool(
+    server.tool_full(
         "mtw_agents_triggers",
         "Manage event-driven triggers: list, add, remove.",
         json!({ "type": "object", "properties": {
@@ -332,22 +373,22 @@ fn register_agent_tools(server: &mut McpServer, ctx: &AgentsCtx) {
             "filter":       { "type": "object" },
             "cooldown_ms":  { "type": "integer", "default": 60000 }
         }, "required": [] }),
+        Some(json!({ "type": "object" })),
+        vec!["agents".into(), "triggers".into(), "events".into()],
         handler(move |args| {
             let c = c.clone();
             async move {
                 let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("list");
-                match action {
+                let out = match action {
                     "list" => {
                         let triggers = c.triggers.list();
-                        Ok(json!({ "triggers": triggers, "total": triggers.len() }).to_string())
+                        json!({ "triggers": triggers, "total": triggers.len() })
                     }
                     "add" => {
                         let agent_id = args.get("agent_id").and_then(|v| v.as_str())
-                            .ok_or("missing 'agent_id'")?
-                            .to_string();
+                            .ok_or("missing 'agent_id'")?.to_string();
                         let event_name = args.get("event_name").and_then(|v| v.as_str())
-                            .ok_or("missing 'event_name'")?
-                            .to_string();
+                            .ok_or("missing 'event_name'")?.to_string();
                         let trigger = EventTrigger {
                             id: ulid::Ulid::new().to_string(),
                             agent_id,
@@ -359,16 +400,17 @@ fn register_agent_tools(server: &mut McpServer, ctx: &AgentsCtx) {
                             created_at: now(),
                         };
                         c.triggers.register(trigger.clone());
-                        Ok(json!({ "trigger": trigger }).to_string())
+                        json!({ "trigger": trigger })
                     }
                     "remove" => {
                         let id = args.get("trigger_id").and_then(|v| v.as_str())
                             .ok_or("missing 'trigger_id'")?;
                         let ok = c.triggers.unregister(id);
-                        Ok(json!({ "removed": ok }).to_string())
+                        json!({ "removed": ok })
                     }
-                    other => Err(format!("unknown action: {}", other)),
-                }
+                    other => return Err(format!("unknown action: {}", other)),
+                };
+                Ok(ToolResult::structured(out.to_string(), out))
             }
         }),
     );
@@ -379,7 +421,7 @@ fn register_agent_tools(server: &mut McpServer, ctx: &AgentsCtx) {
 fn handler<F, Fut>(f: F) -> ToolHandler
 where
     F: Fn(Value) -> Fut + Send + Sync + 'static,
-    Fut: std::future::Future<Output = Result<String, String>> + Send + 'static,
+    Fut: std::future::Future<Output = Result<ToolResult, String>> + Send + 'static,
 {
     Arc::new(move |args| {
         let fut = f(args);
