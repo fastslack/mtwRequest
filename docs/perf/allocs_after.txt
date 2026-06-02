@@ -1,0 +1,24 @@
+# Deterministic per-operation cost (load-independent)
+
+operation                             allocs/op       bytes/op
+--------------------------------------------------------------
+json/encode/16                             2.00            536
+json/encode/256                            2.00            536
+json/encode/4096                           4.00          13175
+json/decode/16                            15.00            982
+json/decode/256                           15.00           1222
+json/decode/4096                          15.00           5062
+frame/encode/16                            2.00            545
+frame/encode/256                           2.00            545
+frame/encode/4096                          4.00          13211
+envelope/new+3×text/16                    18.00           1534
+envelope/new+3×text/256                   18.00           2014
+envelope/new+3×text/4096                  20.00          22333
+
+# Wire size: JSON vs MsgPack (bytes on the wire)
+
+payload                    json    msgpack     saving
+----------------------------------------------------
+size=16                     266        215      19.2%
+size=256                    506        457       9.7%
+size=4096                  4346       4297       1.1%

@@ -64,3 +64,10 @@ bindings/node/*.node
 
 # Claude Code
 .claude/settings.local.json
+
+# Runtime data — DB + private identity key (never commit secrets)
+/data/
+
+# Prebuilt MCP binaries (compiled artifacts, not source)
+/npm/mtw-request-mcp-linux-x64/mtw-mcp
+/npm/mtw-request-mcp/bin/

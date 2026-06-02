@@ -1,0 +1,10 @@
+# Load-robust in-process ratios (11 rounds, 200000 iters each)
+
+Higher than 1.00× means the FIRST named variant is that much SLOWER.
+
+json/encode ÷ msgpack/encode (size=16)         median  0.95×  (range 0.85–1.10×)
+json/encode ÷ msgpack/encode (size=256)        median  1.34×  (range 1.14–1.62×)
+json/encode ÷ msgpack/encode (size=4096)       median  6.21×  (range 5.45–7.72×)
+
+re-encode×100 ÷ cached-envelope×100 (size=256) median 29.69×  (range 27.33–37.14×)
+re-encode×100 ÷ cached-envelope×100 (size=4096) median 90.48×  (range 57.78–106.93×)
