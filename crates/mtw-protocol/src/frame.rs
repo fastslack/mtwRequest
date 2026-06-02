@@ -56,10 +56,41 @@ impl TryFrom<u8> for FrameType {
 pub struct Frame;
 
 impl Frame {
-    /// Encode an MtwMessage into a binary frame
+    /// Encode an MtwMessage into a binary frame.
+    ///
+    /// Serializes the JSON payload **directly into the framed buffer** instead
+    /// of building an intermediate `Vec` and copying it in — this removes the
+    /// per-message scratch allocation and the full payload copy that
+    /// `encode_raw` would otherwise perform.
     pub fn encode_message(msg: &MtwMessage) -> Result<Bytes, ProtocolError> {
-        let json = serde_json::to_vec(msg)?;
-        Ok(Self::encode_raw(FrameType::Json, &json)?)
+        use bytes::BufMut;
+
+        // Header layout: MAGIC(3) VERSION(1) TYPE(1) LEN(4) = 9 bytes, then the
+        // JSON payload. The length isn't known until the payload is serialized,
+        // so write a placeholder and backfill it once the body is in place.
+        let mut buf = BytesMut::with_capacity(9 + 512);
+        buf.put_slice(&MAGIC);
+        buf.put_u8(PROTOCOL_VERSION);
+        buf.put_u8(FrameType::Json as u8);
+        buf.put_u32(0); // placeholder length, backfilled below
+        debug_assert_eq!(buf.len(), 9);
+
+        // Serialize the message straight into the buffer (no intermediate Vec).
+        let mut writer = buf.writer();
+        serde_json::to_writer(&mut writer, msg)?;
+        let mut buf = writer.into_inner();
+
+        let payload_len = buf.len() - 9;
+        if payload_len > MAX_FRAME_SIZE {
+            return Err(ProtocolError::PayloadTooLarge {
+                size: payload_len,
+                max: MAX_FRAME_SIZE,
+            });
+        }
+        // Backfill the big-endian payload length into the reserved [5..9] slot.
+        buf[5..9].copy_from_slice(&(payload_len as u32).to_be_bytes());
+
+        Ok(buf.freeze())
     }
 
     /// Encode raw binary data into a frame

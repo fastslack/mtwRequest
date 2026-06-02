@@ -17,6 +17,20 @@ use crate::{ConnId, Frame, MtwMessage};
 use bytes::Bytes;
 use std::sync::{Arc, OnceLock};
 
+/// Serialize a message to JSON bytes using a presized buffer.
+///
+/// `serde_json::to_vec` starts from a 128-byte buffer and reallocs as it grows
+/// (~4× for typical message sizes). Starting at 512 bytes serializes most
+/// messages in a single allocation. Returns an empty `Vec` on the (practically
+/// impossible) serialization error, matching the previous `unwrap_or_default`.
+fn encode_json_presized(msg: &MtwMessage) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(512);
+    match serde_json::to_writer(&mut buf, msg) {
+        Ok(()) => buf,
+        Err(_) => Vec::new(),
+    }
+}
+
 /// A message wrapped for broadcast, with lazily-cached wire encodings.
 ///
 /// All three wire forms are backed by `bytes::Bytes` so every subscriber's
@@ -53,7 +67,7 @@ impl SharedEnvelope {
     /// constructor safely since this guarantee holds.
     pub fn text_bytes(&self) -> Bytes {
         self.text
-            .get_or_init(|| Bytes::from(serde_json::to_vec(&self.message).unwrap_or_default()))
+            .get_or_init(|| Bytes::from(encode_json_presized(&self.message)))
             .clone()
     }
 
@@ -61,7 +75,7 @@ impl SharedEnvelope {
     pub fn text(&self) -> &str {
         let bytes = self
             .text
-            .get_or_init(|| Bytes::from(serde_json::to_vec(&self.message).unwrap_or_default()));
+            .get_or_init(|| Bytes::from(encode_json_presized(&self.message)));
         // SAFETY: `serde_json::to_vec` always emits valid UTF-8.
         unsafe { std::str::from_utf8_unchecked(bytes) }
     }

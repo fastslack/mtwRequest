@@ -15,8 +15,13 @@ impl MtwCodec for JsonCodec {
     }
 
     fn encode(&self, msg: &MtwMessage) -> Result<Bytes, MtwError> {
-        let json = serde_json::to_vec(msg).map_err(|e| MtwError::Codec(e.to_string()))?;
-        Ok(Bytes::from(json))
+        // Presize the output buffer so a typical small message serializes in a
+        // single allocation instead of growing from serde_json's 128-byte
+        // default (which reallocs ~4× for our message sizes). `Bytes::from`
+        // takes ownership of the Vec, so there's no extra copy.
+        let mut buf = Vec::with_capacity(512);
+        serde_json::to_writer(&mut buf, msg).map_err(|e| MtwError::Codec(e.to_string()))?;
+        Ok(Bytes::from(buf))
     }
 
     fn decode(&self, data: &[u8]) -> Result<MtwMessage, MtwError> {
