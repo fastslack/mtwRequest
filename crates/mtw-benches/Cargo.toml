@@ -18,7 +18,9 @@ mtw-core = { workspace = true }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 serde_json = { workspace = true }
+rmp-serde = { workspace = true }
 ulid = { workspace = true }
+mimalloc = "0.1"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["async_tokio"] }
