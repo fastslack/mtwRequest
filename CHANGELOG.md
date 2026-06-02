@@ -7,6 +7,102 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-04
+
+### Added
+
+#### `mtw-net` crate — central outbound networking
+- New `crates/mtw-net` factory builds every `reqwest::Client` from a
+  single, profile-driven config so a single `[net].default_profile`
+  flag can route every outbound HTTP call (AI providers, exchange,
+  integrations, registry, torrent webseeds, federation HTTP) through
+  a VPN/Tor SOCKS5.
+- Profiles in this release: `Direct`, `Proxy` (HTTP, HTTPS, SOCKS5,
+  SOCKS5h). Reserved (gated behind cargo features, not built):
+  `Wireguard` via `boringtun`, `Tor` via `arti`.
+- HTTPS-only mode, configurable TLS minimum-version floor (1.2 or
+  1.3), shared user-agent, optional proxy bypass list.
+- `NetFactory` caches one client per profile name (cheap clone).
+- Process-wide `OnceLock`-backed global so call sites can opt in with
+  a one-line change (`mtw_net::default_client()` /
+  `default_client_builder()`); falls back to a stock `reqwest::Client`
+  when no factory is installed (zero-impact on callers that don't care).
+- `NetConfig::from_mtw_toml` parses `[net]` out of the same `mtw.toml`
+  used by `MtwConfig` without coupling `mtw-core` to `mtw-net`.
+
+#### Outbound traffic now honours `[net]` everywhere
+- Every cloud-facing `reqwest::Client` is now built via mtw-net:
+  `mtw-ai` cloud providers (Anthropic, OpenAI), `mtw-exchange/bitvavo`,
+  `mtw-integrations` (cloud AI providers + OAuth2), `mtw-registry`,
+  `mtw-federation` HTTP fallback, `mtw-http`'s `MtwHttpClient`.
+- `mtw-server` reads `[net]` at boot and installs the factory before
+  any provider is constructed.
+- Local providers (`mtw-ai/ollama`, `mtw-ai/lmstudio` and their
+  `mtw-integrations` counterparts) deliberately bypass the profile —
+  routing localhost requests through a SOCKS5/Tor proxy would break
+  them and offers no privacy upside.
+
+#### `mtw-torrent` crate + `torrent.*` bridge tools
+- New `crates/mtw-torrent` exposes `torrent.add`, `list`, `get`,
+  `remove`, `pause`, `resume`, `health`, `encryption.profiles`,
+  `encryption.set_default` over the bridge for mtwKernel.
+- `librqbit` 8.x backend behind cargo feature `librqbit-engine`; an
+  in-memory `MockEngine` is the default fallback so the crate
+  compiles without librqbit's heavy deps.
+- **Async `add`** semantics: `librqbit::Session::add_torrent` for a
+  magnet awaits `resolve_magnet` for ~30 s+ on poorly-seeded
+  torrents — too long for the bridge. `add()` returns a synthetic
+  detail (`status: metadata`) immediately and resolves the magnet in
+  a background task. Side-map sidecar persists the user-supplied
+  fields (encryption profile, category, tags, description, ext)
+  that librqbit doesn't track, surviving the handle's lifetime.
+- Single shared 2 s-tick **progress pump** emits
+  `torrent.metadata_ready` (one-shot when files resolve),
+  `torrent.progress` (active states only), `torrent.done` (one-shot
+  at finished), and `torrent.error` through the bridge event bus.
+- Embedded HTTP **data plane** is librqbit's own `HttpApi` with
+  native HTTP `Range` support, bound to `TORRENT_HTTP_LISTEN`
+  (default `127.0.0.1:9999`). `stream_url(infohash, file_idx)`
+  returns `http://<listen>/torrents/{ih}/stream/{idx}` for the
+  kernel proxy.
+- Server bin opt-in via `cargo build -p mtw-server --features
+  torrent`. Env vars: `TORRENT_ENABLED`, `TORRENT_STORAGE_PATH`,
+  `TORRENT_HTTP_LISTEN`, `TORRENT_DEFAULT_PROFILE`,
+  `TORRENT_PROFILES_FILE`, `TORRENT_STORAGE_QUOTA_BYTES`.
+
+#### `mtw-bridge` — server-pushed events
+- `BridgeEventBus` lets any tool handler push frames to every
+  connected client through the same Unix socket as responses,
+  distinguished by a `type: "event"` field instead of `id`.
+  Backwards compatible: clients that only know about responses can
+  ignore unknown frames.
+- Per-connection writer is mpsc-fed so events and responses don't
+  interleave mid-frame. Capacity 256 / subscriber; slow consumers
+  see `Lagged` and skip ahead — emitters never block.
+- Bridge socket auto-`chmod 0666` after bind so non-root clients
+  (e.g. mtwKernel container as uid 1000) connect without manual
+  chmod. Override with `MTW_BRIDGE_SOCKET_MODE` (e.g. `0660` for
+  hardened deployments with shared gid).
+
+### Changed
+- Workspace `serde` gains the `rc` feature flag — required by
+  librqbit 8.1.1's HTTP API, harmless elsewhere.
+- `Dockerfile` exposes port 9999 (torrent data plane); container
+  defaults bind on `0.0.0.0:9999` and store data at
+  `/var/lib/mtwrequest/torrents`.
+- `docker-compose.yml` adds named volume `mtw-torrent-data` so
+  downloads + librqbit `_meta/state.json` (resume data) survive
+  `docker compose up -d --build`. Sets
+  `MTW_BRIDGE_SOCKET_MODE=0666` so the kernel container connects
+  without per-restart manual chmod.
+
+### Fixed
+- `Payload` wire format pinned back to PascalCase (`"None"`,
+  `"Text"`, `"Json"`, `"Binary"`) so existing TS clients
+  (`@matware/mtw-request-ts-client` v0.1.x — kernel + dashboard)
+  keep decoding frames. Lowercase variants kept as `serde(alias)`
+  for forward-compat.
+
 ## [0.3.0] - 2026-04-24
 
 ### Added
