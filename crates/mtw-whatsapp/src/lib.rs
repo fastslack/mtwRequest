@@ -61,7 +61,7 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{broadcast, watch, Mutex};
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
@@ -118,6 +118,8 @@ impl Default for WhatsAppConfig {
 pub struct WhatsAppClient {
     writer: Arc<Mutex<tokio::net::unix::OwnedWriteHalf>>,
     events_tx: broadcast::Sender<Event>,
+    /// Flips to `true` when the read loop exits (bridge hung up or errored).
+    closed_rx: watch::Receiver<bool>,
 }
 
 impl WhatsAppClient {
@@ -130,6 +132,7 @@ impl WhatsAppClient {
 
         let (events_tx, _) = broadcast::channel(cfg.event_buffer);
         let events_bg = events_tx.clone();
+        let (closed_tx, closed_rx) = watch::channel(false);
 
         tokio::spawn(async move {
             info!(target: "mtw_whatsapp", "read loop started");
@@ -172,12 +175,27 @@ impl WhatsAppClient {
                 }
             }
             warn!(target: "mtw_whatsapp", "read loop exited");
+            let _ = closed_tx.send(true);
         });
 
         Ok(Self {
             writer: Arc::new(Mutex::new(write_half)),
             events_tx,
+            closed_rx,
         })
+    }
+
+    /// True once the connection to the bridge is gone (the read loop
+    /// exited). A closed client never reconnects; dial a new one.
+    pub fn is_closed(&self) -> bool {
+        *self.closed_rx.borrow()
+    }
+
+    /// Resolves when the connection to the bridge is gone.
+    pub async fn closed(&self) {
+        let mut rx = self.closed_rx.clone();
+        // An error means the read loop's sender was dropped: also closed.
+        let _ = rx.wait_for(|closed| *closed).await;
     }
 
     /// Subscribe to bridge events. Every active subscriber sees every
@@ -362,6 +380,41 @@ mod tests {
             }
             _ => panic!("wrong variant"),
         }
+    }
+
+    #[tokio::test]
+    async fn closed_resolves_when_bridge_drops_socket() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("wa.sock");
+        let listener = tokio::net::UnixListener::bind(&path).unwrap();
+        let cfg = WhatsAppConfig {
+            socket_path: path.clone(),
+            connect_timeout: Duration::ZERO,
+            ..Default::default()
+        };
+        let client = WhatsAppClient::connect(cfg).await.unwrap();
+        let (server_side, _) = listener.accept().await.unwrap();
+        assert!(!client.is_closed());
+
+        drop(server_side);
+        tokio::time::timeout(Duration::from_secs(5), client.closed())
+            .await
+            .expect("closed() should resolve after the bridge hangs up");
+        assert!(client.is_closed());
+    }
+
+    #[tokio::test]
+    async fn zero_timeout_connect_fails_fast_without_socket() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = WhatsAppConfig {
+            socket_path: dir.path().join("missing.sock"),
+            connect_timeout: Duration::ZERO,
+            ..Default::default()
+        };
+        let started = std::time::Instant::now();
+        let err = WhatsAppClient::connect(cfg).await.err().unwrap();
+        assert!(matches!(err, WhatsAppError::ConnectTimeout(..)));
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 
     #[test]

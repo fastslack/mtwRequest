@@ -16,6 +16,7 @@ use mtw_ai::providers::openai::{OpenAIConfig, OpenAIProvider};
 use mtw_ai::providers::anthropic::{AnthropicConfig, AnthropicProvider};
 use mtw_ai::providers::ollama::{OllamaConfig, OllamaProvider};
 use mtw_ai::providers::lmstudio::{LMStudioConfig, LMStudioProvider};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 
@@ -32,6 +33,9 @@ pub struct RustServices {
     /// Concurrency limiters per provider. Local models (lmstudio, ollama) get 1 permit
     /// (serial queue). Cloud providers (openai, anthropic) get 5 concurrent.
     pub provider_semaphores: Arc<DashMap<String, Arc<Semaphore>>>,
+    /// SHA-256 fingerprint of the config each provider was last built with
+    /// by `credentials.set`, so identical pushes skip reconstruction.
+    pub provider_fingerprints: Arc<DashMap<String, [u8; 32]>>,
 }
 
 impl RustServices {
@@ -61,6 +65,7 @@ impl RustServices {
             providers,
             default_provider,
             provider_semaphores,
+            provider_fingerprints: Arc::new(DashMap::new()),
         }
     }
 
@@ -404,89 +409,14 @@ impl RustServices {
         // credentials.set — hot-register LLM providers pushed by mtwKernel.
         // Args: { "providers": [{ "name": "anthropic", "api_key": "...", "model": "...", "base_url": "..." }] }
         let providers = self.providers.clone();
+        let fingerprints = self.provider_fingerprints.clone();
         server.register_tool(
             "credentials.set",
             Arc::new(move |args| {
                 let providers = providers.clone();
+                let fingerprints = fingerprints.clone();
                 Box::pin(async move {
-                    let list = args
-                        .get("providers")
-                        .and_then(|v| v.as_array())
-                        .ok_or_else(|| {
-                            mtw_core::MtwError::Internal("missing 'providers' array".into())
-                        })?;
-
-                    let mut registered = Vec::new();
-                    for entry in list {
-                        let name = entry.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                        let api_key = entry.get("api_key").and_then(|v| v.as_str()).unwrap_or("");
-                        let model = entry.get("model").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                        let base_url = entry.get("base_url").and_then(|v| v.as_str()).unwrap_or("").to_string();
-
-                        if name.is_empty() || api_key.is_empty() {
-                            continue;
-                        }
-
-                        let provider: Arc<dyn MtwAIProvider> = match name {
-                            "anthropic" => Arc::new(AnthropicProvider::new(AnthropicConfig {
-                                api_key: api_key.to_string(),
-                                base_url: if base_url.is_empty() {
-                                    "https://api.anthropic.com".to_string()
-                                } else {
-                                    base_url
-                                },
-                                default_model: if model.is_empty() {
-                                    "claude-haiku-4-5-20251001".to_string()
-                                } else {
-                                    model
-                                },
-                            })),
-                            "openai" => Arc::new(OpenAIProvider::new(OpenAIConfig {
-                                api_key: api_key.to_string(),
-                                base_url: if base_url.is_empty() {
-                                    "https://api.openai.com/v1".to_string()
-                                } else {
-                                    base_url
-                                },
-                                default_model: if model.is_empty() {
-                                    "gpt-4o-mini".to_string()
-                                } else {
-                                    model
-                                },
-                            })),
-                            "ollama" => Arc::new(OllamaProvider::new(OllamaConfig {
-                                base_url: if base_url.is_empty() {
-                                    "http://localhost:11434".to_string()
-                                } else {
-                                    base_url
-                                },
-                                default_model: if model.is_empty() {
-                                    "llama3".to_string()
-                                } else {
-                                    model
-                                },
-                            })),
-                            "lmstudio" => Arc::new(LMStudioProvider::new(LMStudioConfig {
-                                base_url: if base_url.is_empty() {
-                                    "http://localhost:1234/v1".to_string()
-                                } else {
-                                    base_url
-                                },
-                                default_model: model,
-                                api_key: Some(api_key.to_string()),
-                            })),
-                            _ => continue,
-                        };
-
-                        tracing::info!(provider = %name, "credentials.set: registered");
-                        providers.insert(name.to_string(), provider);
-                        registered.push(name.to_string());
-                    }
-
-                    Ok(serde_json::json!({
-                        "registered": registered,
-                        "total_providers": providers.len(),
-                    }))
+                    apply_credentials(&providers, &fingerprints, &args, &build_provider)
                 })
             }),
         );
@@ -782,5 +712,206 @@ impl RustServices {
                 })
             }),
         );
+    }
+}
+
+/// Inputs that fully determine how `credentials.set` builds a provider.
+struct ProviderSpec<'a> {
+    name: &'a str,
+    api_key: &'a str,
+    model: &'a str,
+    base_url: &'a str,
+}
+
+/// SHA-256 over the length-prefixed provider name and config fields.
+/// Only the digest is kept, so the API key is never stored in plaintext.
+fn provider_fingerprint(spec: &ProviderSpec<'_>) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    for field in [spec.name, spec.api_key, spec.model, spec.base_url] {
+        hasher.update((field.len() as u64).to_le_bytes());
+        hasher.update(field.as_bytes());
+    }
+    hasher.finalize().into()
+}
+
+/// Build a provider (with its own HTTP client) from a `credentials.set` entry.
+/// Returns `None` for unknown provider names.
+fn build_provider(spec: &ProviderSpec<'_>) -> Option<Arc<dyn MtwAIProvider>> {
+    let provider: Arc<dyn MtwAIProvider> = match spec.name {
+        "anthropic" => Arc::new(AnthropicProvider::new(AnthropicConfig {
+            api_key: spec.api_key.to_string(),
+            base_url: if spec.base_url.is_empty() {
+                "https://api.anthropic.com".to_string()
+            } else {
+                spec.base_url.to_string()
+            },
+            default_model: if spec.model.is_empty() {
+                "claude-haiku-4-5-20251001".to_string()
+            } else {
+                spec.model.to_string()
+            },
+        })),
+        "openai" => Arc::new(OpenAIProvider::new(OpenAIConfig {
+            api_key: spec.api_key.to_string(),
+            base_url: if spec.base_url.is_empty() {
+                "https://api.openai.com/v1".to_string()
+            } else {
+                spec.base_url.to_string()
+            },
+            default_model: if spec.model.is_empty() {
+                "gpt-4o-mini".to_string()
+            } else {
+                spec.model.to_string()
+            },
+        })),
+        "ollama" => Arc::new(OllamaProvider::new(OllamaConfig {
+            base_url: if spec.base_url.is_empty() {
+                "http://localhost:11434".to_string()
+            } else {
+                spec.base_url.to_string()
+            },
+            default_model: if spec.model.is_empty() {
+                "llama3".to_string()
+            } else {
+                spec.model.to_string()
+            },
+        })),
+        "lmstudio" => Arc::new(LMStudioProvider::new(LMStudioConfig {
+            base_url: if spec.base_url.is_empty() {
+                "http://localhost:1234/v1".to_string()
+            } else {
+                spec.base_url.to_string()
+            },
+            default_model: spec.model.to_string(),
+            api_key: Some(spec.api_key.to_string()),
+        })),
+        _ => return None,
+    };
+    Some(provider)
+}
+
+/// Handle a `credentials.set` call. Providers whose fingerprint matches the
+/// one they were last built with are left untouched (no new client/pool);
+/// `unchanged` is true when every accepted entry was skipped this way.
+fn apply_credentials(
+    providers: &DashMap<String, Arc<dyn MtwAIProvider>>,
+    fingerprints: &DashMap<String, [u8; 32]>,
+    args: &serde_json::Value,
+    build: &dyn Fn(&ProviderSpec<'_>) -> Option<Arc<dyn MtwAIProvider>>,
+) -> Result<serde_json::Value, mtw_core::MtwError> {
+    let list = args
+        .get("providers")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| mtw_core::MtwError::Internal("missing 'providers' array".into()))?;
+
+    let mut registered = Vec::new();
+    let mut rebuilt = 0usize;
+    for entry in list {
+        let field = |k: &str| entry.get(k).and_then(|v| v.as_str()).unwrap_or("");
+        let spec = ProviderSpec {
+            name: field("name"),
+            api_key: field("api_key"),
+            model: field("model"),
+            base_url: field("base_url"),
+        };
+
+        if spec.name.is_empty() || spec.api_key.is_empty() {
+            continue;
+        }
+
+        let fp = provider_fingerprint(&spec);
+        let same = fingerprints.get(spec.name).is_some_and(|f| *f == fp)
+            && providers.contains_key(spec.name);
+        if same {
+            tracing::debug!(provider = %spec.name, "credentials.set: unchanged");
+            registered.push(spec.name.to_string());
+            continue;
+        }
+
+        let Some(provider) = build(&spec) else {
+            continue;
+        };
+
+        tracing::info!(provider = %spec.name, "credentials.set: registered");
+        providers.insert(spec.name.to_string(), provider);
+        fingerprints.insert(spec.name.to_string(), fp);
+        registered.push(spec.name.to_string());
+        rebuilt += 1;
+    }
+
+    Ok(serde_json::json!({
+        "registered": registered,
+        "total_providers": providers.len(),
+        "unchanged": rebuilt == 0 && !registered.is_empty(),
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    type ProviderMap = DashMap<String, Arc<dyn MtwAIProvider>>;
+
+    fn args(key: &str) -> serde_json::Value {
+        serde_json::json!({
+            "providers": [{
+                "name": "ollama",
+                "api_key": key,
+                "model": "llama3",
+                "base_url": "http://127.0.0.1:9"
+            }]
+        })
+    }
+
+    #[test]
+    fn credentials_set_identical_calls_build_once() {
+        let providers: ProviderMap = DashMap::new();
+        let fingerprints = DashMap::new();
+        let builds = AtomicUsize::new(0);
+        let build = |spec: &ProviderSpec<'_>| {
+            builds.fetch_add(1, Ordering::SeqCst);
+            build_provider(spec)
+        };
+
+        let first = apply_credentials(&providers, &fingerprints, &args("k1"), &build).unwrap();
+        assert_eq!(first["unchanged"], serde_json::json!(false));
+        let before = providers.get("ollama").unwrap().clone();
+
+        let second = apply_credentials(&providers, &fingerprints, &args("k1"), &build).unwrap();
+        assert_eq!(builds.load(Ordering::SeqCst), 1);
+        assert_eq!(second["unchanged"], serde_json::json!(true));
+        assert_eq!(second["registered"], serde_json::json!(["ollama"]));
+        assert!(Arc::ptr_eq(&before, &providers.get("ollama").unwrap()));
+    }
+
+    #[test]
+    fn credentials_set_changed_key_rebuilds() {
+        let providers: ProviderMap = DashMap::new();
+        let fingerprints = DashMap::new();
+        let builds = AtomicUsize::new(0);
+        let build = |spec: &ProviderSpec<'_>| {
+            builds.fetch_add(1, Ordering::SeqCst);
+            build_provider(spec)
+        };
+
+        apply_credentials(&providers, &fingerprints, &args("k1"), &build).unwrap();
+        let before = providers.get("ollama").unwrap().clone();
+        let out = apply_credentials(&providers, &fingerprints, &args("k2"), &build).unwrap();
+        assert_eq!(builds.load(Ordering::SeqCst), 2);
+        assert_eq!(out["unchanged"], serde_json::json!(false));
+        assert!(!Arc::ptr_eq(&before, &providers.get("ollama").unwrap()));
+    }
+
+    #[test]
+    fn fingerprint_does_not_contain_plaintext_key() {
+        let key = "sk-very-secret-key";
+        let spec = ProviderSpec { name: "openai", api_key: key, model: "", base_url: "" };
+        let fp = provider_fingerprint(&spec);
+        let hex: String = fp.iter().map(|b| format!("{:02x}", b)).collect();
+        assert!(!hex.contains(key));
+        assert!(!fp.windows(key.len()).any(|w| w == key.as_bytes()));
+        let other = ProviderSpec { api_key: "sk-other", ..spec };
+        assert_ne!(fp, provider_fingerprint(&other));
     }
 }

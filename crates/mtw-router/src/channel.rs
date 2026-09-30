@@ -1,7 +1,8 @@
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
-use mtw_core::MtwError;
-use mtw_protocol::{ConnId, ConnTarget, EnvelopeSink, MtwMessage, SharedEnvelope};
+use mtw_core::{MtwError, DEFAULT_CHANNEL_HISTORY_MAX_BYTES};
+use mtw_protocol::{ConnId, ConnTarget, EnvelopeSink, MtwMessage, Payload, SharedEnvelope};
+use std::collections::VecDeque;
 use std::sync::{Arc, OnceLock};
 use tokio::sync::mpsc;
 
@@ -33,6 +34,67 @@ pub struct SubscriberEntry {
     pub target: Option<Arc<dyn ConnTarget>>,
 }
 
+/// `io::Write` that only counts bytes, so JSON payloads can be measured
+/// without allocating a serialized copy.
+struct ByteCounter(usize);
+
+impl std::io::Write for ByteCounter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0 += buf.len();
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn json_len(value: &serde_json::Value) -> usize {
+    let mut counter = ByteCounter(0);
+    // Serializing a `Value` into a counting writer cannot fail.
+    let _ = serde_json::to_writer(&mut counter, value);
+    counter.0
+}
+
+/// Approximate retained size of a message, used for the history byte cap.
+///
+/// Cheap and deterministic, not an exact heap measurement:
+/// - payload: text/binary byte length, compact JSON serialized length for
+///   `Json`, 0 for `None`;
+/// - plus the lengths of `id`, `channel`, `ref_id`, `pubkey` and `sig`;
+/// - plus, for every metadata entry, the key length and the compact JSON
+///   serialized length of its value.
+///
+/// Fixed-size fields (type, timestamp) and allocator overhead are ignored.
+pub fn estimate_message_bytes(msg: &MtwMessage) -> usize {
+    let payload = match &msg.payload {
+        Payload::None => 0,
+        Payload::Text(t) => t.len(),
+        Payload::Binary(b) => b.len(),
+        Payload::Json(v) => json_len(v),
+    };
+    let opt = |o: &Option<String>| o.as_ref().map_or(0, |s| s.len());
+    let metadata: usize = msg
+        .metadata
+        .iter()
+        .map(|(k, v)| k.len() + json_len(v))
+        .sum();
+    payload
+        + msg.id.len()
+        + opt(&msg.channel)
+        + opt(&msg.ref_id)
+        + opt(&msg.pubkey)
+        + opt(&msg.sig)
+        + metadata
+}
+
+/// Channel history: messages with their estimated sizes plus the running
+/// byte total, kept in sync on every push/pop.
+#[derive(Default)]
+struct History {
+    entries: VecDeque<(MtwMessage, usize)>,
+    bytes: usize,
+}
+
 /// A pub/sub channel
 pub struct Channel {
     /// Channel name (supports glob patterns like "chat.*")
@@ -43,6 +105,8 @@ pub struct Channel {
     max_members: Option<usize>,
     /// Message history size to keep
     history_size: usize,
+    /// Approximate byte cap for the history (see [`estimate_message_bytes`]).
+    history_max_bytes: usize,
     /// Active subscribers (keyed lookup for sub/unsub/is_subscribed).
     subscribers: DashMap<ConnId, Subscriber>,
     /// Immutable snapshot of subscriber entries, each carrying a pre-bound
@@ -50,8 +114,8 @@ pub struct Channel {
     /// it via a single atomic load and calls `target.deliver()` directly —
     /// no DashMap lookups on the broadcast hot path.
     subscriber_list: ArcSwap<Vec<SubscriberEntry>>,
-    /// Message history ring buffer
-    history: tokio::sync::RwLock<std::collections::VecDeque<MtwMessage>>,
+    /// Message history ring buffer, bounded by count and by bytes
+    history: tokio::sync::RwLock<History>,
     /// Fallback delivery path: a central mpsc drained by a forwarder task.
     /// Used when `direct_sink` is unset.
     message_tx: mpsc::UnboundedSender<(ConnId, Arc<SharedEnvelope>)>,
@@ -74,12 +138,28 @@ impl Channel {
             auth_required,
             max_members,
             history_size,
+            history_max_bytes: DEFAULT_CHANNEL_HISTORY_MAX_BYTES,
             subscribers: DashMap::new(),
             subscriber_list: ArcSwap::from_pointee(Vec::new()),
-            history: tokio::sync::RwLock::new(std::collections::VecDeque::new()),
+            history: tokio::sync::RwLock::new(History::default()),
             message_tx,
             direct_sink: OnceLock::new(),
         }
+    }
+
+    /// Set the history byte cap (defaults to 2 MiB).
+    pub fn with_history_max_bytes(mut self, bytes: usize) -> Self {
+        self.history_max_bytes = bytes;
+        self
+    }
+
+    pub fn history_max_bytes(&self) -> usize {
+        self.history_max_bytes
+    }
+
+    /// Current approximate size of the stored history, in bytes.
+    pub async fn history_bytes(&self) -> usize {
+        self.history.read().await.bytes
     }
 
     /// Install a direct delivery sink. Call once, before any `publish`.
@@ -201,11 +281,22 @@ impl Channel {
     /// central `message_tx` mpsc and a forwarder task relays it.
     pub async fn publish(&self, msg: MtwMessage, exclude: Option<&ConnId>) -> Result<usize, MtwError> {
         // Store in history (history still wants the decoded MtwMessage).
+        // Bounded by count and by approximate bytes; a message larger than
+        // the whole byte cap is delivered but never retained.
         if self.history_size > 0 {
-            let mut history = self.history.write().await;
-            history.push_back(msg.clone());
-            while history.len() > self.history_size {
-                history.pop_front();
+            let size = estimate_message_bytes(&msg);
+            if size <= self.history_max_bytes {
+                let mut history = self.history.write().await;
+                history.entries.push_back((msg.clone(), size));
+                history.bytes += size;
+                while history.entries.len() > self.history_size
+                    || history.bytes > self.history_max_bytes
+                {
+                    match history.entries.pop_front() {
+                        Some((_, dropped)) => history.bytes -= dropped,
+                        None => break,
+                    }
+                }
             }
         }
 
@@ -259,8 +350,8 @@ impl Channel {
     pub async fn get_history(&self, limit: Option<usize>) -> Vec<MtwMessage> {
         let history = self.history.read().await;
         match limit {
-            Some(n) => history.iter().rev().take(n).cloned().collect(),
-            None => history.iter().cloned().collect(),
+            Some(n) => history.entries.iter().rev().take(n).map(|(m, _)| m.clone()).collect(),
+            None => history.entries.iter().map(|(m, _)| m.clone()).collect(),
         }
     }
 
@@ -323,7 +414,7 @@ impl ChannelManager {
         self.message_rx.take()
     }
 
-    /// Create a new channel
+    /// Create a new channel with the default history byte cap (2 MiB).
     pub fn create_channel(
         &self,
         name: impl Into<String>,
@@ -331,14 +422,36 @@ impl ChannelManager {
         max_members: Option<usize>,
         history_size: usize,
     ) -> Arc<Channel> {
-        let name = name.into();
-        let channel = Arc::new(Channel::new(
-            name.clone(),
+        self.create_channel_with_history_bytes(
+            name,
             auth_required,
             max_members,
             history_size,
-            self.message_tx.clone(),
-        ));
+            DEFAULT_CHANNEL_HISTORY_MAX_BYTES,
+        )
+    }
+
+    /// Create a new channel whose history is bounded by `history_size`
+    /// messages and `history_max_bytes` approximate bytes.
+    pub fn create_channel_with_history_bytes(
+        &self,
+        name: impl Into<String>,
+        auth_required: bool,
+        max_members: Option<usize>,
+        history_size: usize,
+        history_max_bytes: usize,
+    ) -> Arc<Channel> {
+        let name = name.into();
+        let channel = Arc::new(
+            Channel::new(
+                name.clone(),
+                auth_required,
+                max_members,
+                history_size,
+                self.message_tx.clone(),
+            )
+            .with_history_max_bytes(history_max_bytes),
+        );
         if let Some(sink) = self.direct_sink.get() {
             channel.set_direct_sink(sink.clone());
         }
@@ -516,6 +629,86 @@ mod tests {
 
         let history = ch.get_history(None).await;
         assert_eq!(history.len(), 3); // only last 3 kept
+    }
+
+    fn text_msg(text: &str) -> MtwMessage {
+        MtwMessage::new(MsgType::Publish, Payload::Text(text.into()))
+    }
+
+    #[tokio::test]
+    async fn test_history_count_trim_with_byte_cap() {
+        let mgr = make_manager();
+        let ch = mgr.create_channel_with_history_bytes("test", false, None, 3, 1_000_000);
+        for i in 0..5 {
+            ch.publish(text_msg(&format!("msg-{}", i)), None).await.unwrap();
+        }
+        let history = ch.get_history(None).await;
+        assert_eq!(history.len(), 3);
+        assert_eq!(history[0].payload.as_text(), Some("msg-2"));
+        let expected: usize = history.iter().map(estimate_message_bytes).sum();
+        assert_eq!(ch.history_bytes().await, expected);
+    }
+
+    #[tokio::test]
+    async fn test_history_byte_trim_drops_oldest() {
+        let mgr = make_manager();
+        let one = estimate_message_bytes(&text_msg(&"x".repeat(1000)));
+        // Room for two messages of this size, not three.
+        let cap = one * 2 + one / 2;
+        let ch = mgr.create_channel_with_history_bytes("test", false, None, 100, cap);
+        for i in 0..5 {
+            let body = format!("{}{}", i, "x".repeat(999));
+            ch.publish(text_msg(&body), None).await.unwrap();
+        }
+        let history = ch.get_history(None).await;
+        assert_eq!(history.len(), 2);
+        assert!(history[0].payload.as_text().unwrap().starts_with('3'));
+        assert!(history[1].payload.as_text().unwrap().starts_with('4'));
+        assert!(ch.history_bytes().await <= cap);
+        assert_eq!(ch.history_bytes().await, one * 2);
+    }
+
+    #[tokio::test]
+    async fn test_history_oversized_message_not_stored_but_delivered() {
+        let mut mgr = make_manager();
+        let mut rx = mgr.take_message_receiver().unwrap();
+        let ch = mgr.create_channel_with_history_bytes("test", false, None, 10, 1024);
+        mgr.subscribe("test", &"conn1".to_string()).unwrap();
+
+        ch.publish(text_msg("small"), None).await.unwrap();
+        let sent = ch.publish(text_msg(&"y".repeat(4096)), None).await.unwrap();
+        assert_eq!(sent, 1);
+        // Both messages were delivered through the fallback mpsc.
+        assert!(rx.try_recv().is_ok());
+        assert!(rx.try_recv().is_ok());
+
+        let history = ch.get_history(None).await;
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].payload.as_text(), Some("small"));
+        assert_eq!(ch.history_bytes().await, estimate_message_bytes(&history[0]));
+    }
+
+    #[tokio::test]
+    async fn test_history_default_byte_cap() {
+        let mgr = make_manager();
+        let ch = mgr.create_channel("test", false, None, 10);
+        assert_eq!(ch.history_max_bytes(), mtw_core::DEFAULT_CHANNEL_HISTORY_MAX_BYTES);
+        assert_eq!(ch.history_max_bytes(), 2_097_152);
+        // A 3 MiB message exceeds the default cap and is not retained.
+        ch.publish(text_msg(&"z".repeat(3 * 1024 * 1024)), None).await.unwrap();
+        assert!(ch.get_history(None).await.is_empty());
+        assert_eq!(ch.history_bytes().await, 0);
+    }
+
+    #[test]
+    fn test_estimate_message_bytes() {
+        let msg = text_msg("hello")
+            .with_channel("chan")
+            .with_metadata("k", serde_json::json!("vv"));
+        // payload 5 + id + channel 4 + metadata key 1 + serialized value `"vv"` 4
+        assert_eq!(estimate_message_bytes(&msg), 5 + msg.id.len() + 4 + 1 + 4);
+        let json = MtwMessage::new(MsgType::Publish, Payload::Json(serde_json::json!({"a":1})));
+        assert_eq!(estimate_message_bytes(&json), r#"{"a":1}"#.len() + json.id.len());
     }
 
     #[test]

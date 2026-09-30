@@ -65,8 +65,9 @@ pub struct WhatsAppSection {
     #[serde(default = "default_whatsapp_socket")]
     pub socket: String,
 
-    /// How long to keep retrying the initial connect before giving up,
-    /// in seconds. Default 60.
+    /// Legacy: the server no longer waits for the bridge at boot (it
+    /// connects in the background with backoff), so this is unused.
+    /// Kept so existing configs still parse. Default 60.
     #[serde(default = "default_whatsapp_connect_timeout")]
     pub connect_timeout_secs: u64,
 }
@@ -241,8 +242,19 @@ pub struct ChannelConfig {
     pub max_members: Option<usize>,
     #[serde(default)]
     pub history: Option<usize>,
+    /// Byte cap for the channel history (approximate message sizes).
+    /// Defaults to [`DEFAULT_CHANNEL_HISTORY_MAX_BYTES`] when absent.
+    #[serde(default = "default_history_max_bytes")]
+    pub history_max_bytes: usize,
     #[serde(default)]
     pub codec: Option<String>,
+}
+
+/// Default per-channel history byte cap: 2 MiB.
+pub const DEFAULT_CHANNEL_HISTORY_MAX_BYTES: usize = 2_097_152;
+
+fn default_history_max_bytes() -> usize {
+    DEFAULT_CHANNEL_HISTORY_MAX_BYTES
 }
 
 /// Orchestrator configuration
@@ -465,6 +477,24 @@ mod tests {
         assert_eq!(config.agents[0].name, "assistant");
         assert_eq!(config.channels.len(), 1);
         assert_eq!(config.channels[0].auth, true);
+    }
+
+    #[test]
+    fn test_channel_history_max_bytes_default_and_override() {
+        let toml = r#"
+            [[channels]]
+            name = "a"
+            history = 10
+
+            [[channels]]
+            name = "b"
+            history = 10
+            history_max_bytes = 4096
+        "#;
+        let config = MtwConfig::from_str(toml).unwrap();
+        assert_eq!(config.channels[0].history_max_bytes, 2_097_152);
+        assert_eq!(config.channels[0].history_max_bytes, DEFAULT_CHANNEL_HISTORY_MAX_BYTES);
+        assert_eq!(config.channels[1].history_max_bytes, 4096);
     }
 
     #[test]

@@ -159,11 +159,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for ch_config in &config.channels {
         let max_members = ch_config.max_members;
         let history = ch_config.history.unwrap_or(0);
-        channel_mgr.create_channel(&ch_config.name, ch_config.auth, max_members, history);
+        let history_max_bytes = ch_config.history_max_bytes;
+        channel_mgr.create_channel_with_history_bytes(
+            &ch_config.name,
+            ch_config.auth,
+            max_members,
+            history,
+            history_max_bytes,
+        );
         tracing::info!(
             channel = %ch_config.name,
             max_members = ?max_members,
             history = history,
+            history_max_bytes = history_max_bytes,
             "channel created"
         );
     }

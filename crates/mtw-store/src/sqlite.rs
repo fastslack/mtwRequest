@@ -43,24 +43,18 @@ impl SqliteStore {
                 | OpenFlags::SQLITE_OPEN_URI
         };
 
-        let manager = SqliteConnectionManager::file(&config.path).with_flags(flags);
-
-        let pool = Pool::builder()
-            .max_size(config.pool_size)
-            .build(manager)
-            .map_err(|e| MtwError::Config(format!("failed to create connection pool: {}", e)))?;
-
-        // Initialize with performance pragmas
-        let conn = pool
-            .get()
-            .map_err(|e| MtwError::Config(format!("failed to get connection: {}", e)))?;
-
+        // Performance pragmas, applied to EVERY pooled connection via
+        // `with_init` (connection-scoped pragmas such as busy_timeout,
+        // cache_size and query_only are not shared between connections).
+        // The batch is the same one previously run on the first connection
+        // only, including `journal_mode = WAL` on read-only opens.
+        // busy_timeout goes first so the WAL switch itself waits on locks.
         let pragmas = format!(
-            "PRAGMA journal_mode = WAL;
+            "PRAGMA busy_timeout = {timeout};
+             PRAGMA journal_mode = WAL;
              PRAGMA synchronous = NORMAL;
              PRAGMA cache_size = -{cache_kb};
              PRAGMA mmap_size = {mmap_bytes};
-             PRAGMA busy_timeout = {timeout};
              PRAGMA temp_store = MEMORY;
              {query_only}",
             cache_kb = config.cache_mb * 1024,
@@ -73,8 +67,19 @@ impl SqliteStore {
             }
         );
 
-        conn.execute_batch(&pragmas)
+        let manager = SqliteConnectionManager::file(&config.path)
+            .with_flags(flags)
+            .with_init(move |conn| conn.execute_batch(&pragmas));
+
+        // Open one connection directly first so a pragma failure surfaces
+        // immediately instead of after r2d2's connection timeout.
+        r2d2::ManageConnection::connect(&manager)
             .map_err(|e| MtwError::Config(format!("failed to set pragmas: {}", e)))?;
+
+        let pool = Pool::builder()
+            .max_size(config.pool_size)
+            .build(manager)
+            .map_err(|e| MtwError::Config(format!("failed to create connection pool: {}", e)))?;
 
         tracing::info!(
             path = %config.path,
@@ -328,6 +333,32 @@ mod tests {
         };
 
         (dir, config)
+    }
+
+    fn pragma_i64(conn: &rusqlite::Connection, name: &str) -> i64 {
+        conn.query_row(&format!("PRAGMA {}", name), [], |r| r.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn test_pragmas_applied_to_every_pooled_connection() {
+        for readonly in [true, false] {
+            let (_dir, mut config) = make_test_db();
+            config.readonly = readonly;
+            config.pool_size = 3;
+            config.busy_timeout_ms = 4321;
+            config.cache_mb = 3;
+            let store = SqliteStore::open(&config).unwrap();
+
+            // Hold two connections at once so they are distinct pool members.
+            let a = store.connection().unwrap();
+            let b = store.connection().unwrap();
+            for conn in [&*a, &*b] {
+                assert_eq!(pragma_i64(conn, "busy_timeout"), 4321);
+                assert_eq!(pragma_i64(conn, "cache_size"), -(3 * 1024));
+                assert_eq!(pragma_i64(conn, "query_only"), readonly as i64);
+            }
+        }
     }
 
     #[tokio::test]
