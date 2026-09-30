@@ -1,0 +1,15 @@
+=== AFTER ratio 20260614T044656Z loadavg=6.28 5.99 6.02 profile=LTO-fat/cgu1 ===
+# Load-robust in-process ratios (11 rounds, 200000 iters each)
+
+Higher than 1.00× means the FIRST named variant is that much SLOWER.
+
+json/encode ÷ msgpack/encode (size=16)             median  1.31×  (range 1.22–1.44×)
+json/encode ÷ msgpack/encode (size=256)            median  1.75×  (range 1.67–1.81×)
+json/encode ÷ msgpack/encode (size=4096)           median  7.80×  (range 7.31–8.69×)
+
+re-encode×100 ÷ cached-envelope×100 (size=256)     median 34.78×  (range 26.71–57.19×)
+re-encode×100 ÷ cached-envelope×100 (size=4096)    median 74.13×  (range 65.69–83.05×)
+
+system-malloc ÷ mimalloc (15×64B alloc/free)       median  1.77×  (range 1.54–2.36×)
+system-malloc ÷ mimalloc (15×256B alloc/free)      median  2.74×  (range 2.06–2.97×)
+system-malloc ÷ mimalloc (64×64B alloc/free)       median  2.28×  (range 1.99–2.37×)

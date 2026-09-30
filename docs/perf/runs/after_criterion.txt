@@ -1,0 +1,70 @@
+=== AFTER criterion vs before 20260614T044726Z loadavg=5.69 5.89 5.98 profile=LTO-fat/cgu1 ===
+Benchmarking channel/publish/1
+channel/publish/1       time:   [782.05 ns 797.39 ns 816.15 ns]
+                 change:
+                        time:   [-15.279% -13.045% -10.702%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Benchmarking channel/publish/16
+channel/publish/16      time:   [1.3063 µs 1.3283 µs 1.3515 µs]
+                 change:
+                        time:   [-21.359% -19.572% -17.684%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Benchmarking channel/publish/256
+channel/publish/256     time:   [9.2192 µs 9.4151 µs 9.6307 µs]
+                 change:
+                        time:   [-54.094% -53.250% -52.252%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Benchmarking channel/publish/4096
+channel/publish/4096    time:   [238.20 µs 243.22 µs 248.77 µs]
+                 change:
+                        time:   [-21.485% -19.071% -16.437%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Benchmarking codec/json/encode/16
+codec/json/encode/16    time:   [228.21 ns 230.74 ns 233.81 ns]
+                 change:
+                        time:   [-11.498% -10.121% -8.6829%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Benchmarking codec/json/encode/256
+codec/json/encode/256   time:   [328.78 ns 332.95 ns 338.01 ns]
+                 change:
+                        time:   [+0.8396% +2.6822% +4.4408%] (p = 0.00 < 0.05)
+Benchmarking codec/json/encode/4096
+codec/json/encode/4096  time:   [2.0516 µs 2.0726 µs 2.0944 µs]
+                 change:
+                        time:   [+20.393% +22.233% +24.088%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Benchmarking codec/json/decode/16
+codec/json/decode/16    time:   [742.80 ns 751.12 ns 759.17 ns]
+                 change:
+                        time:   [-19.905% -18.955% -17.959%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Benchmarking codec/json/decode/256
+codec/json/decode/256   time:   [794.64 ns 803.91 ns 814.44 ns]
+                 change:
+                        time:   [-18.334% -16.339% -14.317%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Benchmarking codec/json/decode/4096
+codec/json/decode/4096  time:   [1.3024 µs 1.3217 µs 1.3459 µs]
+                 change:
+                        time:   [-8.4306% -6.5860% -4.4879%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Benchmarking middleware/process_inbound/1
+                        time:   [418.94 ns 446.83 ns 474.20 ns]
+                 change:
+                        time:   [-8.6183% +7.8230% +35.587%] (p = 0.69 > 0.05)
+                        No change in performance detected.
+Benchmarking middleware/process_inbound/4
+                        time:   [811.37 ns 865.77 ns 922.31 ns]
+                 change:
+                        time:   [+2.7539% +10.659% +20.189%] (p = 0.01 < 0.05)
+                        Performance has regressed.
+Benchmarking middleware/process_inbound/16
+                        time:   [2.3211 µs 2.3731 µs 2.4219 µs]
+                 change:
+                        time:   [-9.9189% -6.7823% -2.9972%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Benchmarking middleware/process_inbound/64
+                        time:   [8.4906 µs 8.5553 µs 8.6290 µs]
+                 change:
+                        time:   [-0.3974% +1.3010% +3.3697%] (p = 0.17 > 0.05)
+                        No change in performance detected.

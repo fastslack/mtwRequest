@@ -1,0 +1,9 @@
+# Signing path: MtwMessage::signing_bytes (allocs per signature)
+
+operation                             allocs/op       bytes/op
+--------------------------------------------------------------
+signing_bytes/16                          45.00           4566
+signing_bytes/256                         45.00           5424
+signing_bytes/4096                        45.00          24624
+
+# Wire size: JSON vs MsgPack (bytes on the wire)

@@ -160,6 +160,19 @@ fn main() {
         println!("{label:<34} {a:>12.2} {b:>14.0}");
     }
 
+    // Signing path (mtw-attest signs every tool call): canonical signing_bytes.
+    println!("\n# Signing path: MtwMessage::signing_bytes (allocs per signature)\n");
+    println!("{:<34} {:>12} {:>14}", "operation", "allocs/op", "bytes/op");
+    println!("{}", "-".repeat(62));
+    for &size in &[16usize, 256, 4096] {
+        let msg = sample_message(size);
+        let (a, b) = measure(N, || {
+            let out = msg.signing_bytes().unwrap();
+            std::hint::black_box(&out);
+        });
+        println!("{:<34} {:>12.2} {:>14.0}", format!("signing_bytes/{size}"), a, b);
+    }
+
     // Wire size: JSON vs MsgPack (deterministic, the documented size win).
     println!("\n# Wire size: JSON vs MsgPack (bytes on the wire)\n");
     println!("{:<20} {:>10} {:>10} {:>10}", "payload", "json", "msgpack", "saving");

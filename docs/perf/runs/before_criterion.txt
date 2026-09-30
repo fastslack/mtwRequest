@@ -1,0 +1,46 @@
+=== BASELINE criterion 20260614T044136Z loadavg=5.93 5.22 5.80 ===
+Gnuplot not found, using plotters backend
+Benchmarking channel/publish/1
+channel/publish/1       time:   [886.00 ns 905.95 ns 926.57 ns]
+Found 2 outliers among 100 measurements (2.00%)
+Benchmarking channel/publish/16
+channel/publish/16      time:   [1.5960 µs 1.6147 µs 1.6360 µs]
+Found 2 outliers among 100 measurements (2.00%)
+Benchmarking channel/publish/256
+channel/publish/256     time:   [19.513 µs 19.705 µs 19.906 µs]
+Found 4 outliers among 100 measurements (4.00%)
+Benchmarking channel/publish/4096
+channel/publish/4096    time:   [294.21 µs 300.53 µs 307.17 µs]
+Found 1 outliers among 100 measurements (1.00%)
+Gnuplot not found, using plotters backend
+Benchmarking codec/json/encode/16
+codec/json/encode/16    time:   [248.00 ns 253.75 ns 260.68 ns]
+Found 3 outliers among 100 measurements (3.00%)
+Benchmarking codec/json/encode/256
+codec/json/encode/256   time:   [330.45 ns 333.95 ns 337.58 ns]
+Found 5 outliers among 100 measurements (5.00%)
+Benchmarking codec/json/encode/4096
+codec/json/encode/4096  time:   [1.6961 µs 1.7204 µs 1.7465 µs]
+Found 5 outliers among 100 measurements (5.00%)
+Benchmarking codec/json/decode/16
+codec/json/decode/16    time:   [900.41 ns 912.16 ns 923.84 ns]
+Found 1 outliers among 100 measurements (1.00%)
+Benchmarking codec/json/decode/256
+codec/json/decode/256   time:   [934.79 ns 949.21 ns 965.75 ns]
+Found 5 outliers among 100 measurements (5.00%)
+Benchmarking codec/json/decode/4096
+codec/json/decode/4096  time:   [1.3912 µs 1.4140 µs 1.4419 µs]
+Found 12 outliers among 100 measurements (12.00%)
+Gnuplot not found, using plotters backend
+Benchmarking middleware/process_inbound/1
+                        time:   [444.69 ns 472.14 ns 498.27 ns]
+Found 5 outliers among 100 measurements (5.00%)
+Benchmarking middleware/process_inbound/4
+                        time:   [742.78 ns 793.08 ns 847.76 ns]
+Found 11 outliers among 100 measurements (11.00%)
+Benchmarking middleware/process_inbound/16
+                        time:   [2.4934 µs 2.5204 µs 2.5507 µs]
+Found 4 outliers among 100 measurements (4.00%)
+Benchmarking middleware/process_inbound/64
+                        time:   [8.8160 µs 8.8978 µs 8.9766 µs]
+Found 3 outliers among 100 measurements (3.00%)

@@ -1,0 +1,15 @@
+=== BASELINE ratio 20260614T044107Z loadavg=6.19 5.19 5.81 ===
+# Load-robust in-process ratios (11 rounds, 200000 iters each)
+
+Higher than 1.00× means the FIRST named variant is that much SLOWER.
+
+json/encode ÷ msgpack/encode (size=16)             median  1.11×  (range 0.98–1.20×)
+json/encode ÷ msgpack/encode (size=256)            median  1.45×  (range 1.18–1.65×)
+json/encode ÷ msgpack/encode (size=4096)           median  6.21×  (range 5.83–6.45×)
+
+re-encode×100 ÷ cached-envelope×100 (size=256)     median 31.04×  (range 28.65–34.71×)
+re-encode×100 ÷ cached-envelope×100 (size=4096)    median 84.14×  (range 72.67–89.20×)
+
+system-malloc ÷ mimalloc (15×64B alloc/free)       median  1.71×  (range 1.42–2.21×)
+system-malloc ÷ mimalloc (15×256B alloc/free)      median  2.65×  (range 2.43–2.75×)
+system-malloc ÷ mimalloc (64×64B alloc/free)       median  2.10×  (range 1.70–2.33×)

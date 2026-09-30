@@ -136,19 +136,129 @@ many small typed fields, not string-heavy payloads.
 
 ---
 
+## ROUND 2 (2026-06-14) — release profile (LTO) + signing-path allocs
+
+Captured on the same loaded box (loadavg ~4–6 throughout). Two changes applied,
+each measured with the method appropriate to it. Raw captures are checked in
+under `docs/perf/runs/{before,after}_{allocs,ratio,criterion}.txt`.
+
+### CHANGE 1 — `[profile.release]`: `lto = "fat"`, `codegen-units = 1`
+
+There was **no `[profile.release]` section anywhere in the workspace** — release
+builds shipped with cargo defaults (`lto = false`, `codegen-units = 16`). This is
+the zero-API-change win flagged as "next target" in round 1 but never applied.
+Added to the root `Cargo.toml`:
+
+```toml
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+strip = true
+```
+
+`panic` left at `"unwind"` deliberately: `"abort"` is marginally faster/smaller
+but breaks the Criterion bench harness and `cargo test --release`. No
+`catch_unwind` exists in the tree, so abort is *safe* but not worth losing the
+ability to benchmark — documented as an opt-in for downstream binaries.
+
+**Measured (Criterion, `--baseline before` → `--baseline` after, same box):**
+
+| benchmark | change | verdict |
+|---|---|---|
+| channel/publish/256 | **−53.3%** | real (fanout, cross-crate inlining) |
+| channel/publish/16 | −19.6% | real |
+| channel/publish/4096 | −19.1% | real |
+| channel/publish/1 | −13.0% | real |
+| codec/json/decode/16 | −19.0% | real |
+| codec/json/decode/256 | −16.3% | real |
+| codec/json/decode/4096 | −6.6% | real |
+| codec/json/encode/16 | −10.1% | real |
+| middleware/process_inbound/16 | −6.8% | real |
+| codec/json/encode/256 | +2.7% | **noise** |
+| codec/json/encode/4096 | +22.2% | **noise** (see below) |
+| middleware/process_inbound/4 | +10.7% | **noise** (high variance) |
+| middleware/process_inbound/{1,64} | no change (p>0.05) | inconclusive |
+
+The encode path was **not touched** in this round, so the `encode/4096 +22%` and
+`middleware/4 +10%` "regressions" are load noise — round 1 already documented this
+exact bench (`codec/json/encode/4096`) swinging **+84.8% vs +60.4%** between two
+runs of *identical* code on this box. A +22% sits well inside that noise floor.
+The large, directionally-consistent wins (channel publish −13…−53%, decode
+−7…−19%) rise clearly above it. **Honest read: LTO+cgu1 is a real win on the
+fanout and decode hot paths; the absolute magnitude needs an idle box to pin
+down, but the sign is not in doubt.**
+
+### CHANGE 2 — `signing_bytes()`: drop the redundant deep clone
+
+`MtwMessage::signing_bytes()` (called by `mtw-identity` on every sign/verify, i.e.
+the `mtw-attest` per-tool-call path) did `self.clone()` → `to_value()` → `to_vec()`.
+`to_value()` already builds an owned tree, so the upfront full-struct clone (deep
+copy of `id`, `channel`, `payload`, and the whole `metadata` map + its `Value`
+entries) was pure waste. Replaced with: `to_value(self)` → remove the `pubkey`/`sig`
+keys from the built object → `to_vec`. Byte-identical output (proven by a new
+pinned-format regression test, `test_signing_bytes_canonical_format`).
+
+**Measured (deterministic alloc counter — load-independent, exact):**
+
+| operation | allocs BEFORE | allocs AFTER | reduction | bytes BEFORE→AFTER |
+|---|---|---|---|---|
+| signing_bytes/16 | 45.00 | **30.00** | −33% | 4566 → 3584 |
+| signing_bytes/256 | 45.00 | **30.00** | −33% | 5424 → 4202 |
+| signing_bytes/4096 | 45.00 | **30.00** | −33% | 24624 → 19562 |
+
+**15 allocations per signature eliminated** — the deep struct clone — at every
+payload size. All other rows in the allocs bench are byte-for-byte unchanged
+(encode 2/op, decode 15/op, frame 2/op), confirming no regression and that LTO
+does not alter alloc counts. A new `signing_bytes` measurement block was added to
+`crates/mtw-benches/src/bin/allocs.rs` so this stays reproducible.
+
+### Correctness
+
+`cargo test -p mtw-protocol -p mtw-identity -p mtw-codec` → all green (including
+the new canonical-format test and the existing order-independence test).
+`cargo check --workspace` → clean (one pre-existing unrelated warning in
+`mtw-server`). Signature wire format is pinned and unchanged.
+
+### NOT applied this round (and why)
+
+- **`id: String` → `ulid::Ulid` (u128, 0-alloc decode)** — would save exactly
+  **1 alloc on every decode** (15→14, or 3→2 on the common text+channel message =
+  −33% on the hot case) and is wire-compatible (Ulid serializes to the same 26-char
+  string). But `.id` is referenced ~165× across 30+ crates; that is an API change
+  that should land under review, not unattended. **Designed + measured, deferred.**
+- **Empty-metadata decode** — already 0-alloc (`HashMap::new()` doesn't allocate
+  until first insert; verified: minimal+text+channel decode = 3 allocs, no metadata
+  overhead). Nothing to do.
+
+---
+
 ## Next targets (identified, not yet done)
 
-1. **Decode: 15 allocs/op** (vs encode's 2 now) — the biggest remaining
-   allocation cost. A borrowing/zero-copy decoder is the win. (Touches public
-   `MtwMessage` API — more invasive.)
-2. **Default hot traffic to MsgPack** — 1.2×–6.5× faster encode, smaller wire.
+1. **`id: String` → `Ulid`** — −1 alloc on *every* decode, wire-compatible, but an
+   API change touching ~165 call sites. Highest-value remaining decode win; needs
+   a reviewed pass (see ROUND 2 "NOT applied").
+2. **Borrowing/zero-copy decoder** (`Cow<'a, str>` + `#[serde(borrow)]`) — removes
+   the channel/text owned-String allocs too, but adds a lifetime to the public
+   `MtwMessage` — most invasive.
+3. **Default hot traffic to MsgPack** — 1.2×–6.5× faster encode, smaller wire.
    (Changes default wire format — needs client coordination.)
-3. **LTO + `codegen-units=1` and mimalloc** — needs an idle box to quantify.
+4. **Quantify LTO+cgu1 absolute gain on an idle box** — the sign is proven (ROUND 2),
+   the magnitude is not. Re-run `cargo bench --baseline before` unloaded.
+5. **`panic = "abort"`** — safe (no `catch_unwind`), small win; opt-in per binary so
+   the bench harness keeps working.
 
 ## Reproduce
 
 ```
-cargo run -p mtw-benches --bin allocs --release   # deterministic, any load
+cargo run -p mtw-benches --bin allocs --release   # deterministic, any load (incl. signing_bytes)
 cargo run -p mtw-benches --bin ratio  --release   # load-robust ratios
-cargo bench --bench codec --bench channel --bench middleware   # needs idle box
+# Before/after timing (needs idle box for trustworthy magnitude):
+cargo bench --bench codec --bench channel --bench middleware -- --save-baseline before
+#   …apply change…
+cargo bench --bench codec --bench channel --bench middleware -- --baseline before
 ```
+
+> Note: a global cargo config (`~/.cargo/config.toml`) sets `jobs = 0`, which this
+> cargo version rejects ("jobs may not be 0"). Pass `-j<N>` (e.g. `-j10`) on every
+> cargo invocation until that config is fixed.

@@ -54,15 +54,24 @@ impl MtwMessage {
 
     /// Canonical bytes used to compute / verify a signature on this message.
     ///
-    /// The message is cloned with `pubkey` and `sig` cleared, then converted
-    /// to a `serde_json::Value` (whose `Map` is BTree-backed by default and
-    /// thus emits keys in alphabetic order) and serialized. This makes signing
-    /// independent of `metadata` insertion order.
+    /// The message is converted to a `serde_json::Value` (whose `Map` is
+    /// BTree-backed by default and thus emits keys in alphabetic order), then
+    /// the `pubkey`/`sig` keys are stripped, and the result is serialized. The
+    /// BTree ordering makes signing independent of `metadata` insertion order.
+    ///
+    /// This deliberately avoids cloning the whole message first: `to_value`
+    /// already builds an owned tree, so an extra `self.clone()` (which deep-copies
+    /// every String, the payload, and the metadata map) was pure waste. Removing
+    /// the two excluded keys from the built `Value` yields byte-identical output —
+    /// `pubkey`/`sig` carry `skip_serializing_if = Option::is_none`, so clearing
+    /// them on a clone (old path) and removing them from the map (this path) both
+    /// produce a tree without those keys.
     pub fn signing_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
-        let mut clone = self.clone();
-        clone.pubkey = None;
-        clone.sig = None;
-        let value = serde_json::to_value(&clone)?;
+        let mut value = serde_json::to_value(self)?;
+        if let Some(obj) = value.as_object_mut() {
+            obj.remove("pubkey");
+            obj.remove("sig");
+        }
         serde_json::to_vec(&value)
     }
 
@@ -332,5 +341,25 @@ mod tests {
         assert_eq!(chunk.ref_id, Some(task.id.clone()));
         assert_eq!(end.ref_id, Some(task.id));
         assert_eq!(end.msg_type, MsgType::StreamEnd);
+    }
+
+    /// Pins the EXACT canonical signing bytes for a fixed message. This locks the
+    /// signature wire format: any change here would invalidate every previously
+    /// produced Ed25519 signature, so it must fail loudly. Also guards the
+    /// `signing_bytes` refactor (drop redundant clone) against silent drift.
+    #[test]
+    fn test_signing_bytes_canonical_format() {
+        let mut msg = MtwMessage::new(MsgType::Event, Payload::Text("hi".into()));
+        msg.id = "01TEST".to_string();
+        msg.timestamp = 42;
+        // pubkey/sig must be excluded from the signed bytes even when present.
+        msg.pubkey = Some("DEADBEEF".to_string());
+        msg.sig = Some("CAFE".to_string());
+
+        let bytes = msg.signing_bytes().unwrap();
+        // Keys are BTree-sorted (channel/metadata/ref_id absent); payload is
+        // {"data","kind"} sorted; pubkey/sig stripped.
+        let expected = r#"{"id":"01TEST","payload":{"data":"hi","kind":"Text"},"timestamp":42,"type":"event"}"#;
+        assert_eq!(String::from_utf8(bytes).unwrap(), expected);
     }
 }

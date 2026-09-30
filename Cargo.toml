@@ -38,6 +38,20 @@ members = [
     "examples",
 ]
 
+# Release profile: tuned for runtime throughput on the encode/decode/fanout hot
+# paths. LTO "fat" + codegen-units=1 let the optimizer inline across crate
+# boundaries (e.g. codec → protocol → serde) and is the single biggest
+# zero-API-change win available; it trades longer compile times for faster
+# binaries. `panic` is left at the default "unwind" deliberately — "abort" would
+# be marginally faster/smaller but breaks the Criterion bench harness and
+# `cargo test --release`, so it is NOT set here (no `catch_unwind` exists in the
+# tree, so a downstream binary may opt into abort locally if it wants).
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+strip = true
+
 [workspace.package]
 version = "0.4.0"
 edition = "2021"
