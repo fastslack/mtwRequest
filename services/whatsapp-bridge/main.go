@@ -40,18 +40,20 @@ import (
 // ── wire types ────────────────────────────────────────────────────────
 
 type inMsg struct {
-	Type       string `json:"type"`
-	ID         string `json:"id,omitempty"`
-	To         string `json:"to,omitempty"`
-	Text       string `json:"text,omitempty"`
-	Kind       string `json:"kind,omitempty"`
-	Mime       string `json:"mime,omitempty"`
-	Caption    string `json:"caption,omitempty"`
-	Filename   string `json:"filename,omitempty"`
-	DataB64    string `json:"data_b64,omitempty"`
-	MessageID  string `json:"message_id,omitempty"`
-	Emoji      string `json:"emoji,omitempty"`
-	ForEveryone bool  `json:"for_everyone,omitempty"`
+	Type        string `json:"type"`
+	ID          string `json:"id,omitempty"`
+	To          string `json:"to,omitempty"`
+	Text        string `json:"text,omitempty"`
+	Kind        string `json:"kind,omitempty"`
+	Mime        string `json:"mime,omitempty"`
+	Caption     string `json:"caption,omitempty"`
+	Filename    string `json:"filename,omitempty"`
+	DataB64     string `json:"data_b64,omitempty"`
+	MessageID   string `json:"message_id,omitempty"`
+	Emoji       string `json:"emoji,omitempty"`
+	ForEveryone bool   `json:"for_everyone,omitempty"`
+	Phone       string `json:"phone,omitempty"`
+	Limit       int    `json:"limit,omitempty"`
 }
 
 type outMsg map[string]any
@@ -278,10 +280,17 @@ func (b *bridge) handle(msg inMsg) {
 	}
 
 	switch msg.Type {
-	case "request_qr", "link_qr":
-		// request_qr is the legacy alias of link_qr. The linking flow lands
-		// with the link_* commands; until then the bridge says so explicitly.
-		b.emitErr(msg.ID, "not_implemented", "linking is not available yet")
+	case "link_qr", "request_qr":
+		// request_qr is the legacy alias of link_qr.
+		if err := b.sess.linkQR(); err != nil {
+			b.emitErr(msg.ID, codeFor(err), err.Error())
+		}
+	case "link_phone":
+		if err := b.sess.linkPhone(msg.Phone); err != nil {
+			b.emitErr(msg.ID, codeFor(err), err.Error())
+		}
+	case "link_cancel":
+		b.sess.linkCancel()
 	case "send_text":
 		b.sendText(msg)
 	case "send_media":
@@ -303,6 +312,16 @@ func (b *bridge) handle(msg inMsg) {
 	default:
 		b.emitErr(msg.ID, "unknown_command", "type: "+msg.Type)
 	}
+}
+
+func codeFor(err error) string {
+	switch err {
+	case errInvalidPhone:
+		return "invalid_phone"
+	case errAlreadyLinked:
+		return "already_linked"
+	}
+	return "link_failed"
 }
 
 func (b *bridge) resolve(to string) (types.JID, error) {
@@ -344,11 +363,14 @@ func (b *bridge) sendMedia(msg inMsg) {
 
 	mediaType := whatsmeow.MediaImage
 	switch msg.Kind {
-	case "image":    mediaType = whatsmeow.MediaImage
-	case "video":    mediaType = whatsmeow.MediaVideo
+	case "image":
+		mediaType = whatsmeow.MediaImage
+	case "video":
+		mediaType = whatsmeow.MediaVideo
 	case "audio", "voice":
 		mediaType = whatsmeow.MediaAudio
-	case "document": mediaType = whatsmeow.MediaDocument
+	case "document":
+		mediaType = whatsmeow.MediaDocument
 	default:
 		b.emitErr(msg.ID, "bad_kind", "unsupported media kind")
 		return
@@ -543,12 +565,15 @@ func main() {
 		log.Fatalf("get device: %v", err)
 	}
 
-	clientLog := waLog.Stdout("Client", "DEBUG", true)
+	// WARN, not DEBUG: whatsmeow logs QR codes ("Emitting QR code ...") and
+	// the PairPhone IQ (which carries the phone number) at Debug level.
+	// Neither may ever reach the logs.
+	clientLog := waLog.Stdout("Client", "WARN", true)
 	client := whatsmeow.NewClient(device, clientLog)
 	log.Printf("client initialised; stored session=%v", client.Store.ID != nil)
 
 	drv := &driver{}
-	lk := &waLinker{c: client}
+	lk := newWaLinker(client)
 	b := &bridge{client: client, lk: lk, drv: drv}
 	b.sess = newSession(lk, b.emit)
 	b.wireEvents()

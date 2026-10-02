@@ -14,10 +14,29 @@ read and write concurrently. A single driver is expected per socket.
 
 ## Driver → Bridge (commands)
 
-### `request_qr`
-Force the bridge to restart the login flow. Useful when the session is stale.
+### `link_qr`
+Start (or restart) the login flow using a scanned QR code. Any linking
+attempt already in progress (QR or phone) is aborted first.
 ```json
-{"type":"request_qr"}
+{"type":"link_qr"}
+```
+`request_qr` is accepted as a legacy alias of `link_qr`.
+
+### `link_phone`
+Start (or restart) the login flow using whatsmeow's phone-pairing code
+instead of a QR scan. Any linking attempt already in progress is aborted
+first.
+```json
+{"type":"link_phone", "phone":"5491123456789"}
+```
+- `phone`: digits only, no `+` or separators, 8–15 digits, not leading `0`.
+  An invalid number never opens a connection; see `invalid_phone` below.
+
+### `link_cancel`
+Abort the linking attempt in progress (QR or phone) and go back to `idle`.
+A no-op if nothing is linking.
+```json
+{"type":"link_cancel"}
 ```
 
 ### `send_text`
@@ -60,7 +79,7 @@ Pass `"emoji": ""` to remove a reaction.
 
 ### `logout`
 End the WhatsApp session and delete stored credentials. The next connection
-will require a new QR scan.
+will require a new QR scan or phone pairing.
 ```json
 {"type":"logout"}
 ```
@@ -73,28 +92,69 @@ Sidecar has booted and opened its database. Emitted once per process.
 {"type":"ready"}
 ```
 
+### `status`
+The session's state machine. This is the single source of truth for session
+state — `pairing_success`, `connected` and `disconnected` as standalone event
+types are **not emitted**; everything they used to convey is now reported
+through `status`.
+
+```json
+{"type":"status", "state":"idle"}
+{"type":"status", "state":"linking", "mode":"qr"}
+{"type":"status", "state":"linking", "mode":"phone"}
+{"type":"status", "state":"connected", "jid":"5491123456789:1@s.whatsapp.net"}
+{"type":"status", "state":"disconnected", "reason":"stream_replaced"}
+{"type":"status", "state":"logged_out"}
+```
+
+| `state` | meaning | extra fields |
+|---|---|---|
+| `idle` | no stored session, nothing linking | `reason` (see below), only on a transition out of `linking` |
+| `linking` | a `link_qr`/`link_phone` attempt is in progress | `mode` ∈ `"qr"` \| `"phone"` |
+| `connected` | authenticated; outbound sends are safe | `jid` |
+| `disconnected` | socket dropped unexpectedly after being `connected` | `reason` |
+| `logged_out` | credentials were revoked (remote logout, or a successful `logout` command) | — |
+
+`disconnected` also covers a failed `Connect()` on boot with a stored
+session (`reason: "connect_failed"`) — the one case where `disconnected` can
+happen without ever having been `connected`. In every other case, whatsmeow
+itself auto-reconnects in the background (`EnableAutoReconnect` defaults to
+`true`); the bridge does not drive that retry, it only reports the
+`disconnected`/eventual-reconnect `status` transitions whatsmeow's own events
+produce. A `disconnected` session does **not** automatically fall back to
+`idle` or restart linking — the driver decides whether/when to send
+`link_qr`/`link_phone` again.
+
+`idle`'s `reason`, when present, explains why a linking attempt ended without
+reaching `connected`:
+
+| `reason` | meaning |
+|---|---|
+| `cancelled` | the driver sent `link_cancel` |
+| `expired` | WhatsApp's QR/phone code timed out before it was used |
+| `outdated` | this whatsmeow/client version is no longer accepted by WhatsApp |
+| `error` | the pairing attempt failed for another reason |
+
+For a command-scoped failure (`link_phone`'s `PairPhone` call failing, for
+example), the `status` `idle`/`reason:"error"` event is emitted **before**
+the command's `error` event — the state transition happens first, the
+command's own rejection is reported after, once the handler returns.
+
 ### `qr`
 A QR code string was issued. WhatsApp rotates QRs roughly every 20s until the
 user scans or the code expires; the bridge forwards every code it receives.
+Only emitted during a `link_qr` attempt (never during `link_phone`).
 ```json
 {"type":"qr", "code":"2@abc123..."}
 ```
 
-### `pairing_success`
-Device was paired (right after the user scans the QR). `connected` follows.
+### `pairing_code`
+The 8-character code to enter on the phone, emitted once per `link_phone`
+attempt. `expires_at` is a Unix timestamp (seconds); the code is no longer
+valid after it, and the session falls back to `status` `idle` with
+`reason: "expired"`.
 ```json
-{"type":"pairing_success", "jid":"5491123456789:1@s.whatsapp.net"}
-```
-
-### `connected`
-Socket connected and authenticated. Outbound sends are safe after this.
-```json
-{"type":"connected", "jid":"5491123456789:1@s.whatsapp.net"}
-```
-
-### `disconnected`
-```json
-{"type":"disconnected", "reason":"stream_replaced"}
+{"type":"pairing_code", "code":"K3M9QX2P", "expires_at":1713634960}
 ```
 
 ### `message`
@@ -127,24 +187,55 @@ Driver command `id` completed successfully.
 ### `error`
 Either command-scoped (`id` present) or fatal (no `id`, process keeps running).
 ```json
-{"type":"error", "id":"req-1", "message":"recipient unknown"}
+{"type":"error", "id":"req-1", "code":"unknown_recipient", "message":"recipient unknown"}
 ```
 
 ## Lifecycle
 
-1. Sidecar boots, emits `ready`.
-2. If no stored session, emits `qr` events until the driver's user scans.
-3. After scan: `pairing_success` then `connected`.
-4. With a stored session, it goes straight to `connected` (no QR).
-5. On network drops, `disconnected` is emitted, the sidecar auto-reconnects in
-   the background, and `connected` follows when the socket is back.
+1. Sidecar boots, emits `ready`, then a `status` reflecting any stored
+   session: `idle` (none) or straight to `connected` (valid stored session;
+   no linking step).
+2. The driver sends `link_qr` or `link_phone`. The bridge replies with
+   `status` `linking` (`mode` set), then streams `qr` events (QR) or a single
+   `pairing_code` event (phone).
+3. After the user scans/enters the code: `status` `connected` (no
+   intermediate "paired" event — the old `pairing_success` type is gone).
+4. The driver may send `link_cancel` at any point while `linking`: `status`
+   goes to `idle` with `reason: "cancelled"`.
+5. A `link_qr`/`link_phone` that times out or is rejected by WhatsApp also
+   lands on `status` `idle`, with `reason` ∈ `expired` | `outdated` | `error`.
+6. Starting a new `link_qr`/`link_phone` while one is already in progress
+   aborts the previous attempt first (no error — it simply replaces it).
+7. With a stored session, boot goes straight to `connected` (no QR/pairing).
+   If that initial `Connect()` itself fails, boot instead reports `status`
+   `disconnected` with `reason: "connect_failed"`.
+8. `link_qr`/`link_phone` while a session is already stored (but not yet
+   `connected` — e.g. after a `connect_failed` boot) is rejected with
+   `error` `code: "link_failed"`: re-pairing isn't the right recovery for a
+   transient connect failure. `link_qr`/`link_phone` is only rejected with
+   `already_linked` once `status` has actually reached `connected`.
+9. Cancelling the readiness wait inside `link_phone` (via `link_cancel`,
+   between sending the command and whatsmeow's login websocket coming up)
+   surfaces as `error` `code: "link_failed"`, `message: "context canceled"` —
+   the `status` `idle`/`reason:"cancelled"` event from the `link_cancel` is
+   what actually matters; this `error` is just that command's own return value.
+10. On network drops after `connected`, `status` `disconnected` is emitted;
+    whatsmeow auto-reconnects on its own (see the `disconnected` state note
+    above) and a subsequent `status` `connected` follows if it succeeds. The
+    bridge does not itself restart linking on a drop.
+11. A reconnecting driver that missed events gets the last `status` and, if
+    still `linking`, the last `qr`/`pairing_code` replayed immediately
+    instead of waiting for WhatsApp's next rotation.
 
 ## Error codes (non-exhaustive)
 
 | code | meaning |
 |---|---|
+| `invalid_phone` | `link_phone`'s `phone` failed validation; no connection was attempted |
+| `already_linked` | `link_qr`/`link_phone` requested while `status` is already `connected` |
+| `link_failed` | `link_qr`/`link_phone` failed for another reason: a session is already stored (re-pairing isn't the recovery — see lifecycle note 8), the attempt was cancelled mid-setup (`message: "context canceled"`), or `Connect`/`PairPhone` itself failed |
 | `not_connected` | Outbound requested before `connected` |
 | `unknown_recipient` | The JID couldn't be resolved |
 | `media_too_large` | Attachment exceeded WhatsApp's 16 MB limit |
 | `rate_limited` | WhatsApp throttled us; retry with backoff |
-| `auth_expired` | Session no longer valid; expect a new `qr` event |
+| `auth_expired` | Session no longer valid; expect a new `link_qr`/`link_phone` round |
