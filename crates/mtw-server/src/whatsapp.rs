@@ -675,20 +675,18 @@ async fn publish_to_channel(router: &MtwRouter, channel: &'static str, payload: 
 mod tests {
     use super::*;
     use mtw_router::{ChannelManager, MiddlewareChain};
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-    use tokio::net::UnixListener;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, ReadHalf, WriteHalf};
 
-    fn temp_socket() -> (std::path::PathBuf, std::path::PathBuf) {
-        let dir = std::env::temp_dir().join(format!("mtw-wa-{}", ulid::Ulid::new()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let sock = dir.join("wa.sock");
-        (dir, sock)
+    fn temp_socket() -> (tempfile::TempDir, String) {
+        let dir = tempfile::tempdir().unwrap();
+        let endpoint = mtw_ipc::unique_test_endpoint(dir.path(), "wa");
+        (dir, endpoint)
     }
 
-    fn section(socket: &std::path::Path) -> WhatsAppSection {
+    fn section(socket: &str) -> WhatsAppSection {
         WhatsAppSection {
             enabled: true,
-            socket: socket.to_string_lossy().to_string(),
+            socket: socket.to_string(),
             connect_timeout_secs: 60,
         }
     }
@@ -707,32 +705,32 @@ mod tests {
         resp.payload.as_json().cloned().unwrap_or(serde_json::Value::Null)
     }
 
-    /// Start the integration against a fake bridge socket and return the
+    /// Start the integration against a fake bridge endpoint and return the
     /// accepted stream split into a line reader and a writer.
     async fn connected_fake() -> (
-        std::path::PathBuf,
+        tempfile::TempDir,
         Arc<MtwRouter>,
         WhatsAppIntegration,
-        tokio::io::Lines<BufReader<tokio::net::unix::OwnedReadHalf>>,
-        tokio::net::unix::OwnedWriteHalf,
+        tokio::io::Lines<BufReader<ReadHalf<mtw_ipc::IpcStream>>>,
+        WriteHalf<mtw_ipc::IpcStream>,
     ) {
         let (dir, sock) = temp_socket();
         let router = Arc::new(MtwRouter::new(ChannelManager::new(), MiddlewareChain::new()));
-        let listener = UnixListener::bind(&sock).unwrap();
+        let mut listener = mtw_ipc::IpcListener::bind(&sock).unwrap();
         let wa = WhatsAppIntegration::start(&section(&sock), router.clone())
             .await
             .unwrap()
             .unwrap();
-        let (stream, _) = tokio::time::timeout(Duration::from_secs(8), listener.accept())
+        let stream = tokio::time::timeout(Duration::from_secs(8), listener.accept())
             .await
             .unwrap()
             .unwrap();
         wait_connected(&wa).await;
-        let (read_half, write_half) = stream.into_split();
+        let (read_half, write_half) = tokio::io::split(stream);
         (dir, router, wa, BufReader::new(read_half).lines(), write_half)
     }
 
-    async fn next_line(lines: &mut tokio::io::Lines<BufReader<tokio::net::unix::OwnedReadHalf>>) -> String {
+    async fn next_line(lines: &mut tokio::io::Lines<BufReader<ReadHalf<mtw_ipc::IpcStream>>>) -> String {
         tokio::time::timeout(Duration::from_secs(2), lines.next_line())
             .await
             .expect("bridge should receive a line")
@@ -799,8 +797,8 @@ mod tests {
         assert!(is_not_connected(&resp), "unexpected response: {:?}", resp);
 
         // Bridge comes up later: the background task connects.
-        let listener = UnixListener::bind(&sock).unwrap();
-        let (stream, _) = tokio::time::timeout(Duration::from_secs(8), listener.accept())
+        let mut listener = mtw_ipc::IpcListener::bind(&sock).unwrap();
+        let stream = tokio::time::timeout(Duration::from_secs(8), listener.accept())
             .await
             .expect("integration should dial the bridge")
             .unwrap();
@@ -809,7 +807,7 @@ mod tests {
         let resp = wa.handle_action("whatsapp.request_qr", &req).await;
         assert_eq!(resp.msg_type, MsgType::Response);
 
-        let (read_half, mut write_half) = stream.into_split();
+        let (read_half, mut write_half) = tokio::io::split(stream);
         let mut lines = BufReader::new(read_half).lines();
         let line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
             .await
@@ -831,19 +829,19 @@ mod tests {
         let hist = qr.get_history(None).await;
         assert_eq!(hist[0].payload.as_json().unwrap()["code"], "2@abc");
 
-        let _ = std::fs::remove_dir_all(dir);
+        drop(dir);
     }
 
     #[tokio::test]
     async fn status_sent_right_before_hangup_reaches_history() {
         let (dir, sock) = temp_socket();
         let router = Arc::new(MtwRouter::new(ChannelManager::new(), MiddlewareChain::new()));
-        let listener = UnixListener::bind(&sock).unwrap();
+        let mut listener = mtw_ipc::IpcListener::bind(&sock).unwrap();
         let wa = WhatsAppIntegration::start(&section(&sock), router.clone())
             .await
             .unwrap()
             .unwrap();
-        let (mut stream, _) = tokio::time::timeout(Duration::from_secs(8), listener.accept())
+        let mut stream = tokio::time::timeout(Duration::from_secs(8), listener.accept())
             .await
             .unwrap()
             .unwrap();
@@ -899,20 +897,20 @@ mod tests {
         .await;
         assert!(got.is_ok(), "bridge drop was never pushed as the final status");
 
-        let _ = std::fs::remove_dir_all(dir);
+        drop(dir);
     }
 
     #[tokio::test]
     async fn reconnects_after_bridge_drops() {
         let (dir, sock) = temp_socket();
         let router = Arc::new(MtwRouter::new(ChannelManager::new(), MiddlewareChain::new()));
-        let listener = UnixListener::bind(&sock).unwrap();
+        let mut listener = mtw_ipc::IpcListener::bind(&sock).unwrap();
         let wa = WhatsAppIntegration::start(&section(&sock), router)
             .await
             .unwrap()
             .unwrap();
 
-        let (first, _) = tokio::time::timeout(Duration::from_secs(8), listener.accept())
+        let first = tokio::time::timeout(Duration::from_secs(8), listener.accept())
             .await
             .unwrap()
             .unwrap();
@@ -930,7 +928,7 @@ mod tests {
         let req = request("whatsapp.logout");
         assert!(is_not_connected(&wa.handle_action("whatsapp.logout", &req).await));
 
-        let (second, _) = tokio::time::timeout(Duration::from_secs(8), listener.accept())
+        let second = tokio::time::timeout(Duration::from_secs(8), listener.accept())
             .await
             .expect("integration should redial the bridge")
             .unwrap();
@@ -941,7 +939,7 @@ mod tests {
         let line = lines.next_line().await.unwrap().unwrap();
         assert_eq!(line, r#"{"type":"logout"}"#);
 
-        let _ = std::fs::remove_dir_all(dir);
+        drop(dir);
     }
 
     #[tokio::test]
@@ -957,7 +955,7 @@ mod tests {
         let body = json_of(&resp);
         assert_eq!(body["bridge_connected"], false);
         assert_eq!(body["state"], "unknown");
-        let _ = std::fs::remove_dir_all(dir);
+        drop(dir);
     }
 
     #[tokio::test]
@@ -1009,7 +1007,7 @@ mod tests {
             })
         );
 
-        let _ = std::fs::remove_dir_all(dir);
+        drop(dir);
     }
 
     #[tokio::test]
@@ -1061,7 +1059,7 @@ mod tests {
         let events = router.channels().get(channels::EVENTS).expect("events channel exists");
         assert!(events.get_history(None).await.is_empty());
 
-        let _ = std::fs::remove_dir_all(dir);
+        drop(dir);
     }
 
     #[tokio::test]
@@ -1070,13 +1068,13 @@ mod tests {
         // "Vinculado") until it reloads — the drop itself must be pushed.
         let (dir, sock) = temp_socket();
         let router = Arc::new(MtwRouter::new(ChannelManager::new(), MiddlewareChain::new()));
-        let listener = UnixListener::bind(&sock).unwrap();
+        let mut listener = mtw_ipc::IpcListener::bind(&sock).unwrap();
         let wa = WhatsAppIntegration::start(&section(&sock), router.clone())
             .await
             .unwrap()
             .unwrap();
 
-        let (stream, _) = tokio::time::timeout(Duration::from_secs(8), listener.accept())
+        let stream = tokio::time::timeout(Duration::from_secs(8), listener.accept())
             .await
             .unwrap()
             .unwrap();
@@ -1112,7 +1110,7 @@ mod tests {
         let body = wait_status(&wa, |b| b["state"] == "unknown").await;
         assert_eq!(body["bridge_connected"], false);
 
-        let _ = std::fs::remove_dir_all(dir);
+        drop(dir);
     }
 
     #[tokio::test]
@@ -1141,7 +1139,7 @@ mod tests {
         // The invalid calls wrote nothing: the first line is the valid one.
         assert_eq!(next_line(&mut lines).await, r#"{"type":"link_phone","phone":"5491123456789"}"#);
 
-        let _ = std::fs::remove_dir_all(dir);
+        drop(dir);
     }
 
     #[tokio::test]
@@ -1171,7 +1169,7 @@ mod tests {
         );
         let _w = fake.await.unwrap();
 
-        let _ = std::fs::remove_dir_all(dir);
+        drop(dir);
     }
 
     #[tokio::test]
@@ -1196,7 +1194,7 @@ mod tests {
         assert_eq!(json_of(&resp)["message"], "not_connected: session is not connected");
         let _w = fake.await.unwrap();
 
-        let _ = std::fs::remove_dir_all(dir);
+        drop(dir);
     }
 
     #[tokio::test]
@@ -1211,6 +1209,6 @@ mod tests {
         assert_eq!(json_of(&resp), serde_json::json!({"ok": true}));
         assert_eq!(next_line(&mut lines).await, r#"{"type":"link_cancel"}"#);
 
-        let _ = std::fs::remove_dir_all(dir);
+        drop(dir);
     }
 }

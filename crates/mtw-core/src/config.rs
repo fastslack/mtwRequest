@@ -38,7 +38,7 @@ pub struct MtwConfig {
 
     /// WhatsApp sidecar integration. When present and `enabled = true`,
     /// the server connects to the `whatsapp-bridge` Go sidecar over a
-    /// Unix socket and exposes the following:
+    /// local socket (or a named pipe on Windows) and exposes the following:
     ///
     /// - `whatsapp:inbound`, `whatsapp:qr`, `whatsapp:status`,
     ///   `whatsapp:events` channels (server publishes to them as events
@@ -64,7 +64,8 @@ pub struct WhatsAppSection {
     #[serde(default = "default_whatsapp_enabled")]
     pub enabled: bool,
 
-    /// Unix socket path the whatsapp-bridge sidecar listens on.
+    /// Local socket path (or named pipe endpoint on Windows) the
+    /// whatsapp-bridge sidecar listens on.
     #[serde(default = "default_whatsapp_socket")]
     pub socket: String,
 
@@ -77,7 +78,14 @@ pub struct WhatsAppSection {
 
 fn default_whatsapp_enabled() -> bool { true }
 fn default_whatsapp_socket() -> String {
-    "/var/run/mtw-whatsapp/whatsapp.sock".to_string()
+    #[cfg(windows)]
+    {
+        r"\\.\pipe\mtw-whatsapp".to_string()
+    }
+    #[cfg(not(windows))]
+    {
+        "/var/run/mtw-whatsapp/whatsapp.sock".to_string()
+    }
 }
 fn default_whatsapp_connect_timeout() -> u64 { 60 }
 

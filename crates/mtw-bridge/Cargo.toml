@@ -7,13 +7,14 @@ authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 rust-version.workspace = true
-description = "Bridge for mtwRequest — delegate operations to external services over Unix socket or TCP"
+description = "Bridge for mtwRequest — delegate operations to external services over a local socket or named pipe, or TCP"
 keywords = ["bridge", "ipc", "rpc", "tokio", "mtw"]
 categories = ["network-programming", "asynchronous"]
 
 [dependencies]
 mtw-core = { workspace = true }
 mtw-protocol = { workspace = true }
+mtw-ipc = { workspace = true }
 
 # Async
 tokio = { workspace = true }
@@ -34,3 +35,4 @@ toml = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
+tempfile = { workspace = true }

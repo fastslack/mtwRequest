@@ -1,27 +1,30 @@
-//! Unix domain socket bridge implementation
+//! Local socket / named pipe bridge implementation
 //!
-//! Connects to a Unix socket served by an external process.
+//! Connects to a local socket (Unix domain socket, or a named pipe on
+//! Windows) served by an external process.
 //! Uses MessagePack framing for minimal overhead (~0.05ms round-trip).
 
 use async_trait::async_trait;
 use mtw_core::MtwError;
+use mtw_ipc::IpcStream;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::UnixStream;
 use tokio::sync::Mutex;
 
 use crate::protocol::{read_frame_length, BridgeRequest, BridgeResponse};
 use crate::MtwBridge;
 
-/// Unix domain socket bridge
+/// Local socket / named pipe bridge. Despite the name (kept for API
+/// stability), it connects over a Windows named pipe when `path` is a pipe
+/// endpoint.
 pub struct UnixBridge {
-    stream: Mutex<UnixStream>,
+    stream: Mutex<IpcStream>,
     timeout: std::time::Duration,
 }
 
 impl UnixBridge {
-    /// Connect to a Unix socket
+    /// Connect to a local socket or named pipe endpoint.
     pub async fn connect(path: &str, timeout_ms: u64) -> Result<Self, MtwError> {
-        let stream = UnixStream::connect(path)
+        let stream = mtw_ipc::connect(path)
             .await
             .map_err(|e| MtwError::Transport(format!("bridge connect '{}': {}", path, e)))?;
 

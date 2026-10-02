@@ -135,7 +135,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── Rust Bridge Server (for mtwKernel delegation) ──────
     let bridge_socket = std::env::var("RUST_BRIDGE_SOCKET")
-        .unwrap_or_else(|_| "/tmp/mtw-rust.sock".to_string());
+        .unwrap_or_else(|_| default_bridge_socket().to_string());
 
     let services = rust_services::RustServices::new();
     let bridge_server = mtw_bridge::server::BridgeServer::new(&bridge_socket);
@@ -220,6 +220,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("server stopped");
     Ok(())
+}
+
+/// Where the kernel tool bridge listens when RUST_BRIDGE_SOCKET is unset.
+fn default_bridge_socket() -> &'static str {
+    #[cfg(windows)]
+    {
+        r"\\.\pipe\mtw-rust"
+    }
+    #[cfg(not(windows))]
+    {
+        "/tmp/mtw-rust.sock"
+    }
 }
 
 /// Load config from file or create default. Also returns the raw TOML

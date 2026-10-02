@@ -2,17 +2,17 @@
 //!
 //! Driver crate that links mtwRequest to a real WhatsApp account. It talks
 //! to the [`whatsapp-bridge`](../../services/whatsapp-bridge) Go sidecar
-//! over a Unix domain socket — this crate is pure Rust and imports no
-//! WhatsApp protocol libraries.
+//! over a local socket or named pipe — this crate is pure Rust and imports
+//! no WhatsApp protocol libraries.
 //!
 //! ## Architecture
 //!
 //! ```text
-//! ┌───────────────────┐  Unix socket   ┌──────────────────┐
-//! │  mtw-whatsapp     │ ─────────────▶ │ whatsapp-bridge  │
-//! │  (this crate,     │ ◀───────────── │  (Go sidecar,    │
-//! │   Rust async)     │  newline-JSON  │   whatsmeow)     │
-//! └───────────────────┘                └──────────────────┘
+//! ┌───────────────────┐ local socket / ┌──────────────────┐
+//! │  mtw-whatsapp     │  named pipe    │ whatsapp-bridge  │
+//! │  (this crate,     │ ─────────────▶ │  (Go sidecar,    │
+//! │   Rust async)     │ ◀───────────── │   whatsmeow)     │
+//! └───────────────────┘  newline-JSON  └──────────────────┘
 //!                                              │
 //!                                              ▼ WhatsApp MD
 //!                                      (mg.whatsapp.net)
@@ -58,9 +58,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use mtw_ipc::IpcStream;
 use thiserror::Error;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::UnixStream;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, ReadHalf, WriteHalf};
 use tokio::sync::{broadcast, watch, Mutex};
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
@@ -102,7 +102,8 @@ pub enum WhatsAppError {
 
 #[derive(Debug, Clone)]
 pub struct WhatsAppConfig {
-    /// Absolute path to the sidecar's Unix socket.
+    /// Absolute path to the sidecar's local socket, or a Windows named
+    /// pipe endpoint (`\\.\pipe\...`).
     pub socket_path: PathBuf,
     /// Total time to keep retrying the initial connect.
     pub connect_timeout: Duration,
@@ -115,11 +116,23 @@ pub struct WhatsAppConfig {
 impl Default for WhatsAppConfig {
     fn default() -> Self {
         Self {
-            socket_path: PathBuf::from("/var/run/mtw-whatsapp/whatsapp.sock"),
+            socket_path: PathBuf::from(default_socket()),
             connect_timeout: Duration::from_secs(30),
             reconnect_backoff: Duration::from_millis(500),
             event_buffer: 256,
         }
+    }
+}
+
+/// Where the bridge listens when nothing is configured.
+pub fn default_socket() -> &'static str {
+    #[cfg(windows)]
+    {
+        r"\\.\pipe\mtw-whatsapp"
+    }
+    #[cfg(not(windows))]
+    {
+        "/var/run/mtw-whatsapp/whatsapp.sock"
     }
 }
 
@@ -129,7 +142,7 @@ impl Default for WhatsAppConfig {
 /// writer, events share the same broadcast channel.
 #[derive(Clone)]
 pub struct WhatsAppClient {
-    writer: Arc<Mutex<tokio::net::unix::OwnedWriteHalf>>,
+    writer: Arc<Mutex<WriteHalf<IpcStream>>>,
     events_tx: broadcast::Sender<Event>,
     /// Flips to `true` when the read loop exits (bridge hung up or errored).
     closed_rx: watch::Receiver<bool>,
@@ -141,7 +154,7 @@ impl WhatsAppClient {
     /// broadcast channel until the socket closes.
     pub async fn connect(cfg: WhatsAppConfig) -> Result<Self, WhatsAppError> {
         let stream = Self::dial_with_backoff(&cfg).await?;
-        let (read_half, write_half) = stream.into_split();
+        let (read_half, write_half): (ReadHalf<IpcStream>, WriteHalf<IpcStream>) = tokio::io::split(stream);
 
         let (events_tx, _) = broadcast::channel(cfg.event_buffer);
         let events_bg = events_tx.clone();
@@ -325,11 +338,14 @@ impl WhatsAppClient {
 
     // ── internal ────────────────────────────────────────────────────
 
-    async fn dial_with_backoff(cfg: &WhatsAppConfig) -> Result<UnixStream, WhatsAppError> {
+    async fn dial_with_backoff(cfg: &WhatsAppConfig) -> Result<IpcStream, WhatsAppError> {
         let deadline = tokio::time::Instant::now() + cfg.connect_timeout;
         loop {
-            match UnixStream::connect(&cfg.socket_path).await {
+            match mtw_ipc::connect(&cfg.socket_path.to_string_lossy()).await {
                 Ok(s) => return Ok(s),
+                Err(err) if err.kind() == std::io::ErrorKind::InvalidInput => {
+                    return Err(WhatsAppError::Io(err));
+                }
                 Err(err) if tokio::time::Instant::now() < deadline => {
                     debug!(
                         target: "mtw_whatsapp",
@@ -474,15 +490,15 @@ mod tests {
     #[tokio::test]
     async fn closed_resolves_when_bridge_drops_socket() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("wa.sock");
-        let listener = tokio::net::UnixListener::bind(&path).unwrap();
+        let endpoint = mtw_ipc::unique_test_endpoint(dir.path(), "wa");
+        let mut listener = mtw_ipc::IpcListener::bind(&endpoint).unwrap();
         let cfg = WhatsAppConfig {
-            socket_path: path.clone(),
+            socket_path: std::path::PathBuf::from(&endpoint),
             connect_timeout: Duration::ZERO,
             ..Default::default()
         };
         let client = WhatsAppClient::connect(cfg).await.unwrap();
-        let (server_side, _) = listener.accept().await.unwrap();
+        let server_side = listener.accept().await.unwrap();
         assert!(!client.is_closed());
 
         drop(server_side);
@@ -495,8 +511,9 @@ mod tests {
     #[tokio::test]
     async fn zero_timeout_connect_fails_fast_without_socket() {
         let dir = tempfile::tempdir().unwrap();
+        let endpoint = mtw_ipc::unique_test_endpoint(dir.path(), "missing");
         let cfg = WhatsAppConfig {
-            socket_path: dir.path().join("missing.sock"),
+            socket_path: std::path::PathBuf::from(&endpoint),
             connect_timeout: Duration::ZERO,
             ..Default::default()
         };
@@ -504,6 +521,28 @@ mod tests {
         let err = WhatsAppClient::connect(cfg).await.err().unwrap();
         assert!(matches!(err, WhatsAppError::ConnectTimeout(..)));
         assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    /// A Windows named-pipe endpoint is the wrong kind on Unix: `connect`
+    /// must fail immediately with `InvalidInput`, never retrying until the
+    /// (here, generous) `connect_timeout` deadline.
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn wrong_kind_endpoint_fails_fast_instead_of_retrying() {
+        let cfg = WhatsAppConfig {
+            socket_path: std::path::PathBuf::from(r"\\.\pipe\x"),
+            connect_timeout: Duration::from_secs(30),
+            ..Default::default()
+        };
+        let started = std::time::Instant::now();
+        let err = WhatsAppClient::connect(cfg).await.err().unwrap();
+        assert!(started.elapsed() < Duration::from_secs(2), "should fail fast, not retry for 30s");
+        match err {
+            WhatsAppError::Io(io_err) => {
+                assert_eq!(io_err.kind(), std::io::ErrorKind::InvalidInput);
+            }
+            other => panic!("expected WhatsAppError::Io(InvalidInput), got {other:?}"),
+        }
     }
 
     #[test]
@@ -527,16 +566,16 @@ mod tests {
     #[tokio::test]
     async fn list_chats_returns_items_for_matching_id() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("wa.sock");
-        let listener = tokio::net::UnixListener::bind(&path).unwrap();
+        let endpoint = mtw_ipc::unique_test_endpoint(dir.path(), "wa");
+        let mut listener = mtw_ipc::IpcListener::bind(&endpoint).unwrap();
         let cfg = WhatsAppConfig {
-            socket_path: path.clone(),
+            socket_path: std::path::PathBuf::from(&endpoint),
             connect_timeout: Duration::from_secs(5),
             ..Default::default()
         };
         let client = WhatsAppClient::connect(cfg).await.unwrap();
-        let (stream, _) = listener.accept().await.unwrap();
-        let (read_half, mut write_half) = stream.into_split();
+        let stream = listener.accept().await.unwrap();
+        let (read_half, mut write_half) = tokio::io::split(stream);
         let mut lines = BufReader::new(read_half).lines();
 
         tokio::spawn(async move {
@@ -581,16 +620,16 @@ mod tests {
     #[tokio::test]
     async fn list_chats_surfaces_bridge_error() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("wa.sock");
-        let listener = tokio::net::UnixListener::bind(&path).unwrap();
+        let endpoint = mtw_ipc::unique_test_endpoint(dir.path(), "wa");
+        let mut listener = mtw_ipc::IpcListener::bind(&endpoint).unwrap();
         let cfg = WhatsAppConfig {
-            socket_path: path.clone(),
+            socket_path: std::path::PathBuf::from(&endpoint),
             connect_timeout: Duration::from_secs(5),
             ..Default::default()
         };
         let client = WhatsAppClient::connect(cfg).await.unwrap();
-        let (stream, _) = listener.accept().await.unwrap();
-        let (read_half, mut write_half) = stream.into_split();
+        let stream = listener.accept().await.unwrap();
+        let (read_half, mut write_half) = tokio::io::split(stream);
         let mut lines = BufReader::new(read_half).lines();
 
         tokio::spawn(async move {
@@ -622,15 +661,15 @@ mod tests {
     #[tokio::test]
     async fn list_chats_times_out() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("wa.sock");
-        let listener = tokio::net::UnixListener::bind(&path).unwrap();
+        let endpoint = mtw_ipc::unique_test_endpoint(dir.path(), "wa");
+        let mut listener = mtw_ipc::IpcListener::bind(&endpoint).unwrap();
         let cfg = WhatsAppConfig {
-            socket_path: path.clone(),
+            socket_path: std::path::PathBuf::from(&endpoint),
             connect_timeout: Duration::from_secs(5),
             ..Default::default()
         };
         let client = WhatsAppClient::connect(cfg).await.unwrap();
-        let (_stream, _) = listener.accept().await.unwrap();
+        let _stream = listener.accept().await.unwrap();
         // The fake bridge never replies.
 
         let started = std::time::Instant::now();

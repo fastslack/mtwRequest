@@ -1,4 +1,4 @@
-//! Bridge server — listens on a Unix socket and handles incoming tool requests.
+//! Bridge server — listens on a local socket or named pipe and handles incoming tool requests.
 //!
 //! This is the reverse direction of `UnixBridge`: instead of Rust calling out to
 //! an external process, the external process (e.g., mtwKernel in TypeScript)
@@ -43,8 +43,8 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use mtw_core::MtwError;
 use serde_json::Value;
+use mtw_ipc::{IpcListener, IpcStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{UnixListener, UnixStream};
 
 use crate::events::BridgeEventBus;
 use crate::protocol::{read_frame_length, BridgeEventFrame, BridgeRequest, BridgeResponse};
@@ -57,8 +57,8 @@ pub type BridgeToolHandler = Arc<
     dyn Fn(Value) -> Pin<Box<dyn Future<Output = Result<Value, MtwError>> + Send>> + Send + Sync,
 >;
 
-/// Bridge server that listens on a Unix socket and dispatches incoming
-/// tool requests to registered handlers.
+/// Bridge server that listens on a local socket or named pipe and dispatches
+/// incoming tool requests to registered handlers.
 ///
 /// Each accepted connection is handled in its own tokio task, supporting
 /// persistent (keep-alive) connections with multiple sequential requests.
@@ -70,7 +70,8 @@ pub struct BridgeServer {
 }
 
 impl BridgeServer {
-    /// Create a new bridge server bound to the given Unix socket path.
+    /// Create a new bridge server bound to the given local socket path or
+    /// named pipe endpoint.
     ///
     /// The socket file will be created (or replaced) when [`start`](Self::start) is called.
     pub fn new(socket_path: impl Into<String>) -> Self {
@@ -106,10 +107,7 @@ impl BridgeServer {
     /// Returns a `JoinHandle` for the accept loop. The server runs until
     /// [`shutdown`](Self::shutdown) is called or the handle is aborted.
     pub async fn start(&self) -> Result<tokio::task::JoinHandle<()>, MtwError> {
-        // Remove stale socket file if it exists
-        let _ = std::fs::remove_file(&self.socket_path);
-
-        let listener = UnixListener::bind(&self.socket_path)
+        let mut listener = IpcListener::bind(&self.socket_path)
             .map_err(|e| MtwError::Transport(format!("bridge server bind '{}': {}", self.socket_path, e)))?;
 
         // Make the socket reachable from non-root callers (e.g. the
@@ -164,7 +162,7 @@ impl BridgeServer {
                 };
 
                 match accept_result {
-                    Some(Ok((stream, _addr))) => {
+                    Some(Ok(stream)) => {
                         tracing::debug!("bridge server: new connection");
                         let tools = Arc::clone(&tools);
                         let events = events.clone();
@@ -180,8 +178,11 @@ impl BridgeServer {
                 }
             }
 
-            // Clean up socket file
-            let _ = std::fs::remove_file(&socket_path);
+            // Clean up the socket file — not applicable to a named pipe,
+            // which has no filesystem entry to remove.
+            if !mtw_ipc::is_pipe(&socket_path) {
+                let _ = std::fs::remove_file(&socket_path);
+            }
             tracing::info!("bridge server stopped");
         });
 
@@ -237,11 +238,11 @@ impl OutFrame {
 /// Splitting writes through a single mpsc avoids interleaving response
 /// bytes with event bytes mid-frame.
 async fn handle_connection(
-    stream: UnixStream,
+    stream: IpcStream,
     tools: Arc<DashMap<String, BridgeToolHandler>>,
     events: BridgeEventBus,
 ) {
-    let (mut reader, mut writer) = stream.into_split();
+    let (mut reader, mut writer) = tokio::io::split(stream);
 
     let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<OutFrame>();
 
@@ -376,11 +377,20 @@ async fn handle_connection(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::net::UnixStream;
+    use mtw_ipc::IpcStream;
+
+    /// A fresh local-socket (or named-pipe) endpoint for a test, backed by a
+    /// tempdir that must outlive the test (the socket file lives inside it
+    /// on Unix; ignored by `unique_test_endpoint` on Windows).
+    fn temp_socket() -> (tempfile::TempDir, String) {
+        let dir = tempfile::tempdir().unwrap();
+        let endpoint = mtw_ipc::unique_test_endpoint(dir.path(), "bridge");
+        (dir, endpoint)
+    }
 
     /// Helper: send a BridgeRequest over a stream and read the BridgeResponse
     async fn send_request(
-        stream: &mut UnixStream,
+        stream: &mut IpcStream,
         req: &BridgeRequest,
     ) -> BridgeResponse {
         let frame = req.encode().unwrap();
@@ -398,7 +408,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_register_tool_and_process_request() {
-        let socket_path = format!("/tmp/mtw-bridge-test-{}.sock", ulid::Ulid::new());
+        let (_dir, socket_path) = temp_socket();
         let server = BridgeServer::new(&socket_path);
 
         server.register_tool(
@@ -413,7 +423,7 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         // Connect as a client
-        let mut client = UnixStream::connect(&socket_path).await.unwrap();
+        let mut client = mtw_ipc::connect(&socket_path).await.unwrap();
 
         let req = BridgeRequest::new("echo", serde_json::json!({"hello": "world"}));
         let resp = send_request(&mut client, &req).await;
@@ -424,18 +434,18 @@ mod tests {
 
         server.shutdown();
         let _ = tokio::time::timeout(std::time::Duration::from_secs(1), handle).await;
-        let _ = std::fs::remove_file(&socket_path);
+        drop(_dir);
     }
 
     #[tokio::test]
     async fn test_unknown_tool_returns_error() {
-        let socket_path = format!("/tmp/mtw-bridge-test-{}.sock", ulid::Ulid::new());
+        let (_dir, socket_path) = temp_socket();
         let server = BridgeServer::new(&socket_path);
 
         let handle = server.start().await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-        let mut client = UnixStream::connect(&socket_path).await.unwrap();
+        let mut client = mtw_ipc::connect(&socket_path).await.unwrap();
 
         let req = BridgeRequest::new("nonexistent.tool", serde_json::json!({}));
         let resp = send_request(&mut client, &req).await;
@@ -446,12 +456,12 @@ mod tests {
 
         server.shutdown();
         let _ = tokio::time::timeout(std::time::Duration::from_secs(1), handle).await;
-        let _ = std::fs::remove_file(&socket_path);
+        drop(_dir);
     }
 
     #[tokio::test]
     async fn test_multiple_tools_registered() {
-        let socket_path = format!("/tmp/mtw-bridge-test-{}.sock", ulid::Ulid::new());
+        let (_dir, socket_path) = temp_socket();
         let server = BridgeServer::new(&socket_path);
 
         server.register_tool(
@@ -491,7 +501,7 @@ mod tests {
         let handle = server.start().await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-        let mut client = UnixStream::connect(&socket_path).await.unwrap();
+        let mut client = mtw_ipc::connect(&socket_path).await.unwrap();
 
         // Test add
         let req = BridgeRequest::new("add", serde_json::json!({"a": 3, "b": 7}));
@@ -513,12 +523,12 @@ mod tests {
 
         server.shutdown();
         let _ = tokio::time::timeout(std::time::Duration::from_secs(1), handle).await;
-        let _ = std::fs::remove_file(&socket_path);
+        drop(_dir);
     }
 
     #[tokio::test]
     async fn test_tool_handler_error_returns_error_response() {
-        let socket_path = format!("/tmp/mtw-bridge-test-{}.sock", ulid::Ulid::new());
+        let (_dir, socket_path) = temp_socket();
         let server = BridgeServer::new(&socket_path);
 
         server.register_tool(
@@ -533,7 +543,7 @@ mod tests {
         let handle = server.start().await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-        let mut client = UnixStream::connect(&socket_path).await.unwrap();
+        let mut client = mtw_ipc::connect(&socket_path).await.unwrap();
 
         let req = BridgeRequest::new("failing", serde_json::json!({}));
         let resp = send_request(&mut client, &req).await;
@@ -543,12 +553,12 @@ mod tests {
 
         server.shutdown();
         let _ = tokio::time::timeout(std::time::Duration::from_secs(1), handle).await;
-        let _ = std::fs::remove_file(&socket_path);
+        drop(_dir);
     }
 
     #[tokio::test]
     async fn test_event_bus_pushes_to_connected_client() {
-        let socket_path = format!("/tmp/mtw-bridge-test-{}.sock", ulid::Ulid::new());
+        let (_dir, socket_path) = temp_socket();
         let server = BridgeServer::new(&socket_path);
 
         // A handler that emits an event partway through its execution.
@@ -570,7 +580,7 @@ mod tests {
         let handle = server.start().await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-        let mut client = UnixStream::connect(&socket_path).await.unwrap();
+        let mut client = mtw_ipc::connect(&socket_path).await.unwrap();
 
         // Send the request that triggers the event.
         let req = BridgeRequest::new("trigger", serde_json::json!({}));
@@ -614,12 +624,12 @@ mod tests {
 
         server.shutdown();
         let _ = tokio::time::timeout(std::time::Duration::from_secs(1), handle).await;
-        let _ = std::fs::remove_file(&socket_path);
+        drop(_dir);
     }
 
     #[tokio::test]
     async fn test_persistent_connection_multiple_requests() {
-        let socket_path = format!("/tmp/mtw-bridge-test-{}.sock", ulid::Ulid::new());
+        let (_dir, socket_path) = temp_socket();
         let server = BridgeServer::new(&socket_path);
 
         server.register_tool(
@@ -635,7 +645,7 @@ mod tests {
         let handle = server.start().await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-        let mut client = UnixStream::connect(&socket_path).await.unwrap();
+        let mut client = mtw_ipc::connect(&socket_path).await.unwrap();
 
         // Send multiple requests on the same connection
         for i in 0..5u64 {
@@ -647,6 +657,6 @@ mod tests {
 
         server.shutdown();
         let _ = tokio::time::timeout(std::time::Duration::from_secs(1), handle).await;
-        let _ = std::fs::remove_file(&socket_path);
+        drop(_dir);
     }
 }

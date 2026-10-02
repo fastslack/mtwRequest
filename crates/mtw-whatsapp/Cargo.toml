@@ -7,12 +7,13 @@ authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 rust-version.workspace = true
-description = "WhatsApp driver for mtwRequest — talks to the whatsapp-bridge Go sidecar over a Unix socket"
+description = "WhatsApp driver for mtwRequest — talks to the whatsapp-bridge Go sidecar over a local socket or named pipe"
 keywords = ["whatsapp", "bridge", "messaging", "mtw", "ipc"]
 categories = ["api-bindings", "network-programming"]
 
 [dependencies]
 mtw-core = { workspace = true }
+mtw-ipc = { workspace = true }
 
 # Async
 tokio = { workspace = true, features = ["full"] }
