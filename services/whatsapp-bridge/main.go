@@ -66,27 +66,27 @@ type attachment struct {
 
 // ── driver (single-connection client of the socket) ──────────────────
 //
-// The driver may connect AFTER whatsmeow has already emitted ready / qr /
-// connected events. We cache the last sticky event of each kind so a
-// reconnecting driver gets the current state immediately instead of
-// waiting for WhatsApp's next QR rotation (~20s).
+// The driver may connect AFTER the bridge has already emitted its status or
+// a pairing artefact. We cache the last `status` event and the last pairing
+// artefact (`qr` / `pairing_code`) so a reconnecting driver gets the current
+// state immediately instead of waiting for WhatsApp's next QR rotation (~20s).
 
 type driver struct {
 	mu       sync.Mutex
 	conn     net.Conn
-	lastQr   *outMsg
 	lastStat *outMsg
+	lastPair *outMsg
 }
 
 func (d *driver) set(c net.Conn) {
 	d.mu.Lock()
 	d.conn = c
 	replay := []outMsg{}
-	if d.lastQr != nil {
-		replay = append(replay, *d.lastQr)
-	}
 	if d.lastStat != nil {
 		replay = append(replay, *d.lastStat)
+	}
+	if d.lastPair != nil {
+		replay = append(replay, *d.lastPair)
 	}
 	d.mu.Unlock()
 	// Replay outside the lock so the write path can reacquire it if needed.
@@ -99,10 +99,15 @@ func (d *driver) send(m outMsg) {
 	d.mu.Lock()
 	// Update sticky cache for event types that represent "current state".
 	switch m["type"] {
-	case "qr":
-		cp := m; d.lastQr = &cp
-	case "ready", "connected", "disconnected", "pairing_success":
-		cp := m; d.lastStat = &cp
+	case "status":
+		cp := m
+		d.lastStat = &cp
+		if m["state"] != "linking" {
+			d.lastPair = nil // a pairing artefact only matters while linking
+		}
+	case "qr", "pairing_code":
+		cp := m
+		d.lastPair = &cp
 	}
 	c := d.conn
 	d.mu.Unlock()
@@ -124,7 +129,9 @@ func (d *driver) send(m outMsg) {
 // ── bridge ───────────────────────────────────────────────────────────
 
 type bridge struct {
-	client *whatsmeow.Client
+	client *whatsmeow.Client // send/media paths
+	lk     linker
+	sess   *session
 	drv    *driver
 }
 
@@ -147,19 +154,15 @@ func (b *bridge) wireEvents() {
 	b.client.AddEventHandler(func(evt any) {
 		switch v := evt.(type) {
 		case *events.PairSuccess:
-			b.emit(outMsg{"type": "pairing_success", "jid": v.ID.String()})
+			// No event: *events.Connected follows and reports the new state.
 		case *events.Connected:
-			jid := ""
-			if b.client.Store != nil && b.client.Store.ID != nil {
-				jid = b.client.Store.ID.String()
-			}
-			b.emit(outMsg{"type": "connected", "jid": jid})
+			b.sess.onConnected()
 		case *events.Disconnected:
-			b.emit(outMsg{"type": "disconnected", "reason": "disconnected"})
+			b.sess.onDisconnected("disconnected")
 		case *events.StreamReplaced:
-			b.emit(outMsg{"type": "disconnected", "reason": "stream_replaced"})
+			b.sess.onDisconnected("stream_replaced")
 		case *events.LoggedOut:
-			b.emit(outMsg{"type": "disconnected", "reason": "logged_out"})
+			b.sess.onLoggedOut()
 		case *events.Message:
 			b.forwardMessage(v)
 		}
@@ -275,15 +278,10 @@ func (b *bridge) handle(msg inMsg) {
 	}
 
 	switch msg.Type {
-	case "request_qr":
-		// Disconnecting triggers a new login flow on next Connect().
-		b.client.Disconnect()
-		go func() {
-			time.Sleep(500 * time.Millisecond)
-			if err := connectWithQR(b.client, b.drv); err != nil {
-				b.emitErr("", "connect_failed", err.Error())
-			}
-		}()
+	case "request_qr", "link_qr":
+		// request_qr is the legacy alias of link_qr. The linking flow lands
+		// with the link_* commands; until then the bridge says so explicitly.
+		b.emitErr(msg.ID, "not_implemented", "linking is not available yet")
 	case "send_text":
 		b.sendText(msg)
 	case "send_media":
@@ -295,10 +293,12 @@ func (b *bridge) handle(msg inMsg) {
 	case "typing":
 		b.sendTyping(msg)
 	case "logout":
-		if err := b.client.Logout(context.Background()); err != nil {
+		if err := b.lk.Logout(context.Background()); err != nil {
 			b.emitErr(msg.ID, "logout_failed", err.Error())
 			return
 		}
+		// whatsmeow does not emit LoggedOut for a self-initiated logout.
+		b.sess.onLoggedOut()
 		b.emit(outMsg{"type": "ack", "id": msg.ID})
 	default:
 		b.emitErr(msg.ID, "unknown_command", "type: "+msg.Type)
@@ -472,7 +472,8 @@ func (b *bridge) sendTyping(msg inMsg) {
 
 // ── socket server ────────────────────────────────────────────────────
 
-func serve(socketPath string, drv *driver, handler func(inMsg)) error {
+// serve accepts driver connections; listening is closed once the socket is up.
+func serve(socketPath string, drv *driver, handler func(inMsg), listening chan<- struct{}) error {
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0o755); err != nil {
 		return fmt.Errorf("mkdir socket dir: %w", err)
 	}
@@ -486,6 +487,7 @@ func serve(socketPath string, drv *driver, handler func(inMsg)) error {
 		log.Printf("chmod socket: %v", err)
 	}
 	log.Printf("listening on %s", socketPath)
+	close(listening)
 
 	for {
 		conn, err := l.Accept()
@@ -516,39 +518,6 @@ func readLoop(conn net.Conn, handler func(inMsg)) {
 
 // ── whatsmeow bootstrap ──────────────────────────────────────────────
 
-func connectWithQR(client *whatsmeow.Client, drv *driver) error {
-	if client.Store.ID != nil {
-		log.Printf("connectWithQR: existing session (%s), skipping QR", client.Store.ID.String())
-		return client.Connect()
-	}
-	log.Printf("connectWithQR: no session, requesting QR channel")
-	qrCh, err := client.GetQRChannel(context.Background())
-	if err != nil {
-		return fmt.Errorf("qr channel: %w", err)
-	}
-	if err := client.Connect(); err != nil {
-		return fmt.Errorf("connect: %w", err)
-	}
-	log.Printf("connectWithQR: client.Connect() returned; awaiting QR events")
-	go func() {
-		for evt := range qrCh {
-			log.Printf("qr event: %q code=%q err=%v", evt.Event, truncate(evt.Code, 12), evt.Error)
-			switch evt.Event {
-			case "code":
-				drv.send(outMsg{"type": "qr", "code": evt.Code})
-			case "success":
-				// PairSuccess is already emitted via the main event handler.
-			case "timeout":
-				drv.send(outMsg{"type": "error", "code": "qr_timeout", "message": "QR expired before scan"})
-			case "err-client-outdated":
-				drv.send(outMsg{"type": "error", "code": "client_outdated", "message": evt.Error.Error()})
-			}
-		}
-		log.Printf("qr channel closed")
-	}()
-	return nil
-}
-
 func main() {
 	socketPath := getenv("MTW_WHATSAPP_SOCKET", "/var/run/mtw-whatsapp/whatsapp.sock")
 	dbPath := getenv("MTW_WHATSAPP_DB", "/var/lib/mtw-whatsapp/session.db")
@@ -576,26 +545,34 @@ func main() {
 
 	clientLog := waLog.Stdout("Client", "DEBUG", true)
 	client := whatsmeow.NewClient(device, clientLog)
-	log.Printf("client initialised; Store.ID=%v", client.Store.ID)
+	log.Printf("client initialised; stored session=%v", client.Store.ID != nil)
 
 	drv := &driver{}
-	b := &bridge{client: client, drv: drv}
+	lk := &waLinker{c: client}
+	b := &bridge{client: client, lk: lk, drv: drv}
+	b.sess = newSession(lk, b.emit)
 	b.wireEvents()
 
-	// Start listening in background; emit `ready` only after socket is up.
+	// Start listening in background; boot only once the socket is up. With
+	// no stored session the bridge stays idle until the driver asks to link;
+	// the sticky cache replays the status to a driver that connects later.
 	listenErr := make(chan error, 1)
+	listening := make(chan struct{})
 	go func() {
-		drv.send(outMsg{"type": "ready"})
-		listenErr <- serve(socketPath, drv, b.handle)
+		listenErr <- serve(socketPath, drv, b.handle, listening)
 	}()
-
-	// Connect: if we already have a session, whatsmeow skips the QR stage.
-	if err := connectWithQR(client, drv); err != nil {
-		log.Printf("initial connect: %v", err)
-	}
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	select {
+	case <-listening:
+		drv.send(outMsg{"type": "ready"})
+		b.sess.boot()
+	case err := <-listenErr:
+		log.Fatalf("socket server exited: %v", err)
+	}
+
 	select {
 	case <-stop:
 		log.Printf("shutdown requested")
@@ -603,11 +580,6 @@ func main() {
 		log.Printf("socket server exited: %v", err)
 	}
 	client.Disconnect()
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n { return s }
-	return s[:n] + "…"
 }
 
 func getenv(key, def string) string {
