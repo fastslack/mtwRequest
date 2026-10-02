@@ -3899,6 +3899,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mtw-ipc"
+version = "0.4.0"
+dependencies = [
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "mtw-iris"
 version = "0.4.0"
 dependencies = [

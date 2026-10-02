@@ -1,0 +1,19 @@
+[package]
+name = "mtw-ipc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "Local IPC for mtwRequest: Unix domain sockets on Unix, named pipes on Windows"
+keywords = ["ipc", "unix-socket", "named-pipe", "mtw"]
+categories = ["network-programming", "asynchronous"]
+
+[dependencies]
+tokio = { workspace = true, features = ["net", "io-util", "time", "rt"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full"] }
+tempfile = { workspace = true }

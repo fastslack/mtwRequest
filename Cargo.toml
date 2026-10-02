@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/mtw-protocol",
     "crates/mtw-core",
+    "crates/mtw-ipc",
     "crates/mtw-codec",
     "crates/mtw-transport",
     "crates/mtw-router",
@@ -95,6 +96,7 @@ jsonwebtoken = "9"
 # Internal crates
 mtw-protocol = { path = "crates/mtw-protocol" }
 mtw-core = { path = "crates/mtw-core" }
+mtw-ipc = { path = "crates/mtw-ipc" }
 mtw-codec = { path = "crates/mtw-codec" }
 mtw-transport = { path = "crates/mtw-transport" }
 mtw-router = { path = "crates/mtw-router" }
