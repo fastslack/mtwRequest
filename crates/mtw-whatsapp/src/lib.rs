@@ -52,7 +52,7 @@
 
 pub mod protocol;
 
-pub use protocol::{Command, Event, InboundAttachment, MediaKind};
+pub use protocol::{ChatItem, Command, Event, InboundAttachment, MediaKind};
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -81,8 +81,21 @@ pub enum WhatsAppError {
     #[error("bridge socket {0} unreachable after {1:?}: giving up")]
     ConnectTimeout(PathBuf, Duration),
 
-    #[error("bridge reported an error: {code}: {message}")]
-    BridgeError { code: String, message: String },
+    #[error("bridge reported an error: {code:?}: {message}")]
+    Bridge {
+        code: Option<String>,
+        message: String,
+    },
+
+    /// A correlated request (e.g. `list_chats`) got no matching reply
+    /// before its deadline.
+    #[error("timed out waiting for the bridge's reply")]
+    Timeout,
+
+    /// The connection to the bridge closed while waiting for a correlated
+    /// reply.
+    #[error("bridge connection closed while waiting for a reply")]
+    Closed,
 }
 
 // ── config ─────────────────────────────────────────────────────────
@@ -141,7 +154,13 @@ impl WhatsAppClient {
                 match lines.next_line().await {
                     Ok(Some(line)) if line.trim().is_empty() => continue,
                     Ok(Some(line)) => {
-                        info!(target: "mtw_whatsapp", "← bridge: {line}");
+                        // Never log the raw line: it can carry a QR string,
+                        // a phone pairing code, or message text. Only the
+                        // `type` tag is safe to surface, and only at debug.
+                        debug!(
+                            target: "mtw_whatsapp",
+                            "← bridge event: type={}", log_summary(&line)
+                        );
                         match serde_json::from_str::<Event>(&line) {
                             Ok(evt) => {
                                 let subs = events_bg.receiver_count();
@@ -157,9 +176,11 @@ impl WhatsAppClient {
                                 }
                             }
                             Err(err) => {
+                                // Log the line's length, never its content —
+                                // a malformed line can still carry a code.
                                 warn!(
                                     target: "mtw_whatsapp",
-                                    "dropping malformed event: {err} ({line})"
+                                    "dropping malformed event: {err} (len={})", line.len()
                                 );
                             }
                         }
@@ -246,6 +267,62 @@ impl WhatsAppClient {
         self.send(Command::Logout).await
     }
 
+    /// Start (or restart) the login flow using a scanned QR code.
+    pub async fn link_qr(&self) -> Result<(), WhatsAppError> {
+        self.send(Command::LinkQr).await
+    }
+
+    /// Start (or restart) the login flow using whatsmeow's phone-pairing
+    /// code instead of a QR scan.
+    pub async fn link_phone(&self, phone: impl Into<String>) -> Result<(), WhatsAppError> {
+        self.send(Command::LinkPhone {
+            phone: phone.into(),
+        })
+        .await
+    }
+
+    /// Abort the linking attempt in progress (QR or phone) and go back to
+    /// `idle`. A no-op if nothing is linking.
+    pub async fn link_cancel(&self) -> Result<(), WhatsAppError> {
+        self.send(Command::LinkCancel).await
+    }
+
+    /// List contacts and joined groups. Waits for the correlated `chats`
+    /// reply (matched by a generated `id`), or the matching `error` event,
+    /// up to `timeout`.
+    pub async fn list_chats(
+        &self,
+        limit: u32,
+        timeout: Duration,
+    ) -> Result<Vec<protocol::ChatItem>, WhatsAppError> {
+        let id = ulid_like_id();
+        // Subscribe BEFORE sending so the reply can't be missed.
+        let mut rx = self.subscribe();
+        self.send(Command::ListChats {
+            id: id.clone(),
+            limit,
+        })
+        .await?;
+        let wait = async {
+            loop {
+                match rx.recv().await {
+                    Ok(Event::Chats { id: rid, items }) if rid == id => return Ok(items),
+                    Ok(Event::Error {
+                        id: Some(rid),
+                        code,
+                        message,
+                    }) if rid == id => return Err(WhatsAppError::Bridge { code, message }),
+                    Ok(_) => continue,
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => return Err(WhatsAppError::Closed),
+                }
+            }
+        };
+        tokio::time::timeout(timeout, wait)
+            .await
+            .map_err(|_| WhatsAppError::Timeout)?
+    }
+
     // ── internal ────────────────────────────────────────────────────
 
     async fn dial_with_backoff(cfg: &WhatsAppConfig) -> Result<UnixStream, WhatsAppError> {
@@ -273,6 +350,18 @@ impl WhatsAppClient {
 }
 
 // ── helpers ────────────────────────────────────────────────────────
+
+/// Safe-to-log summary of a bridge line: just its `"type"` tag. Never
+/// returns the payload — a bridge line can carry a QR string, a phone
+/// pairing code, a phone number or message text, none of which may be
+/// logged. Falls back to `"unknown"` when the line isn't a JSON object
+/// with a string `"type"` field.
+fn log_summary(line: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(line)
+        .ok()
+        .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(str::to_string))
+        .unwrap_or_else(|| "unknown".to_string())
+}
 
 /// Small monotonic-ish ID helper. Not strictly ULID to avoid pulling in
 /// a dependency for something only used as an echo token.
@@ -414,6 +503,139 @@ mod tests {
         let started = std::time::Instant::now();
         let err = WhatsAppClient::connect(cfg).await.err().unwrap();
         assert!(matches!(err, WhatsAppError::ConnectTimeout(..)));
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn log_summary_omits_pairing_code_payload() {
+        let line = r#"{"type":"pairing_code","code":"K3M9QX2P","expires_at":1790000000}"#;
+        let summary = log_summary(line);
+        assert_eq!(summary, "pairing_code");
+        assert!(!summary.contains("K3M9QX2P"));
+    }
+
+    #[test]
+    fn log_summary_omits_qr_and_message_payload() {
+        assert_eq!(log_summary(r#"{"type":"qr","code":"2@abc123secret"}"#), "qr");
+        assert_eq!(
+            log_summary(r#"{"type":"message","text":"private text","id":"1","from":"a","chat":"a","is_group":false,"author":"a","timestamp":1}"#),
+            "message"
+        );
+        assert_eq!(log_summary("not json at all"), "unknown");
+    }
+
+    #[tokio::test]
+    async fn list_chats_returns_items_for_matching_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("wa.sock");
+        let listener = tokio::net::UnixListener::bind(&path).unwrap();
+        let cfg = WhatsAppConfig {
+            socket_path: path.clone(),
+            connect_timeout: Duration::from_secs(5),
+            ..Default::default()
+        };
+        let client = WhatsAppClient::connect(cfg).await.unwrap();
+        let (stream, _) = listener.accept().await.unwrap();
+        let (read_half, mut write_half) = stream.into_split();
+        let mut lines = BufReader::new(read_half).lines();
+
+        tokio::spawn(async move {
+            let line = lines.next_line().await.unwrap().unwrap();
+            let req: serde_json::Value = serde_json::from_str(&line).unwrap();
+            let id = req["id"].as_str().unwrap().to_string();
+
+            // Wrong id first: must be ignored by the waiting caller.
+            let wrong = serde_json::json!({
+                "type": "chats",
+                "id": "different-id",
+                "items": [],
+            });
+            write_half
+                .write_all(format!("{wrong}\n").as_bytes())
+                .await
+                .unwrap();
+
+            let matching = serde_json::json!({
+                "type": "chats",
+                "id": id,
+                "items": [
+                    {"jid": "g@g.us", "name": "Familia", "is_group": true, "last_ts": 0}
+                ],
+            });
+            write_half
+                .write_all(format!("{matching}\n").as_bytes())
+                .await
+                .unwrap();
+        });
+
+        let items = client
+            .list_chats(50, Duration::from_secs(2))
+            .await
+            .unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].jid, "g@g.us");
+        assert_eq!(items[0].name, "Familia");
+        assert!(items[0].is_group);
+    }
+
+    #[tokio::test]
+    async fn list_chats_surfaces_bridge_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("wa.sock");
+        let listener = tokio::net::UnixListener::bind(&path).unwrap();
+        let cfg = WhatsAppConfig {
+            socket_path: path.clone(),
+            connect_timeout: Duration::from_secs(5),
+            ..Default::default()
+        };
+        let client = WhatsAppClient::connect(cfg).await.unwrap();
+        let (stream, _) = listener.accept().await.unwrap();
+        let (read_half, mut write_half) = stream.into_split();
+        let mut lines = BufReader::new(read_half).lines();
+
+        tokio::spawn(async move {
+            let line = lines.next_line().await.unwrap().unwrap();
+            let req: serde_json::Value = serde_json::from_str(&line).unwrap();
+            let id = req["id"].as_str().unwrap().to_string();
+            let err = serde_json::json!({
+                "type": "error",
+                "id": id,
+                "code": "not_connected",
+                "message": "bridge is not connected",
+            });
+            write_half
+                .write_all(format!("{err}\n").as_bytes())
+                .await
+                .unwrap();
+        });
+
+        let result = client.list_chats(50, Duration::from_secs(2)).await;
+        match result {
+            Err(WhatsAppError::Bridge { code, message }) => {
+                assert_eq!(code.as_deref(), Some("not_connected"));
+                assert_eq!(message, "bridge is not connected");
+            }
+            other => panic!("expected Bridge error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn list_chats_times_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("wa.sock");
+        let listener = tokio::net::UnixListener::bind(&path).unwrap();
+        let cfg = WhatsAppConfig {
+            socket_path: path.clone(),
+            connect_timeout: Duration::from_secs(5),
+            ..Default::default()
+        };
+        let client = WhatsAppClient::connect(cfg).await.unwrap();
+        let (_stream, _) = listener.accept().await.unwrap();
+        // The fake bridge never replies.
+
+        let started = std::time::Instant::now();
+        let result = client.list_chats(50, Duration::from_millis(200)).await;
+        assert!(matches!(result, Err(WhatsAppError::Timeout)));
         assert!(started.elapsed() < Duration::from_secs(1));
     }
 

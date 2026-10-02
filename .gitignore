@@ -23,6 +23,9 @@ venv/
 # PHP
 vendor/
 
+# Go (whatsapp-bridge build output)
+/services/whatsapp-bridge/whatsapp-bridge
+
 # Local config
 mtw.toml
 

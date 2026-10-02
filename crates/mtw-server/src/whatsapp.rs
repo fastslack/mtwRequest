@@ -6,10 +6,15 @@
 //! * Publishes every event the sidecar emits onto pub/sub channels:
 //!   - `whatsapp:qr` — QR code strings the user must scan to pair a device
 //!   - `whatsapp:status` — connection / auth lifecycle
+//!   - `whatsapp:pairing` — phone-pairing codes (`{"code","expires_at"}`)
 //!   - `whatsapp:inbound` — incoming WhatsApp messages (text + attachments)
 //! * Handles outbound Request messages whose `action` starts with
 //!   `whatsapp.` (`whatsapp.send_text`, `.send_media`, `.react`, `.delete`,
-//!   `.typing`, `.request_qr`, `.logout`).
+//!   `.typing`, `.request_qr`, `.logout`, `.link_qr`, `.link_phone`,
+//!   `.link_cancel`, `.list_chats`, `.status`).
+//! * Caches the last session state, QR and pairing code so `whatsapp.status`
+//!   can answer a page reloaded mid-linking (works even while the bridge is
+//!   down).
 //!
 //! Both directions share the same `WhatsAppClient` handle (it's cheap to
 //! clone), so the server stays single-instance while the sidecar handles
@@ -19,7 +24,7 @@
 //! returns a handle right away and a background task dials the bridge with
 //! exponential backoff (2 s doubling to 30 s, forever), redialing the same
 //! way whenever the connection drops. While disconnected, `whatsapp.*`
-//! actions fail fast with `not_connected`.
+//! actions (except `whatsapp.status`) fail fast with `not_connected`.
 
 use std::sync::{Arc, RwLock};
 
@@ -37,6 +42,56 @@ pub mod channels {
     pub const INBOUND: &str = "whatsapp:inbound";
     pub const QR: &str = "whatsapp:qr";
     pub const STATUS: &str = "whatsapp:status";
+    pub const PAIRING: &str = "whatsapp:pairing";
+}
+
+/// Timeout for the correlated `list_chats` round-trip.
+const LIST_CHATS_TIMEOUT: Duration = Duration::from_secs(10);
+/// Default / bounds for `whatsapp.list_chats`' `limit`.
+const LIST_CHATS_DEFAULT_LIMIT: u64 = 50;
+const LIST_CHATS_MAX_LIMIT: u64 = 200;
+
+/// Last known session state, as reported by the bridge. Lets
+/// `whatsapp.status` answer without waiting for the next event.
+#[derive(Debug, Clone)]
+struct WaState {
+    state: String,
+    mode: Option<String>,
+    jid: Option<String>,
+    reason: Option<String>,
+    qr: Option<String>,
+    code: Option<String>,
+    expires_at: Option<i64>,
+}
+
+impl Default for WaState {
+    fn default() -> Self {
+        Self {
+            state: "unknown".to_string(),
+            mode: None,
+            jid: None,
+            reason: None,
+            qr: None,
+            code: None,
+            expires_at: None,
+        }
+    }
+}
+
+impl WaState {
+    /// Drop the linking artifacts (QR / pairing code) once the session
+    /// leaves `linking`.
+    fn clear_linking(&mut self) {
+        self.qr = None;
+        self.code = None;
+        self.expires_at = None;
+    }
+}
+
+type SharedState = Arc<RwLock<WaState>>;
+
+fn write_state(state: &SharedState) -> std::sync::RwLockWriteGuard<'_, WaState> {
+    state.write().unwrap_or_else(|e| e.into_inner())
 }
 
 /// First retry delay after a failed dial or a dropped connection.
@@ -50,6 +105,7 @@ const BACKOFF_MAX: Duration = Duration::from_secs(30);
 #[derive(Clone)]
 pub struct WhatsAppIntegration {
     client: Arc<RwLock<Option<WhatsAppClient>>>,
+    state: SharedState,
 }
 
 impl WhatsAppIntegration {
@@ -69,9 +125,15 @@ impl WhatsAppIntegration {
 
         let integration = Self {
             client: Arc::new(RwLock::new(None)),
+            state: Arc::new(RwLock::new(WaState::default())),
         };
         let socket_path = std::path::PathBuf::from(&cfg.socket);
-        tokio::spawn(connection_loop(socket_path, integration.client.clone(), router));
+        tokio::spawn(connection_loop(
+            socket_path,
+            integration.client.clone(),
+            integration.state.clone(),
+            router,
+        ));
 
         tracing::info!(socket = %cfg.socket, "whatsapp: integration started, connecting in background");
         Ok(Some(integration))
@@ -93,7 +155,7 @@ impl WhatsAppIntegration {
     pub async fn handle_action(&self, action: &str, msg: &MtwMessage) -> MtwMessage {
         let payload_json = msg.payload.as_json().cloned().unwrap_or(serde_json::Value::Null);
 
-        const ACTIONS: [&str; 7] = [
+        const ACTIONS: [&str; 12] = [
             "whatsapp.request_qr",
             "whatsapp.logout",
             "whatsapp.send_text",
@@ -101,11 +163,36 @@ impl WhatsAppIntegration {
             "whatsapp.react",
             "whatsapp.delete",
             "whatsapp.typing",
+            "whatsapp.link_qr",
+            "whatsapp.link_phone",
+            "whatsapp.link_cancel",
+            "whatsapp.list_chats",
+            "whatsapp.status",
         ];
         if !ACTIONS.contains(&action) {
             return MtwMessage::error(400, format!("unknown whatsapp action: {action}"))
                 .with_ref(&msg.id);
         }
+        // Answered from the cache: works while the bridge is down.
+        if action == "whatsapp.status" {
+            return MtwMessage::response(&msg.id, Payload::Json(self.status_json()));
+        }
+        // Validate before the connection check so a bad number is a 400
+        // regardless of the bridge, and nothing is written for it.
+        let phone = if action == "whatsapp.link_phone" {
+            match payload_json.get("phone").and_then(|v| v.as_str()) {
+                Some(p) if is_valid_phone(p) => Some(p.to_string()),
+                _ => {
+                    return MtwMessage::error(
+                        400,
+                        "invalid_phone: expected 8-15 digits, international format without + or leading 0",
+                    )
+                    .with_ref(&msg.id);
+                }
+            }
+        } else {
+            None
+        };
         let Some(client) = self.current_client() else {
             return MtwMessage::error(503, "not_connected: whatsapp bridge is not connected")
                 .with_ref(&msg.id);
@@ -119,6 +206,13 @@ impl WhatsAppIntegration {
             "whatsapp.react" => dispatch_react(&client, &payload_json).await.map(|_| None),
             "whatsapp.delete" => dispatch_delete(&client, &payload_json).await.map(|_| None),
             "whatsapp.typing" => dispatch_typing(&client, &payload_json).await.map(|_| None),
+            "whatsapp.link_qr" => client.link_qr().await.map(|_| None),
+            "whatsapp.link_phone" => client
+                .link_phone(phone.unwrap_or_default())
+                .await
+                .map(|_| None),
+            "whatsapp.link_cancel" => client.link_cancel().await.map(|_| None),
+            "whatsapp.list_chats" => return list_chats_response(&client, &payload_json, &msg.id).await,
             _ => unreachable!("action checked against ACTIONS above"),
         };
 
@@ -130,6 +224,55 @@ impl WhatsAppIntegration {
             Ok(None) => MtwMessage::response(&msg.id, Payload::Json(serde_json::json!({"ok": true}))),
             Err(err) => MtwMessage::error(500, err.to_string()).with_ref(&msg.id),
         }
+    }
+
+    /// `whatsapp.status` payload: bridge link + cached session state.
+    fn status_json(&self) -> serde_json::Value {
+        let bridge_connected = self.current_client().is_some();
+        let st = self.state.read().unwrap_or_else(|e| e.into_inner()).clone();
+        serde_json::json!({
+            "bridge_connected": bridge_connected,
+            "state": st.state,
+            "mode": st.mode,
+            "jid": st.jid,
+            "reason": st.reason,
+            "qr": st.qr,
+            "pairing_code": st.code,
+            "pairing_expires_at": st.expires_at,
+        })
+    }
+}
+
+/// Phone for `link_phone`: digits only, 8-15 of them, no leading `0`
+/// (international format without `+`).
+fn is_valid_phone(p: &str) -> bool {
+    (8..=15).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_digit()) && !p.starts_with('0')
+}
+
+async fn list_chats_response(
+    client: &WhatsAppClient,
+    payload: &serde_json::Value,
+    ref_id: &str,
+) -> MtwMessage {
+    let limit = payload
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(LIST_CHATS_DEFAULT_LIMIT)
+        .clamp(1, LIST_CHATS_MAX_LIMIT) as u32;
+    match client.list_chats(limit, LIST_CHATS_TIMEOUT).await {
+        Ok(items) => MtwMessage::response(ref_id, Payload::Json(serde_json::json!({ "items": items }))),
+        Err(WhatsAppError::Bridge { code, message }) => MtwMessage::error(
+            502,
+            format!("{}: {message}", code.as_deref().unwrap_or("bridge_error")),
+        )
+        .with_ref(ref_id),
+        Err(WhatsAppError::Timeout) => {
+            MtwMessage::error(504, "timeout: bridge did not answer list_chats in time").with_ref(ref_id)
+        }
+        Err(WhatsAppError::Closed) => {
+            MtwMessage::error(503, "not_connected: whatsapp bridge is not connected").with_ref(ref_id)
+        }
+        Err(err) => MtwMessage::error(500, err.to_string()).with_ref(ref_id),
     }
 }
 
@@ -216,7 +359,7 @@ fn ensure_channels(router: &MtwRouter) {
     // unconditional call here would clobber the operator's history/auth
     // settings. Default history=1 so late subscribers still see the last
     // QR / status published before they connected.
-    for name in [channels::INBOUND, channels::QR, channels::STATUS] {
+    for name in [channels::INBOUND, channels::QR, channels::STATUS, channels::PAIRING] {
         if router.channels().get(name).is_none() {
             router.channels().create_channel(name, false, None, 1);
         }
@@ -229,6 +372,7 @@ fn ensure_channels(router: &MtwRouter) {
 async fn connection_loop(
     socket_path: std::path::PathBuf,
     slot: Arc<RwLock<Option<WhatsAppClient>>>,
+    state: SharedState,
     router: Arc<MtwRouter>,
 ) {
     let mut delay = BACKOFF_START;
@@ -248,15 +392,18 @@ async fn connection_loop(
                 tracing::info!(socket = %socket_path.display(), attempts, "whatsapp: bridge connected");
 
                 tokio::select! {
-                    _ = pump_events(&mut events, &router) => {}
+                    _ = pump_events(&mut events, &router, &state) => {}
                     _ = client.closed() => {}
                 }
                 // The read loop has exited, so nothing new can arrive: publish
                 // whatever was still queued (e.g. a final status) before
                 // clearing the slot.
-                drain_events(&mut events, &router).await;
+                drain_events(&mut events, &router, &state).await;
 
                 *slot.write().unwrap_or_else(|e| e.into_inner()) = None;
+                // Without the bridge the session state is unknown again; a
+                // stale QR / pairing code must not outlive the connection.
+                *write_state(&state) = WaState::default();
                 tracing::info!(
                     socket = %socket_path.display(),
                     retry_in = ?BACKOFF_START,
@@ -285,11 +432,15 @@ async fn connection_loop(
 }
 
 /// Publish every event still buffered in `events` without waiting.
-async fn drain_events(events: &mut tokio::sync::broadcast::Receiver<Event>, router: &MtwRouter) {
+async fn drain_events(
+    events: &mut tokio::sync::broadcast::Receiver<Event>,
+    router: &MtwRouter,
+    state: &SharedState,
+) {
     use tokio::sync::broadcast::error::TryRecvError;
     loop {
         match events.try_recv() {
-            Ok(evt) => publish_event(router, evt).await,
+            Ok(evt) => publish_event(router, state, evt).await,
             Err(TryRecvError::Lagged(n)) => {
                 tracing::warn!(dropped = n, "whatsapp: event pump lagged while draining");
             }
@@ -298,13 +449,17 @@ async fn drain_events(events: &mut tokio::sync::broadcast::Receiver<Event>, rout
     }
 }
 
-async fn pump_events(events: &mut tokio::sync::broadcast::Receiver<Event>, router: &MtwRouter) {
+async fn pump_events(
+    events: &mut tokio::sync::broadcast::Receiver<Event>,
+    router: &MtwRouter,
+    state: &SharedState,
+) {
     tracing::info!("whatsapp: event pump started");
     loop {
         match events.recv().await {
             Ok(evt) => {
                 tracing::info!(event = ?std::mem::discriminant(&evt), "whatsapp: pump got event");
-                publish_event(router, evt).await;
+                publish_event(router, state, evt).await;
             }
             Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                 tracing::warn!(
@@ -320,28 +475,84 @@ async fn pump_events(events: &mut tokio::sync::broadcast::Receiver<Event>, route
     }
 }
 
-async fn publish_event(router: &MtwRouter, evt: Event) {
+/// Update the state cache from `evt` and publish it on its channel. The
+/// cache lock is taken and released synchronously, never across an await.
+async fn publish_event(router: &MtwRouter, state: &SharedState, evt: Event) {
     let (channel, payload) = match evt {
         Event::Ready => (
             channels::STATUS,
             serde_json::json!({ "state": "ready" }),
         ),
-        Event::Qr { code } => (
-            channels::QR,
-            serde_json::json!({ "code": code }),
-        ),
-        Event::PairingSuccess { jid } => (
-            channels::STATUS,
-            serde_json::json!({ "state": "paired", "jid": jid }),
-        ),
-        Event::Connected { jid } => (
-            channels::STATUS,
-            serde_json::json!({ "state": "connected", "jid": jid }),
-        ),
-        Event::Disconnected { reason } => (
-            channels::STATUS,
-            serde_json::json!({ "state": "disconnected", "reason": reason }),
-        ),
+        Event::Status { state: st, mode, jid, reason } => {
+            {
+                let mut cache = write_state(state);
+                cache.state = st.clone();
+                cache.mode = mode.clone();
+                cache.jid = jid.clone();
+                cache.reason = reason.clone();
+                if st != "linking" {
+                    cache.clear_linking();
+                }
+            }
+            let mut payload = serde_json::json!({ "state": st });
+            for (key, value) in [("mode", mode), ("jid", jid), ("reason", reason)] {
+                if let Some(v) = value {
+                    payload[key] = serde_json::Value::String(v);
+                }
+            }
+            (channels::STATUS, payload)
+        }
+        Event::Qr { code } => {
+            write_state(state).qr = Some(code.clone());
+            (channels::QR, serde_json::json!({ "code": code }))
+        }
+        Event::PairingCode { code, expires_at } => {
+            {
+                let mut cache = write_state(state);
+                cache.code = Some(code.clone());
+                cache.expires_at = Some(expires_at);
+            }
+            (
+                channels::PAIRING,
+                serde_json::json!({ "code": code, "expires_at": expires_at }),
+            )
+        }
+        // Consumed by `WhatsAppClient::list_chats`; nothing to publish.
+        Event::Chats { .. } => return,
+        Event::PairingSuccess { jid } => {
+            if jid.is_some() {
+                write_state(state).jid = jid.clone();
+            }
+            (
+                channels::STATUS,
+                serde_json::json!({ "state": "paired", "jid": jid }),
+            )
+        }
+        Event::Connected { jid } => {
+            {
+                let mut cache = write_state(state);
+                cache.state = "connected".to_string();
+                cache.jid = jid.clone();
+                cache.reason = None;
+                cache.clear_linking();
+            }
+            (
+                channels::STATUS,
+                serde_json::json!({ "state": "connected", "jid": jid }),
+            )
+        }
+        Event::Disconnected { reason } => {
+            {
+                let mut cache = write_state(state);
+                cache.state = "disconnected".to_string();
+                cache.reason = Some(reason.clone());
+                cache.clear_linking();
+            }
+            (
+                channels::STATUS,
+                serde_json::json!({ "state": "disconnected", "reason": reason }),
+            )
+        }
         Event::Message {
             id, from, chat, is_group, group_name, author, push_name,
             timestamp, text, reply_to, attachments,
@@ -426,6 +637,69 @@ mod tests {
     fn request(action: &str) -> MtwMessage {
         MtwMessage::new(MsgType::Request, Payload::Json(serde_json::json!({})))
             .with_metadata("action", serde_json::json!(action))
+    }
+
+    fn request_with(action: &str, payload: serde_json::Value) -> MtwMessage {
+        MtwMessage::new(MsgType::Request, Payload::Json(payload))
+            .with_metadata("action", serde_json::json!(action))
+    }
+
+    fn json_of(resp: &MtwMessage) -> serde_json::Value {
+        resp.payload.as_json().cloned().unwrap_or(serde_json::Value::Null)
+    }
+
+    /// Start the integration against a fake bridge socket and return the
+    /// accepted stream split into a line reader and a writer.
+    async fn connected_fake() -> (
+        std::path::PathBuf,
+        Arc<MtwRouter>,
+        WhatsAppIntegration,
+        tokio::io::Lines<BufReader<tokio::net::unix::OwnedReadHalf>>,
+        tokio::net::unix::OwnedWriteHalf,
+    ) {
+        let (dir, sock) = temp_socket();
+        let router = Arc::new(MtwRouter::new(ChannelManager::new(), MiddlewareChain::new()));
+        let listener = UnixListener::bind(&sock).unwrap();
+        let wa = WhatsAppIntegration::start(&section(&sock), router.clone())
+            .await
+            .unwrap()
+            .unwrap();
+        let (stream, _) = tokio::time::timeout(Duration::from_secs(8), listener.accept())
+            .await
+            .unwrap()
+            .unwrap();
+        wait_connected(&wa).await;
+        let (read_half, write_half) = stream.into_split();
+        (dir, router, wa, BufReader::new(read_half).lines(), write_half)
+    }
+
+    async fn next_line(lines: &mut tokio::io::Lines<BufReader<tokio::net::unix::OwnedReadHalf>>) -> String {
+        tokio::time::timeout(Duration::from_secs(2), lines.next_line())
+            .await
+            .expect("bridge should receive a line")
+            .unwrap()
+            .unwrap()
+    }
+
+    /// Poll `whatsapp.status` until `pred` holds on its payload.
+    async fn wait_status(
+        wa: &WhatsAppIntegration,
+        pred: impl Fn(&serde_json::Value) -> bool,
+    ) -> serde_json::Value {
+        let req = request("whatsapp.status");
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let resp = wa.handle_action("whatsapp.status", &req).await;
+                assert_eq!(resp.msg_type, MsgType::Response, "status must not error: {resp:?}");
+                let body = json_of(&resp);
+                if pred(&body) {
+                    return body;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("status should reach the expected state")
     }
 
     fn is_not_connected(resp: &MtwMessage) -> bool {
@@ -585,6 +859,164 @@ mod tests {
         let mut lines = BufReader::new(second).lines();
         let line = lines.next_line().await.unwrap().unwrap();
         assert_eq!(line, r#"{"type":"logout"}"#);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn status_reports_unknown_without_bridge() {
+        let (dir, sock) = temp_socket();
+        let router = Arc::new(MtwRouter::new(ChannelManager::new(), MiddlewareChain::new()));
+        let wa = WhatsAppIntegration::start(&section(&sock), router)
+            .await
+            .unwrap()
+            .unwrap();
+        let resp = wa.handle_action("whatsapp.status", &request("whatsapp.status")).await;
+        assert_eq!(resp.msg_type, MsgType::Response, "unexpected: {resp:?}");
+        let body = json_of(&resp);
+        assert_eq!(body["bridge_connected"], false);
+        assert_eq!(body["state"], "unknown");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn status_carries_last_qr_and_pairing_code() {
+        let (dir, router, wa, _lines, mut w) = connected_fake().await;
+
+        w.write_all(b"{\"type\":\"status\",\"state\":\"linking\",\"mode\":\"phone\"}\n").await.unwrap();
+        w.write_all(b"{\"type\":\"pairing_code\",\"code\":\"K3M9QX2P\",\"expires_at\":1790000000}\n")
+            .await
+            .unwrap();
+
+        let body = wait_status(&wa, |b| b["pairing_code"] == "K3M9QX2P").await;
+        assert_eq!(body["bridge_connected"], true);
+        assert_eq!(body["state"], "linking");
+        assert_eq!(body["mode"], "phone");
+        assert_eq!(body["pairing_expires_at"], 1790000000);
+
+        let pairing = router.channels().get(channels::PAIRING).expect("pairing channel exists");
+        let hist = pairing.get_history(None).await;
+        assert_eq!(hist.len(), 1);
+        assert_eq!(hist[0].payload.as_json().unwrap()["code"], "K3M9QX2P");
+        assert_eq!(hist[0].payload.as_json().unwrap()["expires_at"], 1790000000);
+
+        // A QR rotation while linking is cached too.
+        w.write_all(b"{\"type\":\"qr\",\"code\":\"2@xyz\"}\n").await.unwrap();
+        wait_status(&wa, |b| b["qr"] == "2@xyz").await;
+
+        w.write_all(b"{\"type\":\"status\",\"state\":\"connected\",\"jid\":\"5491100000000@s.whatsapp.net\"}\n")
+            .await
+            .unwrap();
+        let body = wait_status(&wa, |b| b["state"] == "connected").await;
+        assert_eq!(body["jid"], "5491100000000@s.whatsapp.net");
+        assert!(body.get("qr").is_none_or(|v| v.is_null()), "qr not cleared: {body}");
+        assert!(body.get("pairing_code").is_none_or(|v| v.is_null()), "code not cleared: {body}");
+        assert!(body.get("pairing_expires_at").is_none_or(|v| v.is_null()));
+
+        // whatsapp:status carries the new payload shape, nulls omitted.
+        let status = router.channels().get(channels::STATUS).unwrap();
+        let hist = status.get_history(None).await;
+        let last = hist.last().unwrap().payload.as_json().unwrap().clone();
+        assert_eq!(last, serde_json::json!({"state":"connected","jid":"5491100000000@s.whatsapp.net"}));
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn link_phone_forwards_and_validates() {
+        let (dir, _router, wa, mut lines, _w) = connected_fake().await;
+
+        let bad = request_with("whatsapp.link_phone", serde_json::json!({"phone": "+54 9"}));
+        let resp = wa.handle_action("whatsapp.link_phone", &bad).await;
+        assert_eq!(resp.msg_type, MsgType::Error);
+        assert_eq!(json_of(&resp)["code"], 400);
+        assert!(json_of(&resp)["message"].as_str().unwrap().starts_with("invalid_phone"));
+
+        let missing = request("whatsapp.link_phone");
+        let resp = wa.handle_action("whatsapp.link_phone", &missing).await;
+        assert_eq!(json_of(&resp)["code"], 400);
+
+        let leading_zero = request_with("whatsapp.link_phone", serde_json::json!({"phone": "01123456789"}));
+        let resp = wa.handle_action("whatsapp.link_phone", &leading_zero).await;
+        assert_eq!(json_of(&resp)["code"], 400);
+
+        let good = request_with("whatsapp.link_phone", serde_json::json!({"phone": "5491123456789"}));
+        let resp = wa.handle_action("whatsapp.link_phone", &good).await;
+        assert_eq!(resp.msg_type, MsgType::Response, "unexpected: {resp:?}");
+        assert_eq!(json_of(&resp), serde_json::json!({"ok": true}));
+
+        // The invalid calls wrote nothing: the first line is the valid one.
+        assert_eq!(next_line(&mut lines).await, r#"{"type":"link_phone","phone":"5491123456789"}"#);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn list_chats_returns_items() {
+        let (dir, _router, wa, mut lines, mut w) = connected_fake().await;
+
+        let fake = tokio::spawn(async move {
+            let line = next_line(&mut lines).await;
+            let req: serde_json::Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(req["type"], "list_chats");
+            assert_eq!(req["limit"], 200, "limit is clamped to 200");
+            let reply = serde_json::json!({
+                "type": "chats",
+                "id": req["id"],
+                "items": [{"jid": "g@g.us", "name": "Familia", "is_group": true, "last_ts": 5}],
+            });
+            w.write_all(format!("{reply}\n").as_bytes()).await.unwrap();
+            w
+        });
+
+        let req = request_with("whatsapp.list_chats", serde_json::json!({"limit": 5000}));
+        let resp = wa.handle_action("whatsapp.list_chats", &req).await;
+        assert_eq!(resp.msg_type, MsgType::Response, "unexpected: {resp:?}");
+        assert_eq!(
+            json_of(&resp),
+            serde_json::json!({"items": [{"jid": "g@g.us", "name": "Familia", "is_group": true, "last_ts": 5}]})
+        );
+        let _w = fake.await.unwrap();
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn list_chats_maps_bridge_error_to_502() {
+        let (dir, _router, wa, mut lines, mut w) = connected_fake().await;
+
+        let fake = tokio::spawn(async move {
+            let line = next_line(&mut lines).await;
+            let req: serde_json::Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(req["limit"], 50, "default limit is 50");
+            let reply = serde_json::json!({
+                "type": "error", "id": req["id"],
+                "code": "not_connected", "message": "session is not connected",
+            });
+            w.write_all(format!("{reply}\n").as_bytes()).await.unwrap();
+            w
+        });
+
+        let resp = wa.handle_action("whatsapp.list_chats", &request("whatsapp.list_chats")).await;
+        assert_eq!(resp.msg_type, MsgType::Error);
+        assert_eq!(json_of(&resp)["code"], 502);
+        assert_eq!(json_of(&resp)["message"], "not_connected: session is not connected");
+        let _w = fake.await.unwrap();
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn link_qr_and_cancel_forward() {
+        let (dir, _router, wa, mut lines, _w) = connected_fake().await;
+
+        let resp = wa.handle_action("whatsapp.link_qr", &request("whatsapp.link_qr")).await;
+        assert_eq!(json_of(&resp), serde_json::json!({"ok": true}));
+        assert_eq!(next_line(&mut lines).await, r#"{"type":"link_qr"}"#);
+
+        let resp = wa.handle_action("whatsapp.link_cancel", &request("whatsapp.link_cancel")).await;
+        assert_eq!(json_of(&resp), serde_json::json!({"ok": true}));
+        assert_eq!(next_line(&mut lines).await, r#"{"type":"link_cancel"}"#);
 
         let _ = std::fs::remove_dir_all(dir);
     }
