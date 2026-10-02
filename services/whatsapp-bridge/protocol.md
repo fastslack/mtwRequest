@@ -84,6 +84,16 @@ will require a new QR scan or phone pairing.
 {"type":"logout"}
 ```
 
+### `list_chats`
+List contacts and joined groups — e.g. so the driver can let the user pick
+who may talk to their office. Requires `status` `connected`; otherwise
+rejected with `error` `code: "not_connected"`.
+```json
+{"type":"list_chats", "id":"req-5", "limit":50}
+```
+- `limit`: optional. `<= 0` or `> 200` falls back to `50`. Replies with the
+  `chats` event.
+
 ## Bridge → Driver (events)
 
 ### `ready`
@@ -174,6 +184,20 @@ Inbound message from any chat. Attachments are decoded and base64'd inline.
   "reply_to":null,
   "attachments":[
     {"kind":"image","mime":"image/jpeg","filename":null,"data_b64":"...","caption":null}
+  ]
+}
+```
+
+### `chats`
+Reply to `list_chats`: every contact plus every joined group, capped at
+`limit` (sorted by name; groups are kept, not filtered out).
+```json
+{
+  "type":"chats",
+  "id":"req-5",
+  "items":[
+    {"jid":"5491123456789@s.whatsapp.net", "name":"Ana", "is_group":false, "last_ts":0},
+    {"jid":"120363...@g.us", "name":"Familia", "is_group":true, "last_ts":0}
   ]
 }
 ```

@@ -135,9 +135,19 @@ type bridge struct {
 	lk     linker
 	sess   *session
 	drv    *driver
+	emitFn func(outMsg) // overrides b.emit's destination in tests; nil uses b.drv.send
 }
 
-func (b *bridge) emit(m outMsg) { b.drv.send(m) }
+// emit sends an event to the driver. Tests set emitFn to a recorder so bridge
+// methods are exercisable without a socket; main() leaves it nil so emit
+// falls back to the real driver connection.
+func (b *bridge) emit(m outMsg) {
+	if b.emitFn != nil {
+		b.emitFn(m)
+		return
+	}
+	b.drv.send(m)
+}
 
 func (b *bridge) emitErr(id, code, msg string) {
 	out := outMsg{"type": "error", "message": msg}
@@ -301,6 +311,8 @@ func (b *bridge) handle(msg inMsg) {
 		b.sendDelete(msg)
 	case "typing":
 		b.sendTyping(msg)
+	case "list_chats":
+		go b.listChats(msg.ID, msg.Limit)
 	case "logout":
 		if err := b.lk.Logout(context.Background()); err != nil {
 			b.emitErr(msg.ID, "logout_failed", err.Error())
@@ -575,6 +587,7 @@ func main() {
 	drv := &driver{}
 	lk := newWaLinker(client)
 	b := &bridge{client: client, lk: lk, drv: drv}
+	b.emitFn = drv.send
 	b.sess = newSession(lk, b.emit)
 	b.wireEvents()
 
