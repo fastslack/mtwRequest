@@ -15,15 +15,26 @@ jobs:
     strategy:
       matrix:
         include:
+          # `platform` names the mtw-server / whatsapp-bridge tarballs the
+          # way Kernl's packaging/stage-payload.sh downloads them.
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             artifact: mtw-request-linux-x64
+            platform: linux-x64
+            goos: linux
+            goarch: amd64
           - target: aarch64-apple-darwin
             os: macos-latest
             artifact: mtw-request-macos-arm64
+            platform: darwin-arm64
+            goos: darwin
+            goarch: arm64
           - target: x86_64-apple-darwin
             os: macos-latest
             artifact: mtw-request-macos-x64
+            platform: darwin-x64
+            goos: darwin
+            goarch: amd64
 
     steps:
       - uses: actions/checkout@v4
@@ -32,8 +43,28 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: services/whatsapp-bridge/go.sum
+
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
+
+      # Same feature set as the Docker image (Dockerfile: -p mtw-server
+      # --features torrent), so a binary install gets the same server.
+      - name: Build mtw-server
+        run: cargo build --release --target ${{ matrix.target }} -p mtw-server --features torrent
+
+      # Pure Go (modernc sqlite), so CGO off cross-compiles cleanly — same
+      # flags as services/whatsapp-bridge/Dockerfile.
+      - name: Build whatsapp-bridge
+        working-directory: services/whatsapp-bridge
+        env:
+          CGO_ENABLED: '0'
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build -trimpath -ldflags="-s -w" -o "$GITHUB_WORKSPACE/bin-out/whatsapp-bridge" .
 
       - name: Package
         run: |
@@ -42,10 +73,26 @@ jobs:
           cp LICENSE NOTICE dist/
           tar czf ${{ matrix.artifact }}.tar.gz -C dist .
 
+      # One top-level directory per tarball (mtw-server/, whatsapp-bridge/):
+      # stage-payload.sh copies that directory into the payload's bin/.
+      - name: Package sidecar binaries
+        run: |
+          mkdir -p sidecars/mtw-server sidecars/whatsapp-bridge
+          cp target/${{ matrix.target }}/release/mtw-server sidecars/mtw-server/
+          cp bin-out/whatsapp-bridge sidecars/whatsapp-bridge/
+          chmod 0755 sidecars/mtw-server/mtw-server sidecars/whatsapp-bridge/whatsapp-bridge
+          cp LICENSE NOTICE sidecars/mtw-server/
+          cp LICENSE NOTICE sidecars/whatsapp-bridge/
+          tar czf mtw-server-${{ matrix.platform }}.tar.gz -C sidecars mtw-server
+          tar czf whatsapp-bridge-${{ matrix.platform }}.tar.gz -C sidecars whatsapp-bridge
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}.tar.gz
+          path: |
+            ${{ matrix.artifact }}.tar.gz
+            mtw-server-${{ matrix.platform }}.tar.gz
+            whatsapp-bridge-${{ matrix.platform }}.tar.gz
 
   release:
     name: Create Release
