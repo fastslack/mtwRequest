@@ -17,24 +17,50 @@ jobs:
         include:
           # `platform` names the mtw-server / whatsapp-bridge tarballs the
           # way Kernl's packaging/stage-payload.sh downloads them.
+          #
+          # `server_features` is `--features torrent` on every entry,
+          # Windows included: librqbit's SHA1 crate pulls in aws-lc-sys,
+          # whose native build needs the NASM assembler to produce Windows
+          # (PE) objects (see the Windows-only step below). What was actually
+          # proven: `cargo check --target x86_64-pc-windows-gnu -p mtw-server
+          # --features torrent`, with nasm installed, inside a Linux
+          # container. The matrix below targets x86_64-pc-windows-msvc (the
+          # toolchain windows-latest ships) — that combination, including
+          # whether NASM resolves the same way for MSVC, is first exercised
+          # by a real tagged release run, not by any check so far. Linux and
+          # macOS never needed NASM for this feature.
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             artifact: mtw-request-linux-x64
             platform: linux-x64
             goos: linux
             goarch: amd64
+            exe: ''
+            server_features: --features torrent
           - target: aarch64-apple-darwin
             os: macos-latest
             artifact: mtw-request-macos-arm64
             platform: darwin-arm64
             goos: darwin
             goarch: arm64
+            exe: ''
+            server_features: --features torrent
           - target: x86_64-apple-darwin
             os: macos-latest
             artifact: mtw-request-macos-x64
             platform: darwin-x64
             goos: darwin
             goarch: amd64
+            exe: ''
+            server_features: --features torrent
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            artifact: mtw-request-windows-x64
+            platform: win-x64
+            goos: windows
+            goarch: amd64
+            exe: .exe
+            server_features: --features torrent
 
     steps:
       - uses: actions/checkout@v4
@@ -48,25 +74,35 @@ jobs:
           go-version: '1.26'
           cache-dependency-path: services/whatsapp-bridge/go.sum
 
+      # aws-lc-sys (pulled in transitively by mtw-server's torrent feature,
+      # via librqbit's SHA1 crate) needs the NASM assembler to build its
+      # optimized crypto for Windows; Linux and macOS runners don't need it.
+      - name: Install NASM (needed by aws-lc-sys for the torrent feature)
+        if: matrix.goos == 'windows'
+        uses: ilammy/setup-nasm@v1
+
       - name: Build
+        if: matrix.goos != 'windows'
         run: cargo build --release --target ${{ matrix.target }}
 
       # Same feature set as the Docker image (Dockerfile: -p mtw-server
       # --features torrent), so a binary install gets the same server.
       - name: Build mtw-server
-        run: cargo build --release --target ${{ matrix.target }} -p mtw-server --features torrent
+        run: cargo build --release --target ${{ matrix.target }} -p mtw-server ${{ matrix.server_features }}
 
       # Pure Go (modernc sqlite), so CGO off cross-compiles cleanly — same
       # flags as services/whatsapp-bridge/Dockerfile.
       - name: Build whatsapp-bridge
         working-directory: services/whatsapp-bridge
+        shell: bash
         env:
           CGO_ENABLED: '0'
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-        run: go build -trimpath -ldflags="-s -w" -o "$GITHUB_WORKSPACE/bin-out/whatsapp-bridge" .
+        run: go build -trimpath -ldflags="-s -w" -o "$GITHUB_WORKSPACE/bin-out/whatsapp-bridge${{ matrix.exe }}" .
 
       - name: Package
+        if: matrix.goos != 'windows'
         run: |
           mkdir -p dist
           cp target/${{ matrix.target }}/release/libmtw_core.* dist/ 2>/dev/null || true
@@ -74,25 +110,39 @@ jobs:
           tar czf ${{ matrix.artifact }}.tar.gz -C dist .
 
       # One top-level directory per tarball (mtw-server/, whatsapp-bridge/):
-      # stage-payload.sh copies that directory into the payload's bin/.
+      # stage-payload.sh copies that directory into the payload's bin/. On
+      # Windows the same directory is zipped instead, since that's the
+      # archive format Windows users and Kernl's win-x64 packaging expect.
       - name: Package sidecar binaries
+        shell: bash
         run: |
           mkdir -p sidecars/mtw-server sidecars/whatsapp-bridge
-          cp target/${{ matrix.target }}/release/mtw-server sidecars/mtw-server/
-          cp bin-out/whatsapp-bridge sidecars/whatsapp-bridge/
-          chmod 0755 sidecars/mtw-server/mtw-server sidecars/whatsapp-bridge/whatsapp-bridge
+          cp target/${{ matrix.target }}/release/mtw-server${{ matrix.exe }} sidecars/mtw-server/
+          cp bin-out/whatsapp-bridge${{ matrix.exe }} sidecars/whatsapp-bridge/
           cp LICENSE NOTICE sidecars/mtw-server/
           cp LICENSE NOTICE sidecars/whatsapp-bridge/
-          tar czf mtw-server-${{ matrix.platform }}.tar.gz -C sidecars mtw-server
-          tar czf whatsapp-bridge-${{ matrix.platform }}.tar.gz -C sidecars whatsapp-bridge
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            ( cd sidecars && 7z a -tzip -bso0 "../mtw-server-${{ matrix.platform }}.zip" mtw-server )
+            ( cd sidecars && 7z a -tzip -bso0 "../whatsapp-bridge-${{ matrix.platform }}.zip" whatsapp-bridge )
+          else
+            chmod 0755 sidecars/mtw-server/mtw-server sidecars/whatsapp-bridge/whatsapp-bridge
+            tar czf mtw-server-${{ matrix.platform }}.tar.gz -C sidecars mtw-server
+            tar czf whatsapp-bridge-${{ matrix.platform }}.tar.gz -C sidecars whatsapp-bridge
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
+          # Each OS produces only one of the .tar.gz/.zip sidecar pairs, and
+          # Windows also skips the top-level ${{ matrix.artifact }}.tar.gz
+          # (Build/Package run only off-Windows) — `warn` on missing globs is
+          # actions/upload-artifact@v4's default already, so left implicit.
           path: |
             ${{ matrix.artifact }}.tar.gz
             mtw-server-${{ matrix.platform }}.tar.gz
             whatsapp-bridge-${{ matrix.platform }}.tar.gz
+            mtw-server-${{ matrix.platform }}.zip
+            whatsapp-bridge-${{ matrix.platform }}.zip
 
   release:
     name: Create Release
@@ -108,4 +158,57 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: artifacts/**/*.tar.gz
+          files: |
+            artifacts/**/*.tar.gz
+            artifacts/**/*.zip
+
+  image:
+    name: Image ${{ matrix.image }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+        image: [mtw-request, mtw-whatsapp-bridge]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+          - image: mtw-request
+            context: .
+          - image: mtw-whatsapp-bridge
+            context: services/whatsapp-bridge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - id: v
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          platforms: linux/${{ matrix.arch }}
+          push: true
+          tags: fastslack/${{ matrix.image }}:${{ steps.v.outputs.version }}-${{ matrix.arch }}
+
+  image-manifest:
+    name: Image manifests
+    needs: image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Merge per-arch images into version and latest
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          for img in mtw-request mtw-whatsapp-bridge; do
+            docker buildx imagetools create \
+              -t "fastslack/$img:$v" -t "fastslack/$img:latest" \
+              "fastslack/$img:$v-amd64" "fastslack/$img:$v-arm64"
+          done
