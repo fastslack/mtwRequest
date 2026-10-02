@@ -250,11 +250,7 @@ impl OpenAiProvider {
     }
 
     /// Generate embeddings.
-    pub async fn embed(
-        &self,
-        model: &str,
-        input: Vec<String>,
-    ) -> Result<Vec<Vec<f64>>, String> {
+    pub async fn embed(&self, model: &str, input: Vec<String>) -> Result<Vec<Vec<f64>>, String> {
         let model = if model.is_empty() {
             "text-embedding-3-small".to_string()
         } else {
@@ -328,7 +324,9 @@ pub struct StreamDelta {
 
 /// Parse a single SSE byte chunk from an OpenAI-compatible stream.
 /// Public so that OpenAI-compatible providers (e.g. LM Studio) can reuse this.
-pub fn parse_openai_sse_chunk(result: Result<Bytes, reqwest::Error>) -> Option<Result<StreamDelta, String>> {
+pub fn parse_openai_sse_chunk(
+    result: Result<Bytes, reqwest::Error>,
+) -> Option<Result<StreamDelta, String>> {
     let bytes = match result {
         Ok(b) => b,
         Err(e) => return Some(Err(format!("Stream read error: {}", e))),

@@ -1,6 +1,9 @@
-use std::collections::HashMap;
-use crate::formula::{compute_ema, compute_rsi, compute_sma, compute_atr, FormulaContext, FormulaResult, SignalFormula};
+use crate::formula::{
+    compute_atr, compute_ema, compute_rsi, compute_sma, FormulaContext, FormulaResult,
+    SignalFormula,
+};
 use crate::types::{Candle, OrderSide};
+use std::collections::HashMap;
 
 /// Market Regime Detector.
 ///
@@ -23,10 +26,18 @@ pub enum MarketRegime {
 pub struct RegimeFormula;
 
 impl SignalFormula for RegimeFormula {
-    fn id(&self) -> &str { "regime" }
-    fn name(&self) -> &str { "Market Regime Detector" }
-    fn description(&self) -> &str { "Classifies market as Bull/Bear/Range from multiple signals" }
-    fn min_candles(&self) -> usize { 55 }
+    fn id(&self) -> &str {
+        "regime"
+    }
+    fn name(&self) -> &str {
+        "Market Regime Detector"
+    }
+    fn description(&self) -> &str {
+        "Classifies market as Bull/Bear/Range from multiple signals"
+    }
+    fn min_candles(&self) -> usize {
+        55
+    }
 
     fn compute(&self, candles: &[Candle], _context: Option<&FormulaContext>) -> FormulaResult {
         let closes: Vec<f64> = candles.iter().map(|c| c.close).collect();
@@ -63,8 +74,11 @@ impl SignalFormula for RegimeFormula {
         let mut down_moves = 0.0;
         for i in (n - lookback)..n {
             let diff = closes[i] - closes[i - 1];
-            if diff > 0.0 { up_moves += diff; }
-            else { down_moves += diff.abs(); }
+            if diff > 0.0 {
+                up_moves += diff;
+            } else {
+                down_moves += diff.abs();
+            }
         }
         let total_moves = up_moves + down_moves;
         if total_moves > 0.0 {
@@ -94,17 +108,32 @@ impl SignalFormula for RegimeFormula {
             // High ATR in trending markets is normal; high ATR in range = choppy
             if atr_pct > 3.0 {
                 // High volatility -> amplifies the dominant direction
-                if bull_score > bear_score { bull_score += 0.5; }
-                else { bear_score += 0.5; }
+                if bull_score > bear_score {
+                    bull_score += 0.5;
+                } else {
+                    bear_score += 0.5;
+                }
             }
         }
 
         // Signal 6: Structure - higher highs/lows vs lower highs/lows
         if n >= 20 {
-            let recent_5_high = candles[n - 5..n].iter().map(|c| c.high).fold(f64::NEG_INFINITY, f64::max);
-            let prev_5_high = candles[n - 10..n - 5].iter().map(|c| c.high).fold(f64::NEG_INFINITY, f64::max);
-            let recent_5_low = candles[n - 5..n].iter().map(|c| c.low).fold(f64::INFINITY, f64::min);
-            let prev_5_low = candles[n - 10..n - 5].iter().map(|c| c.low).fold(f64::INFINITY, f64::min);
+            let recent_5_high = candles[n - 5..n]
+                .iter()
+                .map(|c| c.high)
+                .fold(f64::NEG_INFINITY, f64::max);
+            let prev_5_high = candles[n - 10..n - 5]
+                .iter()
+                .map(|c| c.high)
+                .fold(f64::NEG_INFINITY, f64::max);
+            let recent_5_low = candles[n - 5..n]
+                .iter()
+                .map(|c| c.low)
+                .fold(f64::INFINITY, f64::min);
+            let prev_5_low = candles[n - 10..n - 5]
+                .iter()
+                .map(|c| c.low)
+                .fold(f64::INFINITY, f64::min);
 
             if recent_5_high > prev_5_high && recent_5_low > prev_5_low {
                 bull_score += 1.0; // Higher highs AND higher lows
@@ -127,11 +156,14 @@ impl SignalFormula for RegimeFormula {
         indicators.insert("bull_score".into(), (bull_score * 100.0).round() / 100.0);
         indicators.insert("bear_score".into(), (bear_score * 100.0).round() / 100.0);
         indicators.insert("net_score".into(), (net * 100.0).round() / 100.0);
-        indicators.insert("regime".into(), match regime {
-            MarketRegime::Bull => 1.0,
-            MarketRegime::Bear => -1.0,
-            MarketRegime::Range => 0.0,
-        });
+        indicators.insert(
+            "regime".into(),
+            match regime {
+                MarketRegime::Bull => 1.0,
+                MarketRegime::Bear => -1.0,
+                MarketRegime::Range => 0.0,
+            },
+        );
 
         let (side, confidence) = match regime {
             MarketRegime::Bull => {
@@ -155,8 +187,10 @@ impl SignalFormula for RegimeFormula {
             side,
             confidence: confidence.min(90.0),
             indicators,
-            reasoning: format!("Regime: {} (bull {:.1} bear {:.1} net {:.1})",
-                regime_str, bull_score, bear_score, net),
+            reasoning: format!(
+                "Regime: {} (bull {:.1} bear {:.1} net {:.1})",
+                regime_str, bull_score, bear_score, net
+            ),
         }
     }
 }
@@ -167,13 +201,19 @@ mod tests {
 
     #[test]
     fn test_regime_bull() {
-        let candles: Vec<Candle> = (0..60).map(|i| {
-            let base = 100.0 + i as f64 * 1.5;
-            Candle {
-                timestamp: i as u64, open: base - 0.5, high: base + 1.5,
-                low: base - 1.0, close: base + 0.5, volume: 1000.0,
-            }
-        }).collect();
+        let candles: Vec<Candle> = (0..60)
+            .map(|i| {
+                let base = 100.0 + i as f64 * 1.5;
+                Candle {
+                    timestamp: i as u64,
+                    open: base - 0.5,
+                    high: base + 1.5,
+                    low: base - 1.0,
+                    close: base + 0.5,
+                    volume: 1000.0,
+                }
+            })
+            .collect();
         let r = RegimeFormula.compute(&candles, None);
         assert_eq!(r.indicators["regime"], 1.0);
         assert_eq!(r.side, Some(OrderSide::Buy));
@@ -181,13 +221,19 @@ mod tests {
 
     #[test]
     fn test_regime_bear() {
-        let candles: Vec<Candle> = (0..60).map(|i| {
-            let base = 200.0 - i as f64 * 1.5;
-            Candle {
-                timestamp: i as u64, open: base + 0.5, high: base + 1.0,
-                low: base - 1.5, close: base - 0.5, volume: 1000.0,
-            }
-        }).collect();
+        let candles: Vec<Candle> = (0..60)
+            .map(|i| {
+                let base = 200.0 - i as f64 * 1.5;
+                Candle {
+                    timestamp: i as u64,
+                    open: base + 0.5,
+                    high: base + 1.0,
+                    low: base - 1.5,
+                    close: base - 0.5,
+                    volume: 1000.0,
+                }
+            })
+            .collect();
         let r = RegimeFormula.compute(&candles, None);
         assert_eq!(r.indicators["regime"], -1.0);
         assert_eq!(r.side, Some(OrderSide::Sell));
@@ -196,13 +242,19 @@ mod tests {
     #[test]
     fn test_regime_range() {
         // Oscillating price -> range
-        let candles: Vec<Candle> = (0..60).map(|i| {
-            let base = 100.0 + (i as f64 * 0.5).sin() * 2.0;
-            Candle {
-                timestamp: i as u64, open: base, high: base + 0.5,
-                low: base - 0.5, close: base, volume: 1000.0,
-            }
-        }).collect();
+        let candles: Vec<Candle> = (0..60)
+            .map(|i| {
+                let base = 100.0 + (i as f64 * 0.5).sin() * 2.0;
+                Candle {
+                    timestamp: i as u64,
+                    open: base,
+                    high: base + 0.5,
+                    low: base - 0.5,
+                    close: base,
+                    volume: 1000.0,
+                }
+            })
+            .collect();
         let r = RegimeFormula.compute(&candles, None);
         // Regime should be Range or very weakly directional
         assert!(r.indicators.contains_key("regime"));

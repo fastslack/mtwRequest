@@ -55,8 +55,7 @@ impl RateLimiter for TokenBucket {
                 let mut inner = self.inner.lock().await;
                 let now = Instant::now();
                 let elapsed = now.duration_since(inner.last_refill);
-                let tokens_to_add = (elapsed.as_secs_f64()
-                    / inner.refill_interval.as_secs_f64())
+                let tokens_to_add = (elapsed.as_secs_f64() / inner.refill_interval.as_secs_f64())
                     * inner.max_tokens;
                 inner.tokens = (inner.tokens + tokens_to_add).min(inner.max_tokens);
                 inner.last_refill = now;
@@ -66,8 +65,7 @@ impl RateLimiter for TokenBucket {
                     return total_waited;
                 }
 
-                let tokens_per_ms =
-                    inner.max_tokens / inner.refill_interval.as_millis() as f64;
+                let tokens_per_ms = inner.max_tokens / inner.refill_interval.as_millis() as f64;
                 ((1.0 - inner.tokens) / tokens_per_ms).ceil() as u64
             };
 
@@ -125,11 +123,7 @@ impl RateLimiter for SlidingWindowLimiter {
                 let cutoff = now - inner.window;
 
                 // Prune expired timestamps
-                while inner
-                    .timestamps
-                    .front()
-                    .map_or(false, |&t| t <= cutoff)
-                {
+                while inner.timestamps.front().is_some_and(|&t| t <= cutoff) {
                     inner.timestamps.pop_front();
                 }
 
@@ -155,11 +149,7 @@ impl RateLimiter for SlidingWindowLimiter {
             .map(|inner| {
                 let now = Instant::now();
                 let cutoff = now - inner.window;
-                let active = inner
-                    .timestamps
-                    .iter()
-                    .filter(|&&t| t > cutoff)
-                    .count();
+                let active = inner.timestamps.iter().filter(|&&t| t > cutoff).count();
                 inner.max_requests.saturating_sub(active)
             })
             .unwrap_or(0)

@@ -50,9 +50,7 @@ impl StreamProcessingStage {
         Self { config }
     }
 
-    fn detect_format(
-        headers: &std::collections::HashMap<String, String>,
-    ) -> Option<StreamFormat> {
+    fn detect_format(headers: &std::collections::HashMap<String, String>) -> Option<StreamFormat> {
         let ct = headers.get("content-type")?;
         if ct.contains("text/event-stream") {
             Some(StreamFormat::SSE)
@@ -138,12 +136,10 @@ impl PipelineStage for StreamProcessingStage {
 
         // Only process text/bytes bodies
         let text = match &response.body {
-            ResponseBody::Bytes(b) => {
-                match std::str::from_utf8(b) {
-                    Ok(s) => s.to_string(),
-                    Err(_) => return Ok(PipelineAction::Continue(response)),
-                }
-            }
+            ResponseBody::Bytes(b) => match std::str::from_utf8(b) {
+                Ok(s) => s.to_string(),
+                Err(_) => return Ok(PipelineAction::Continue(response)),
+            },
             _ => return Ok(PipelineAction::Continue(response)),
         };
 
@@ -171,10 +167,9 @@ impl PipelineStage for StreamProcessingStage {
             }
         };
 
-        response.metadata.insert(
-            "stream_events".into(),
-            serde_json::Value::Array(events),
-        );
+        response
+            .metadata
+            .insert("stream_events".into(), serde_json::Value::Array(events));
         response.metadata.insert(
             "stream_format".into(),
             serde_json::json!(format!("{:?}", format)),
@@ -204,7 +199,12 @@ mod tests {
 
         let result = stage.process(resp, &mut ctx).await.unwrap();
         if let PipelineAction::Continue(resp) = result {
-            let events = resp.metadata.get("stream_events").unwrap().as_array().unwrap();
+            let events = resp
+                .metadata
+                .get("stream_events")
+                .unwrap()
+                .as_array()
+                .unwrap();
             assert_eq!(events.len(), 2);
             assert_eq!(events[0]["data"], "hello");
             assert_eq!(events[1]["data"], "world");
@@ -236,7 +236,12 @@ mod tests {
 
         let result = stage.process(resp, &mut ctx).await.unwrap();
         if let PipelineAction::Continue(resp) = result {
-            let events = resp.metadata.get("stream_events").unwrap().as_array().unwrap();
+            let events = resp
+                .metadata
+                .get("stream_events")
+                .unwrap()
+                .as_array()
+                .unwrap();
             assert_eq!(events.len(), 3);
             assert_eq!(events[0]["a"], 1);
         } else {
@@ -254,7 +259,7 @@ mod tests {
 
         let result = stage.process(resp, &mut ctx).await.unwrap();
         if let PipelineAction::Continue(resp) = result {
-            assert!(resp.metadata.get("stream_events").is_none());
+            assert!(!resp.metadata.contains_key("stream_events"));
         } else {
             panic!("expected Continue");
         }

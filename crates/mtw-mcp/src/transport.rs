@@ -109,8 +109,7 @@ pub async fn serve_http(server: Arc<McpServer>, addr: std::net::SocketAddr) -> i
                 .data(format!(r#"{{"seq":{}}}"#, n));
             Some((Ok::<_, Infallible>(evt), n + 1))
         });
-        Sse::new(stream)
-            .keep_alive(axum::response::sse::KeepAlive::new())
+        Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::new())
     }
 
     async fn handle_health() -> &'static str {

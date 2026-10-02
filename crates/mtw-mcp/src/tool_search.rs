@@ -66,10 +66,7 @@ pub fn register(server: &mut McpServer) {
                     .and_then(|v| v.as_str())
                     .ok_or("missing 'query'")?
                     .to_lowercase();
-                let limit = args
-                    .get("limit")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(10) as usize;
+                let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
 
                 let mut scored: Vec<(f64, &McpTool)> = cat
                     .iter()

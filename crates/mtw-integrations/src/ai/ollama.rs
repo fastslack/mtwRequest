@@ -260,11 +260,7 @@ impl OllamaProvider {
     }
 
     /// Generate embeddings (one input at a time via /api/embed).
-    pub async fn embed(
-        &self,
-        model: &str,
-        input: Vec<String>,
-    ) -> Result<Vec<Vec<f64>>, String> {
+    pub async fn embed(&self, model: &str, input: Vec<String>) -> Result<Vec<Vec<f64>>, String> {
         let mut all_embeddings = Vec::new();
 
         for text in &input {

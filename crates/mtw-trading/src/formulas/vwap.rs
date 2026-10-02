@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use crate::formula::{FormulaContext, FormulaResult, SignalFormula};
 use crate::types::{Candle, OrderSide};
+use std::collections::HashMap;
 
 /// Volume-Weighted Average Price (VWAP) with deviation bands.
 ///
@@ -12,13 +12,24 @@ use crate::types::{Candle, OrderSide};
 pub struct VwapFormula;
 
 impl SignalFormula for VwapFormula {
-    fn id(&self) -> &str { "vwap" }
-    fn name(&self) -> &str { "VWAP Deviation" }
-    fn description(&self) -> &str { "Volume-weighted average price with standard deviation bands" }
-    fn min_candles(&self) -> usize { 20 }
+    fn id(&self) -> &str {
+        "vwap"
+    }
+    fn name(&self) -> &str {
+        "VWAP Deviation"
+    }
+    fn description(&self) -> &str {
+        "Volume-weighted average price with standard deviation bands"
+    }
+    fn min_candles(&self) -> usize {
+        20
+    }
 
     fn compute(&self, candles: &[Candle], context: Option<&FormulaContext>) -> FormulaResult {
-        let period = context.and_then(|c| c.params.get("period")).copied().unwrap_or(20.0) as usize;
+        let period = context
+            .and_then(|c| c.params.get("period"))
+            .copied()
+            .unwrap_or(20.0) as usize;
         let n = candles.len();
         if n < period {
             return FormulaResult::neutral("insufficient data");
@@ -52,7 +63,11 @@ impl SignalFormula for VwapFormula {
         let std_dev = variance.sqrt();
 
         let price = candles[n - 1].close;
-        let deviation = if std_dev > 0.0 { (price - vwap) / std_dev } else { 0.0 };
+        let deviation = if std_dev > 0.0 {
+            (price - vwap) / std_dev
+        } else {
+            0.0
+        };
 
         let upper_1 = vwap + std_dev;
         let lower_1 = vwap - std_dev;
@@ -99,8 +114,12 @@ mod tests {
             let base = 100.0;
             let close = if i < 20 { base + 2.0 } else { base - 5.0 }; // sudden drop at end
             candles.push(Candle {
-                timestamp: i as u64, open: close, high: close + 1.0,
-                low: close - 1.0, close, volume: 1000.0,
+                timestamp: i as u64,
+                open: close,
+                high: close + 1.0,
+                low: close - 1.0,
+                close,
+                volume: 1000.0,
             });
         }
         let r = VwapFormula.compute(&candles, None);
@@ -114,9 +133,16 @@ mod tests {
     #[test]
     fn test_vwap_at_mean() {
         // All candles at same price -> no signal
-        let candles: Vec<Candle> = (0..25).map(|i| Candle {
-            timestamp: i as u64, open: 100.0, high: 100.5, low: 99.5, close: 100.0, volume: 1000.0,
-        }).collect();
+        let candles: Vec<Candle> = (0..25)
+            .map(|i| Candle {
+                timestamp: i as u64,
+                open: 100.0,
+                high: 100.5,
+                low: 99.5,
+                close: 100.0,
+                volume: 1000.0,
+            })
+            .collect();
         let r = VwapFormula.compute(&candles, None);
         assert!(r.side.is_none());
     }

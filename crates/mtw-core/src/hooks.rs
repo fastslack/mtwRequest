@@ -31,11 +31,7 @@ pub trait LifecycleHooks: Send + Sync {
     }
 
     /// Called after a message has been processed
-    async fn after_message(
-        &self,
-        _conn_id: &ConnId,
-        _msg: &MtwMessage,
-    ) -> Result<(), MtwError> {
+    async fn after_message(&self, _conn_id: &ConnId, _msg: &MtwMessage) -> Result<(), MtwError> {
         Ok(())
     }
 
@@ -97,11 +93,7 @@ impl HookRegistry {
         Ok(Some(msg))
     }
 
-    pub async fn after_message(
-        &self,
-        conn_id: &ConnId,
-        msg: &MtwMessage,
-    ) -> Result<(), MtwError> {
+    pub async fn after_message(&self, conn_id: &ConnId, msg: &MtwMessage) -> Result<(), MtwError> {
         let hooks = self.hooks.read().await;
         for hook in hooks.iter() {
             hook.after_message(conn_id, msg).await?;

@@ -149,10 +149,13 @@ impl ApprovalManager {
             risk_level: gate.risk_level,
             reason: gate.reason.clone(),
             status: ApprovalStatus::Pending,
-            created_at: format!("{}", std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs()),
+            created_at: format!(
+                "{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            ),
             resolved_at: None,
             resolved_by: None,
             expires_at: Some(now + gate.timeout),
@@ -336,6 +339,8 @@ mod tests {
         let gates = default_gates();
         assert!(gates.len() >= 4);
         assert!(gates.iter().any(|g| g.matches("kernel_comms_send")));
-        assert!(gates.iter().any(|g| g.matches("kernel_trading_execute_buy")));
+        assert!(gates
+            .iter()
+            .any(|g| g.matches("kernel_trading_execute_buy")));
     }
 }

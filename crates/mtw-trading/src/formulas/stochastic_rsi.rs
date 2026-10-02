@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use crate::formula::{compute_rsi, FormulaContext, FormulaResult, SignalFormula};
 use crate::types::{Candle, OrderSide};
+use std::collections::HashMap;
 
 /// Stochastic RSI: applies the Stochastic oscillator to RSI values.
 ///
@@ -9,18 +9,44 @@ use crate::types::{Candle, OrderSide};
 pub struct StochasticRsiFormula;
 
 impl SignalFormula for StochasticRsiFormula {
-    fn id(&self) -> &str { "stochastic_rsi" }
-    fn name(&self) -> &str { "Stochastic RSI (14, 14, 3, 3)" }
-    fn description(&self) -> &str { "Momentum: %K/%D crossovers in oversold/overbought zones" }
-    fn min_candles(&self) -> usize { 60 }
+    fn id(&self) -> &str {
+        "stochastic_rsi"
+    }
+    fn name(&self) -> &str {
+        "Stochastic RSI (14, 14, 3, 3)"
+    }
+    fn description(&self) -> &str {
+        "Momentum: %K/%D crossovers in oversold/overbought zones"
+    }
+    fn min_candles(&self) -> usize {
+        60
+    }
 
     fn compute(&self, candles: &[Candle], context: Option<&FormulaContext>) -> FormulaResult {
-        let rsi_period = context.and_then(|c| c.params.get("rsi_period")).copied().unwrap_or(14.0) as usize;
-        let stoch_period = context.and_then(|c| c.params.get("stoch_period")).copied().unwrap_or(14.0) as usize;
-        let k_smooth = context.and_then(|c| c.params.get("k_smooth")).copied().unwrap_or(3.0) as usize;
-        let d_smooth = context.and_then(|c| c.params.get("d_smooth")).copied().unwrap_or(3.0) as usize;
-        let oversold = context.and_then(|c| c.params.get("oversold")).copied().unwrap_or(20.0);
-        let overbought = context.and_then(|c| c.params.get("overbought")).copied().unwrap_or(80.0);
+        let rsi_period = context
+            .and_then(|c| c.params.get("rsi_period"))
+            .copied()
+            .unwrap_or(14.0) as usize;
+        let stoch_period = context
+            .and_then(|c| c.params.get("stoch_period"))
+            .copied()
+            .unwrap_or(14.0) as usize;
+        let k_smooth = context
+            .and_then(|c| c.params.get("k_smooth"))
+            .copied()
+            .unwrap_or(3.0) as usize;
+        let d_smooth = context
+            .and_then(|c| c.params.get("d_smooth"))
+            .copied()
+            .unwrap_or(3.0) as usize;
+        let oversold = context
+            .and_then(|c| c.params.get("oversold"))
+            .copied()
+            .unwrap_or(20.0);
+        let overbought = context
+            .and_then(|c| c.params.get("overbought"))
+            .copied()
+            .unwrap_or(80.0);
 
         let closes: Vec<f64> = candles.iter().map(|c| c.close).collect();
         let rsi = compute_rsi(&closes, rsi_period);
@@ -45,7 +71,11 @@ impl SignalFormula for StochasticRsiFormula {
             let min = window.iter().cloned().fold(f64::INFINITY, f64::min);
             let max = window.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
             let range = max - min;
-            let k = if range > 0.0 { (valid_rsi[i] - min) / range * 100.0 } else { 50.0 };
+            let k = if range > 0.0 {
+                (valid_rsi[i] - min) / range * 100.0
+            } else {
+                50.0
+            };
             stoch_k_raw.push(k);
         }
 
@@ -67,7 +97,11 @@ impl SignalFormula for StochasticRsiFormula {
         // Align D with K: D is shorter by (d_smooth - 1) elements
         let d_offset = k_values.len() - d_values.len();
         let d_idx = k_values.len() - 1 - d_offset;
-        let d_n = if d_idx < d_values.len() { d_values[d_idx] } else { d_values[n] };
+        let d_n = if d_idx < d_values.len() {
+            d_values[d_idx]
+        } else {
+            d_values[n]
+        };
         let d_prev_idx = if d_idx > 0 { d_idx - 1 } else { 0 };
         let d_prev = d_values[d_prev_idx];
 
@@ -82,9 +116,15 @@ impl SignalFormula for StochasticRsiFormula {
         indicators.insert("stoch_rsi_d".into(), (d_n * 100.0).round() / 100.0);
 
         let (side, confidence) = if bullish_cross || in_oversold {
-            (Some(OrderSide::Buy), if bullish_cross { 75.0 } else { 60.0 })
+            (
+                Some(OrderSide::Buy),
+                if bullish_cross { 75.0 } else { 60.0 },
+            )
         } else if bearish_cross || in_overbought {
-            (Some(OrderSide::Sell), if bearish_cross { 75.0 } else { 60.0 })
+            (
+                Some(OrderSide::Sell),
+                if bearish_cross { 75.0 } else { 60.0 },
+            )
         } else {
             (None, 0.0)
         };
@@ -99,7 +139,9 @@ impl SignalFormula for StochasticRsiFormula {
 }
 
 fn sma_smooth(data: &[f64], period: usize) -> Vec<f64> {
-    if data.len() < period || period == 0 { return data.to_vec(); }
+    if data.len() < period || period == 0 {
+        return data.to_vec();
+    }
     let mut result = Vec::with_capacity(data.len() - period + 1);
     let mut sum: f64 = data[..period].iter().sum();
     result.push(sum / period as f64);
@@ -115,9 +157,18 @@ mod tests {
     use super::*;
 
     fn make_candles(prices: &[f64]) -> Vec<Candle> {
-        prices.iter().enumerate().map(|(i, &p)| Candle {
-            timestamp: i as u64, open: p, high: p + 1.0, low: p - 1.0, close: p, volume: 100.0,
-        }).collect()
+        prices
+            .iter()
+            .enumerate()
+            .map(|(i, &p)| Candle {
+                timestamp: i as u64,
+                open: p,
+                high: p + 1.0,
+                low: p - 1.0,
+                close: p,
+                volume: 100.0,
+            })
+            .collect()
     }
 
     #[test]

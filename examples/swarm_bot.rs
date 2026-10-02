@@ -120,9 +120,7 @@ fn parse_args() -> (usize, String, usize) {
                 i += 2;
             }
             "--help" | "-h" => {
-                println!(
-                    "swarm-bot --count N --url ws://host:port/ws [--concurrency 256]"
-                );
+                println!("swarm-bot --count N --url ws://host:port/ws [--concurrency 256]");
                 std::process::exit(0);
             }
             _ => i += 1,

@@ -6,8 +6,8 @@ use futures::Stream;
 use mtw_core::MtwError;
 use std::pin::Pin;
 
-use crate::provider::{FinishReason, StreamChunk, ToolCall, Usage};
 use super::openai::{parse_tool_calls, OaiResponse};
+use crate::provider::{FinishReason, StreamChunk, ToolCall, Usage};
 
 /// Parse an OpenAI-compatible SSE byte stream into a stream of [`StreamChunk`].
 ///

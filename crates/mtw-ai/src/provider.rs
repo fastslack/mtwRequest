@@ -129,7 +129,7 @@ pub struct ToolResult {
 }
 
 /// Completion request sent to a provider
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CompletionRequest {
     pub model: String,
     pub messages: Vec<Message>,
@@ -141,19 +141,6 @@ pub struct CompletionRequest {
     pub max_tokens: Option<u32>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub metadata: HashMap<String, serde_json::Value>,
-}
-
-impl Default for CompletionRequest {
-    fn default() -> Self {
-        Self {
-            model: String::new(),
-            messages: Vec::new(),
-            tools: None,
-            temperature: None,
-            max_tokens: None,
-            metadata: HashMap::new(),
-        }
-    }
 }
 
 /// Completion response from a provider

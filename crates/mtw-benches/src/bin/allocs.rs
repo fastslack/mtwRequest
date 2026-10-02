@@ -67,10 +67,7 @@ fn main() {
     let codec = JsonCodec;
 
     println!("# Deterministic per-operation cost (load-independent)\n");
-    println!(
-        "{:<34} {:>12} {:>14}",
-        "operation", "allocs/op", "bytes/op"
-    );
+    println!("{:<34} {:>12} {:>14}", "operation", "allocs/op", "bytes/op");
     println!("{}", "-".repeat(62));
 
     for &size in &[16usize, 256, 4096] {
@@ -79,7 +76,12 @@ fn main() {
             let out = codec.encode(&msg).unwrap();
             std::hint::black_box(&out);
         });
-        println!("{:<34} {:>12.2} {:>14.0}", format!("json/encode/{size}"), a, b);
+        println!(
+            "{:<34} {:>12.2} {:>14.0}",
+            format!("json/encode/{size}"),
+            a,
+            b
+        );
     }
 
     for &size in &[16usize, 256, 4096] {
@@ -89,7 +91,12 @@ fn main() {
             let out: mtw_protocol::MtwMessage = codec.decode(&bytes).unwrap();
             std::hint::black_box(&out);
         });
-        println!("{:<34} {:>12.2} {:>14.0}", format!("json/decode/{size}"), a, b);
+        println!(
+            "{:<34} {:>12.2} {:>14.0}",
+            format!("json/decode/{size}"),
+            a,
+            b
+        );
     }
 
     // Binary MTW frame encode (the `binary_connections` wire path).
@@ -99,7 +106,12 @@ fn main() {
             let out = mtw_protocol::frame::Frame::encode_message(&msg).unwrap();
             std::hint::black_box(&out);
         });
-        println!("{:<34} {:>12.2} {:>14.0}", format!("frame/encode/{size}"), a, b);
+        println!(
+            "{:<34} {:>12.2} {:>14.0}",
+            format!("frame/encode/{size}"),
+            a,
+            b
+        );
     }
 
     // SharedEnvelope: encode once, then N cheap refcount clones (the fanout path).
@@ -146,10 +158,7 @@ fn main() {
                 .with_channel("ticker.btcusd")
                 .with_metadata("source", serde_json::json!("bench")),
         ),
-        (
-            "decode/+json payload(5 fields)",
-            sample_message(16),
-        ),
+        ("decode/+json payload(5 fields)", sample_message(16)),
     ];
     for (label, msg) in &cases {
         let bytes = codec.encode(msg).unwrap();
@@ -170,18 +179,32 @@ fn main() {
             let out = msg.signing_bytes().unwrap();
             std::hint::black_box(&out);
         });
-        println!("{:<34} {:>12.2} {:>14.0}", format!("signing_bytes/{size}"), a, b);
+        println!(
+            "{:<34} {:>12.2} {:>14.0}",
+            format!("signing_bytes/{size}"),
+            a,
+            b
+        );
     }
 
     // Wire size: JSON vs MsgPack (deterministic, the documented size win).
     println!("\n# Wire size: JSON vs MsgPack (bytes on the wire)\n");
-    println!("{:<20} {:>10} {:>10} {:>10}", "payload", "json", "msgpack", "saving");
+    println!(
+        "{:<20} {:>10} {:>10} {:>10}",
+        "payload", "json", "msgpack", "saving"
+    );
     println!("{}", "-".repeat(52));
     for &size in &[16usize, 256, 4096] {
         let env = SharedEnvelope::new(sample_message(size));
         let j = env.text_bytes().len();
         let m = env.msgpack().len();
         let saving = 100.0 * (j as f64 - m as f64) / j as f64;
-        println!("{:<20} {:>10} {:>10} {:>9.1}%", format!("size={size}"), j, m, saving);
+        println!(
+            "{:<20} {:>10} {:>10} {:>9.1}%",
+            format!("size={size}"),
+            j,
+            m,
+            saving
+        );
     }
 }

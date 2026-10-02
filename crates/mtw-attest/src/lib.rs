@@ -107,19 +107,26 @@ impl Identity {
     /// Generate a fresh identity. Use only for tests / first-boot.
     pub fn generate() -> Self {
         let mut rng = OsRng;
-        Self { signing: SigningKey::generate(&mut rng) }
+        Self {
+            signing: SigningKey::generate(&mut rng),
+        }
     }
 
     /// Load an identity from raw 32-byte secret material. Most callers
     /// will use [`Identity::from_pem_bytes`] or the persistence helpers.
     pub fn from_secret_bytes(secret: &[u8; 32]) -> Self {
-        Self { signing: SigningKey::from_bytes(secret) }
+        Self {
+            signing: SigningKey::from_bytes(secret),
+        }
     }
 
     /// Wire-format server ID (`"ed25519:<hex>"`). Stable across restarts
     /// for the lifetime of the keypair.
     pub fn server_id(&self) -> String {
-        format!("ed25519:{}", hex::encode(self.signing.verifying_key().as_bytes()))
+        format!(
+            "ed25519:{}",
+            hex::encode(self.signing.verifying_key().as_bytes())
+        )
     }
 
     pub fn verifying_key(&self) -> VerifyingKey {
@@ -159,9 +166,7 @@ impl Identity {
 
     /// Load if the file exists, otherwise generate + save. This is the
     /// pattern `mtw-mcp::main` uses at startup.
-    pub fn load_or_create(
-        path: impl AsRef<std::path::Path>,
-    ) -> Result<Self, AttestError> {
+    pub fn load_or_create(path: impl AsRef<std::path::Path>) -> Result<Self, AttestError> {
         let path = path.as_ref();
         if path.exists() {
             return Self::load_from_path(path);
@@ -181,7 +186,9 @@ impl fmt::Debug for Identity {
     /// Never prints the secret. The `Debug` impl shows only the public
     /// fingerprint — pasting an `Identity` into a log file is safe.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Identity").field("server_id", &self.server_id()).finish()
+        f.debug_struct("Identity")
+            .field("server_id", &self.server_id())
+            .finish()
     }
 }
 
@@ -315,9 +322,10 @@ impl Receipt {
         let sig_bytes = B64
             .decode(&self.sig)
             .map_err(|e| AttestError::Base64(e.to_string()))?;
-        let sig: Signature = Signature::from_slice(&sig_bytes)
-            .map_err(|e| AttestError::Crypto(e.to_string()))?;
-        vk.verify(&bytes, &sig).map_err(|_| AttestError::BadSignature)
+        let sig: Signature =
+            Signature::from_slice(&sig_bytes).map_err(|e| AttestError::Crypto(e.to_string()))?;
+        vk.verify(&bytes, &sig)
+            .map_err(|_| AttestError::BadSignature)
     }
 
     /// Canonical bytes of the *full* receipt (including signature) — used
@@ -398,7 +406,10 @@ mod tests {
         let id = Identity::generate();
         let mut r = Receipt::sign(&id, "x", "sha256:00", "sha256:00", vec![], 0);
         r.v = 99;
-        assert!(matches!(r.verify(), Err(AttestError::UnsupportedVersion(99))));
+        assert!(matches!(
+            r.verify(),
+            Err(AttestError::UnsupportedVersion(99))
+        ));
     }
 
     #[test]
@@ -424,7 +435,10 @@ mod tests {
         let id = Identity::from_secret_bytes(&[7u8; 32]);
         let dbg = format!("{:?}", id);
         let secret_hex = hex::encode([7u8; 32]);
-        assert!(!dbg.contains(&secret_hex), "Debug must not print the secret");
+        assert!(
+            !dbg.contains(&secret_hex),
+            "Debug must not print the secret"
+        );
         assert!(dbg.contains("ed25519:"));
     }
 

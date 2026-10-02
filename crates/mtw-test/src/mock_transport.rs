@@ -86,10 +86,7 @@ impl mtw_transport::MtwTransport for MockTransport {
     }
 
     async fn send(&self, conn_id: &ConnId, msg: MtwMessage) -> Result<(), MtwError> {
-        self.sent_messages
-            .lock()
-            .await
-            .push((conn_id.clone(), msg));
+        self.sent_messages.lock().await.push((conn_id.clone(), msg));
         Ok(())
     }
 
@@ -103,10 +100,7 @@ impl mtw_transport::MtwTransport for MockTransport {
     }
 
     async fn close(&self, conn_id: &ConnId) -> Result<(), MtwError> {
-        self.connections
-            .lock()
-            .await
-            .retain(|c| c != conn_id);
+        self.connections.lock().await.retain(|c| c != conn_id);
         Ok(())
     }
 

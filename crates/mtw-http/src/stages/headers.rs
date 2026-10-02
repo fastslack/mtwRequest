@@ -166,7 +166,7 @@ mod tests {
 
         let result = stage.process(resp, &mut ctx).await.unwrap();
         if let PipelineAction::Continue(resp) = result {
-            assert!(resp.metadata.get("extracted_headers").is_none());
+            assert!(!resp.metadata.contains_key("extracted_headers"));
         } else {
             panic!("expected Continue");
         }

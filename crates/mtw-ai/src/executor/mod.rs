@@ -15,12 +15,8 @@ use std::time::Instant;
 
 use crate::chain::ChainRegistry;
 use crate::feedback::FeedbackStore;
-use crate::provider::{
-    CompletionRequest, Message, MtwAIProvider, ToolCall, ToolDef, ToolResult,
-};
-use crate::store::{
-    AgentMemoryRecord, AgentStore, MemoryRole, RunFilter, RunUpdate,
-};
+use crate::provider::{CompletionRequest, Message, MtwAIProvider, ToolCall, ToolDef, ToolResult};
+use crate::store::{AgentMemoryRecord, AgentStore, MemoryRole, RunFilter, RunUpdate};
 use crate::trigger::TriggerType;
 
 // ---------------------------------------------------------------------------
@@ -93,10 +89,7 @@ impl ExecutorEngine {
 
     /// Look up an agent config, first in the in-memory map, then in the
     /// persistent store if configured.
-    async fn resolve_agent_config(
-        &self,
-        agent_id: &str,
-    ) -> Result<Option<AgentConfig>, MtwError> {
+    async fn resolve_agent_config(&self, agent_id: &str) -> Result<Option<AgentConfig>, MtwError> {
         if let Some(cfg) = self.agent_configs.get(agent_id) {
             return Ok(Some(cfg.value().clone()));
         }
@@ -108,10 +101,7 @@ impl ExecutorEngine {
 
     /// List currently-active run IDs from the persistent store for a given
     /// agent, or an empty vec if no store is configured.
-    pub async fn list_runs(
-        &self,
-        filter: &RunFilter,
-    ) -> Result<Vec<AgentRun>, MtwError> {
+    pub async fn list_runs(&self, filter: &RunFilter) -> Result<Vec<AgentRun>, MtwError> {
         match &self.store {
             Some(s) => s.list_runs(filter).await,
             None => Ok(Vec::new()),
@@ -202,6 +192,7 @@ impl ExecutorEngine {
     }
 
     /// Record a step and return it.
+    #[allow(clippy::too_many_arguments)]
     fn make_step(
         run_id: &str,
         step_number: u32,
@@ -306,7 +297,8 @@ impl ExecutorEngine {
         };
 
         // Initialize messages — pre-allocate for typical multi-step runs
-        let mut messages: Vec<Message> = Vec::with_capacity(2 + (config.max_iterations as usize * 2));
+        let mut messages: Vec<Message> =
+            Vec::with_capacity(2 + (config.max_iterations as usize * 2));
         messages.push(Message::system(&system_prompt));
         messages.push(Message::user(goal));
 
@@ -357,10 +349,7 @@ impl ExecutorEngine {
                 return ExecutionResult {
                     status: RunStatus::Failed,
                     result: String::new(),
-                    error: format!(
-                        "too many consecutive errors ({})",
-                        consecutive_errors
-                    ),
+                    error: format!("too many consecutive errors ({})", consecutive_errors),
                     steps_count: steps.len() as u32,
                     tokens_used,
                 };
@@ -535,17 +524,15 @@ impl ExecutorEngine {
             // We add the assistant message indicating tool use, then the tool
             // result messages. The exact wire format depends on the provider,
             // but we approximate with role=Tool messages carrying the output.
-            messages.push(Message::assistant(
-                &format!(
-                    "[tool_use: {}]",
-                    response
-                        .tool_calls
-                        .iter()
-                        .map(|tc| tc.name.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
-            ));
+            messages.push(Message::assistant(format!(
+                "[tool_use: {}]",
+                response
+                    .tool_calls
+                    .iter()
+                    .map(|tc| tc.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )));
 
             for tr in &tool_results {
                 let tool_msg = Message {
@@ -566,10 +553,7 @@ impl ExecutorEngine {
         ExecutionResult {
             status: RunStatus::Failed,
             result: String::new(),
-            error: format!(
-                "max iterations reached ({})",
-                config.max_iterations
-            ),
+            error: format!("max iterations reached ({})", config.max_iterations),
             steps_count: steps.len() as u32,
             tokens_used,
         }
@@ -657,10 +641,7 @@ impl ExecutorEngine {
 
             // Build the goal for the chained agent
             let chained_goal = if chain.pass_result {
-                format!(
-                    "Continue from previous agent result:\n\n{}",
-                    result.result
-                )
+                format!("Continue from previous agent result:\n\n{}", result.result)
             } else {
                 // Use the target agent's default goal or a generic one
                 "Execute your default task".to_string()
@@ -697,7 +678,10 @@ impl ExecutorEngine {
                     store: engine_store,
                 };
 
-                match engine.execute(&target_id, &chained_goal, &exec_config).await {
+                match engine
+                    .execute(&target_id, &chained_goal, &exec_config)
+                    .await
+                {
                     Ok(chain_result) => {
                         tracing::info!(
                             target = %target_id,
@@ -734,9 +718,7 @@ impl MtwAgentExecutor for ExecutorEngine {
         let agent_config = self
             .resolve_agent_config(agent_id)
             .await?
-            .ok_or_else(|| {
-                MtwError::Agent(format!("agent config not found: {}", agent_id))
-            })?;
+            .ok_or_else(|| MtwError::Agent(format!("agent config not found: {}", agent_id)))?;
 
         let run_id = ulid::Ulid::new().to_string();
         let created_at = Self::now_timestamp();
@@ -872,8 +854,7 @@ impl MtwAgentExecutor for ExecutorEngine {
 mod tests {
     use super::*;
     use crate::provider::{
-        CompletionResponse, FinishReason, ModelInfo, ProviderCapabilities,
-        StreamChunk, Usage,
+        CompletionResponse, FinishReason, ModelInfo, ProviderCapabilities, StreamChunk, Usage,
     };
     use futures::Stream;
     use std::pin::Pin;
@@ -906,10 +887,7 @@ mod tests {
             }
         }
 
-        fn tool_call_response(
-            tool_name: &str,
-            args: Value,
-        ) -> CompletionResponse {
+        fn tool_call_response(tool_name: &str, args: Value) -> CompletionResponse {
             CompletionResponse {
                 id: ulid::Ulid::new().to_string(),
                 model: "mock".to_string(),
@@ -968,10 +946,7 @@ mod tests {
             }
         }
 
-        async fn complete(
-            &self,
-            _req: CompletionRequest,
-        ) -> Result<CompletionResponse, MtwError> {
+        async fn complete(&self, _req: CompletionRequest) -> Result<CompletionResponse, MtwError> {
             let mut responses = self.responses.lock().unwrap();
             if responses.is_empty() {
                 Ok(Self::simple_response("default response"))
@@ -983,8 +958,7 @@ mod tests {
         fn stream(
             &self,
             _req: CompletionRequest,
-        ) -> Pin<Box<dyn Stream<Item = Result<StreamChunk, MtwError>> + Send>>
-        {
+        ) -> Pin<Box<dyn Stream<Item = Result<StreamChunk, MtwError>> + Send>> {
             Box::pin(futures::stream::empty())
         }
 
@@ -1022,10 +996,7 @@ mod tests {
             }),
             handler: Arc::new(|args| {
                 Box::pin(async move {
-                    let text = args
-                        .get("text")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("echo");
+                    let text = args.get("text").and_then(|v| v.as_str()).unwrap_or("echo");
                     Ok(serde_json::json!({ "echoed": text }))
                 })
             }),
@@ -1060,8 +1031,7 @@ mod tests {
         vars.insert("name".to_string(), "Alice".to_string());
         vars.insert("task".to_string(), "search".to_string());
 
-        let result =
-            ExecutorEngine::interpolate("Hello {{name}}, please {{task}}", &vars);
+        let result = ExecutorEngine::interpolate("Hello {{name}}, please {{task}}", &vars);
         assert_eq!(result, "Hello Alice, please search");
     }
 
@@ -1074,9 +1044,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_simple_execution() {
-        let engine = make_engine(vec![MockProvider::simple_response(
-            "The answer is 42",
-        )]);
+        let engine = make_engine(vec![MockProvider::simple_response("The answer is 42")]);
 
         let config = ExecutionConfig::default();
         let result = engine
@@ -1094,10 +1062,7 @@ mod tests {
     #[tokio::test]
     async fn test_tool_call_execution() {
         let engine = make_engine(vec![
-            MockProvider::tool_call_response(
-                "echo",
-                serde_json::json!({"text": "hello"}),
-            ),
+            MockProvider::tool_call_response("echo", serde_json::json!({"text": "hello"})),
             MockProvider::simple_response("Done echoing"),
         ]);
         register_echo_tool(&engine);
@@ -1142,10 +1107,7 @@ mod tests {
     #[tokio::test]
     async fn test_unknown_tool() {
         let engine = make_engine(vec![
-            MockProvider::tool_call_response(
-                "nonexistent",
-                serde_json::json!({}),
-            ),
+            MockProvider::tool_call_response("nonexistent", serde_json::json!({})),
             MockProvider::simple_response("Recovered"),
         ]);
 
@@ -1163,9 +1125,7 @@ mod tests {
     async fn test_missing_agent_config() {
         let engine = ExecutorEngine::new("mock");
         let config = ExecutionConfig::default();
-        let result = engine
-            .execute("nonexistent", "Hello", &config)
-            .await;
+        let result = engine.execute("nonexistent", "Hello", &config).await;
         assert!(result.is_err());
     }
 
@@ -1203,18 +1163,9 @@ mod tests {
     async fn test_loop_detection() {
         // Return the same tool call 3 times with the same result
         let engine = make_engine(vec![
-            MockProvider::tool_call_response(
-                "echo",
-                serde_json::json!({"text": "same"}),
-            ),
-            MockProvider::tool_call_response(
-                "echo",
-                serde_json::json!({"text": "same"}),
-            ),
-            MockProvider::tool_call_response(
-                "echo",
-                serde_json::json!({"text": "same"}),
-            ),
+            MockProvider::tool_call_response("echo", serde_json::json!({"text": "same"})),
+            MockProvider::tool_call_response("echo", serde_json::json!({"text": "same"})),
+            MockProvider::tool_call_response("echo", serde_json::json!({"text": "same"})),
         ]);
         register_echo_tool(&engine);
 
@@ -1395,9 +1346,7 @@ mod tests {
             name: "echo".into(),
             description: "echo".into(),
             parameters: serde_json::json!({}),
-            handler: Arc::new(|args| {
-                Box::pin(async move { Ok(args) })
-            }),
+            handler: Arc::new(|args| Box::pin(async move { Ok(args) })),
         });
 
         let result = engine

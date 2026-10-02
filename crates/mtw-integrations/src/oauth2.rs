@@ -91,11 +91,7 @@ impl OAuth2Client {
         let scopes = self.config.scopes.join(" ");
         format!(
             "{}?client_id={}&redirect_uri={}&response_type=code&scope={}&state={}",
-            self.config.auth_url,
-            self.config.client_id,
-            self.config.redirect_uri,
-            scopes,
-            state,
+            self.config.auth_url, self.config.client_id, self.config.redirect_uri, scopes, state,
         )
     }
 
@@ -277,10 +273,7 @@ impl OAuth2Client {
 
         Ok(OAuth2TokenResponse {
             access_token,
-            token_type: body["token_type"]
-                .as_str()
-                .unwrap_or("Bearer")
-                .to_string(),
+            token_type: body["token_type"].as_str().unwrap_or("Bearer").to_string(),
             expires_in: body["expires_in"].as_u64(),
             refresh_token: body["refresh_token"].as_str().map(|s| s.to_string()),
             scope: body["scope"].as_str().map(|s| s.to_string()),
@@ -293,7 +286,11 @@ impl OAuth2Client {
 // ---------------------------------------------------------------------------
 
 /// Create a pre-configured OAuth2Config for GitHub.
-pub fn github_oauth2(client_id: String, client_secret: String, redirect_uri: String) -> OAuth2Config {
+pub fn github_oauth2(
+    client_id: String,
+    client_secret: String,
+    redirect_uri: String,
+) -> OAuth2Config {
     OAuth2Config {
         client_id,
         client_secret,
@@ -305,7 +302,11 @@ pub fn github_oauth2(client_id: String, client_secret: String, redirect_uri: Str
 }
 
 /// Create a pre-configured OAuth2Config for GitLab.
-pub fn gitlab_oauth2(client_id: String, client_secret: String, redirect_uri: String) -> OAuth2Config {
+pub fn gitlab_oauth2(
+    client_id: String,
+    client_secret: String,
+    redirect_uri: String,
+) -> OAuth2Config {
     OAuth2Config {
         client_id,
         client_secret,
@@ -317,7 +318,11 @@ pub fn gitlab_oauth2(client_id: String, client_secret: String, redirect_uri: Str
 }
 
 /// Create a pre-configured OAuth2Config for Slack.
-pub fn slack_oauth2(client_id: String, client_secret: String, redirect_uri: String) -> OAuth2Config {
+pub fn slack_oauth2(
+    client_id: String,
+    client_secret: String,
+    redirect_uri: String,
+) -> OAuth2Config {
     OAuth2Config {
         client_id,
         client_secret,
@@ -329,7 +334,11 @@ pub fn slack_oauth2(client_id: String, client_secret: String, redirect_uri: Stri
 }
 
 /// Create a pre-configured OAuth2Config for Discord.
-pub fn discord_oauth2(client_id: String, client_secret: String, redirect_uri: String) -> OAuth2Config {
+pub fn discord_oauth2(
+    client_id: String,
+    client_secret: String,
+    redirect_uri: String,
+) -> OAuth2Config {
     OAuth2Config {
         client_id,
         client_secret,
@@ -341,7 +350,11 @@ pub fn discord_oauth2(client_id: String, client_secret: String, redirect_uri: St
 }
 
 /// Create a pre-configured OAuth2Config for Stripe Connect.
-pub fn stripe_oauth2(client_id: String, client_secret: String, redirect_uri: String) -> OAuth2Config {
+pub fn stripe_oauth2(
+    client_id: String,
+    client_secret: String,
+    redirect_uri: String,
+) -> OAuth2Config {
     OAuth2Config {
         client_id,
         client_secret,
@@ -353,7 +366,11 @@ pub fn stripe_oauth2(client_id: String, client_secret: String, redirect_uri: Str
 }
 
 /// Create a pre-configured OAuth2Config for PayPal.
-pub fn paypal_oauth2(client_id: String, client_secret: String, redirect_uri: String) -> OAuth2Config {
+pub fn paypal_oauth2(
+    client_id: String,
+    client_secret: String,
+    redirect_uri: String,
+) -> OAuth2Config {
     OAuth2Config {
         client_id,
         client_secret,
@@ -365,21 +382,27 @@ pub fn paypal_oauth2(client_id: String, client_secret: String, redirect_uri: Str
 }
 
 /// Create a pre-configured OAuth2Config for Google (Cloud Storage, Firebase, etc.).
-pub fn google_oauth2(client_id: String, client_secret: String, redirect_uri: String) -> OAuth2Config {
+pub fn google_oauth2(
+    client_id: String,
+    client_secret: String,
+    redirect_uri: String,
+) -> OAuth2Config {
     OAuth2Config {
         client_id,
         client_secret,
         redirect_uri,
         auth_url: "https://accounts.google.com/o/oauth2/v2/auth".to_string(),
         token_url: "https://oauth2.googleapis.com/token".to_string(),
-        scopes: vec![
-            "https://www.googleapis.com/auth/devstorage.read_write".to_string(),
-        ],
+        scopes: vec!["https://www.googleapis.com/auth/devstorage.read_write".to_string()],
     }
 }
 
 /// Create a pre-configured OAuth2Config for Notion.
-pub fn notion_oauth2(client_id: String, client_secret: String, redirect_uri: String) -> OAuth2Config {
+pub fn notion_oauth2(
+    client_id: String,
+    client_secret: String,
+    redirect_uri: String,
+) -> OAuth2Config {
     OAuth2Config {
         client_id,
         client_secret,
@@ -391,7 +414,11 @@ pub fn notion_oauth2(client_id: String, client_secret: String, redirect_uri: Str
 }
 
 /// Create a pre-configured OAuth2Config for Airtable.
-pub fn airtable_oauth2(client_id: String, client_secret: String, redirect_uri: String) -> OAuth2Config {
+pub fn airtable_oauth2(
+    client_id: String,
+    client_secret: String,
+    redirect_uri: String,
+) -> OAuth2Config {
     OAuth2Config {
         client_id,
         client_secret,
@@ -413,15 +440,16 @@ pub fn jira_oauth2(client_id: String, client_secret: String, redirect_uri: Strin
         redirect_uri,
         auth_url: "https://auth.atlassian.com/authorize".to_string(),
         token_url: "https://auth.atlassian.com/oauth/token".to_string(),
-        scopes: vec![
-            "read:jira-work".to_string(),
-            "write:jira-work".to_string(),
-        ],
+        scopes: vec!["read:jira-work".to_string(), "write:jira-work".to_string()],
     }
 }
 
 /// Create a pre-configured OAuth2Config for Linear.
-pub fn linear_oauth2(client_id: String, client_secret: String, redirect_uri: String) -> OAuth2Config {
+pub fn linear_oauth2(
+    client_id: String,
+    client_secret: String,
+    redirect_uri: String,
+) -> OAuth2Config {
     OAuth2Config {
         client_id,
         client_secret,
@@ -433,7 +461,11 @@ pub fn linear_oauth2(client_id: String, client_secret: String, redirect_uri: Str
 }
 
 /// Create a pre-configured OAuth2Config for Vercel.
-pub fn vercel_oauth2(client_id: String, client_secret: String, redirect_uri: String) -> OAuth2Config {
+pub fn vercel_oauth2(
+    client_id: String,
+    client_secret: String,
+    redirect_uri: String,
+) -> OAuth2Config {
     OAuth2Config {
         client_id,
         client_secret,
@@ -476,10 +508,7 @@ mod tests {
         let json = serde_json::to_string(&config).unwrap();
         let parsed: OAuth2Config = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.client_id, "id");
-        assert_eq!(
-            parsed.auth_url,
-            "https://github.com/login/oauth/authorize"
-        );
+        assert_eq!(parsed.auth_url, "https://github.com/login/oauth/authorize");
     }
 
     #[tokio::test]

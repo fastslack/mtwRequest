@@ -101,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── Bridge (optional — connects when external service is available) ──
     let bridge: Option<Arc<dyn mtw_bridge::MtwBridge>> =
-        if let Some(ref bridge_cfg) = config.store.as_ref().and_then(|s| s.bridge.as_ref()) {
+        if let Some(bridge_cfg) = config.store.as_ref().and_then(|s| s.bridge.as_ref()) {
             match mtw_bridge::from_config(&mtw_bridge::BridgeConfig {
                 socket: bridge_cfg.socket.clone(),
                 address: bridge_cfg.address.clone(),
@@ -134,8 +134,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("listening on ws://{}{}", addr, ws_path);
 
     // ── Rust Bridge Server (for mtwKernel delegation) ──────
-    let bridge_socket = std::env::var("RUST_BRIDGE_SOCKET")
-        .unwrap_or_else(|_| default_bridge_socket().to_string());
+    let bridge_socket =
+        std::env::var("RUST_BRIDGE_SOCKET").unwrap_or_else(|_| default_bridge_socket().to_string());
 
     let services = rust_services::RustServices::new();
     let bridge_server = mtw_bridge::server::BridgeServer::new(&bridge_socket);
@@ -154,7 +154,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── Channels & Router ───────────────────────────────────
     let mut channel_mgr = ChannelManager::new();
-    let mut channel_rx = channel_mgr.take_message_receiver().unwrap();
+    let channel_rx = channel_mgr.take_message_receiver().unwrap();
 
     for ch_config in &config.channels {
         let max_members = ch_config.max_members;
@@ -315,7 +315,9 @@ async fn handle_event(
         }
 
         TransportEvent::Message(ref conn_id, ref msg) => {
-            if let Err(e) = handle_message(conn_id, msg, transport, router, store, bridge, whatsapp).await {
+            if let Err(e) =
+                handle_message(conn_id, msg, transport, router, store, bridge, whatsapp).await
+            {
                 tracing::error!(conn_id = %conn_id, error = %e, "message handling error");
                 let err_msg = MtwMessage::error(500, e.to_string());
                 let _ = transport.send(conn_id, err_msg).await;
@@ -582,6 +584,9 @@ mod stdin_eof_tests {
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
         assert!(!waiter.is_finished(), "returned before EOF");
         drop(w);
-        tokio::time::timeout(std::time::Duration::from_secs(2), waiter).await.unwrap().unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), waiter)
+            .await
+            .unwrap()
+            .unwrap();
     }
 }

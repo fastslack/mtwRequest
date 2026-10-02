@@ -162,9 +162,10 @@ impl ModuleRegistry {
         for name in &self.load_order.clone() {
             if let Some(module) = self.modules.get_mut(name) {
                 tracing::info!(module = %name, "loading module");
-                module.on_load(ctx).await.map_err(|e| {
-                    MtwError::module(name, format!("failed to load: {}", e))
-                })?;
+                module
+                    .on_load(ctx)
+                    .await
+                    .map_err(|e| MtwError::module(name, format!("failed to load: {}", e)))?;
             }
         }
         Ok(())
@@ -175,9 +176,10 @@ impl ModuleRegistry {
         for name in &self.load_order.clone() {
             if let Some(module) = self.modules.get_mut(name) {
                 tracing::info!(module = %name, "starting module");
-                module.on_start(ctx).await.map_err(|e| {
-                    MtwError::module(name, format!("failed to start: {}", e))
-                })?;
+                module
+                    .on_start(ctx)
+                    .await
+                    .map_err(|e| MtwError::module(name, format!("failed to start: {}", e)))?;
             }
         }
         Ok(())
@@ -298,9 +300,7 @@ mod tests {
     #[test]
     fn test_duplicate_registration() {
         let mut registry = ModuleRegistry::new();
-        registry
-            .register(Box::new(TestModule::new("dup")))
-            .unwrap();
+        registry.register(Box::new(TestModule::new("dup"))).unwrap();
         let result = registry.register(Box::new(TestModule::new("dup")));
         assert!(result.is_err());
     }

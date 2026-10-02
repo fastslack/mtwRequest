@@ -87,12 +87,7 @@ impl PeerDiscovery {
 
     /// Get all discovered peers
     pub fn discovered_peers(&self) -> Vec<FederationInstance> {
-        self.discovered
-            .read()
-            .unwrap()
-            .values()
-            .cloned()
-            .collect()
+        self.discovered.read().unwrap().values().cloned().collect()
     }
 
     /// Get discovery config

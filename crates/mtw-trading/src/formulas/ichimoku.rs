@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use crate::formula::{FormulaContext, FormulaResult, SignalFormula};
 use crate::types::{Candle, OrderSide};
+use std::collections::HashMap;
 
 /// Ichimoku Cloud indicator.
 ///
@@ -17,19 +17,32 @@ use crate::types::{Candle, OrderSide};
 pub struct IchimokuFormula;
 
 fn period_midpoint(candles: &[Candle], end: usize, period: usize) -> f64 {
-    if end + 1 < period { return 0.0; }
+    if end + 1 < period {
+        return 0.0;
+    }
     let start = end + 1 - period;
     let slice = &candles[start..=end];
-    let high = slice.iter().map(|c| c.high).fold(f64::NEG_INFINITY, f64::max);
+    let high = slice
+        .iter()
+        .map(|c| c.high)
+        .fold(f64::NEG_INFINITY, f64::max);
     let low = slice.iter().map(|c| c.low).fold(f64::INFINITY, f64::min);
     (high + low) / 2.0
 }
 
 impl SignalFormula for IchimokuFormula {
-    fn id(&self) -> &str { "ichimoku" }
-    fn name(&self) -> &str { "Ichimoku Cloud (9/26/52)" }
-    fn description(&self) -> &str { "Multi-component trend system with score-based signals" }
-    fn min_candles(&self) -> usize { 55 }
+    fn id(&self) -> &str {
+        "ichimoku"
+    }
+    fn name(&self) -> &str {
+        "Ichimoku Cloud (9/26/52)"
+    }
+    fn description(&self) -> &str {
+        "Multi-component trend system with score-based signals"
+    }
+    fn min_candles(&self) -> usize {
+        55
+    }
 
     fn compute(&self, candles: &[Candle], _context: Option<&FormulaContext>) -> FormulaResult {
         let n = candles.len() - 1;
@@ -90,7 +103,10 @@ impl SignalFormula for IchimokuFormula {
             side,
             confidence: confidence.min(95.0),
             indicators,
-            reasoning: format!("Ichimoku score {:.0} tenkan {:.2} kijun {:.2}", score, tenkan, kijun),
+            reasoning: format!(
+                "Ichimoku score {:.0} tenkan {:.2} kijun {:.2}",
+                score, tenkan, kijun
+            ),
         }
     }
 }
@@ -101,13 +117,19 @@ mod tests {
 
     #[test]
     fn test_ichimoku_uptrend() {
-        let candles: Vec<Candle> = (0..60).map(|i| {
-            let base = 100.0 + i as f64 * 1.5;
-            Candle {
-                timestamp: i as u64, open: base, high: base + 2.0,
-                low: base - 1.0, close: base + 1.0, volume: 100.0,
-            }
-        }).collect();
+        let candles: Vec<Candle> = (0..60)
+            .map(|i| {
+                let base = 100.0 + i as f64 * 1.5;
+                Candle {
+                    timestamp: i as u64,
+                    open: base,
+                    high: base + 2.0,
+                    low: base - 1.0,
+                    close: base + 1.0,
+                    volume: 100.0,
+                }
+            })
+            .collect();
         let r = IchimokuFormula.compute(&candles, None);
         // Price well above cloud in uptrend
         assert!(r.indicators.contains_key("tenkan"));
@@ -116,13 +138,19 @@ mod tests {
 
     #[test]
     fn test_ichimoku_downtrend() {
-        let candles: Vec<Candle> = (0..60).map(|i| {
-            let base = 200.0 - i as f64 * 1.5;
-            Candle {
-                timestamp: i as u64, open: base, high: base + 1.0,
-                low: base - 2.0, close: base - 1.0, volume: 100.0,
-            }
-        }).collect();
+        let candles: Vec<Candle> = (0..60)
+            .map(|i| {
+                let base = 200.0 - i as f64 * 1.5;
+                Candle {
+                    timestamp: i as u64,
+                    open: base,
+                    high: base + 1.0,
+                    low: base - 2.0,
+                    close: base - 1.0,
+                    volume: 100.0,
+                }
+            })
+            .collect();
         let r = IchimokuFormula.compute(&candles, None);
         if r.side.is_some() {
             assert_eq!(r.side, Some(OrderSide::Sell));

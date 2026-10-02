@@ -99,10 +99,7 @@ impl MtwSyncTransport for HttpSyncTransport {
         peer: &FederationPeer,
         changes: &[ChangeLogEntry],
     ) -> Result<bool, MtwError> {
-        let url = format!(
-            "{}/api/federation/push",
-            peer.url.trim_end_matches('/')
-        );
+        let url = format!("{}/api/federation/push", peer.url.trim_end_matches('/'));
 
         let resp = self
             .client

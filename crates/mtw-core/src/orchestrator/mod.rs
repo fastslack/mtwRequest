@@ -1,11 +1,12 @@
-pub mod types;
-pub mod command;
-pub mod callback;
-pub mod orchestrator;
 pub mod builtins;
+pub mod callback;
+pub mod command;
+#[allow(clippy::module_inception)]
+pub mod orchestrator;
+pub mod types;
 
-pub use types::*;
-pub use command::*;
-pub use callback::*;
-pub use orchestrator::*;
 pub use builtins::*;
+pub use callback::*;
+pub use command::*;
+pub use orchestrator::*;
+pub use types::*;

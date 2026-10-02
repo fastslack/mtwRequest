@@ -82,7 +82,10 @@ impl MiddlewareChain {
                     return Ok(None);
                 }
                 MiddlewareAction::Transform(m) => msg = m,
-                MiddlewareAction::Redirect { channel, msg: mut m } => {
+                MiddlewareAction::Redirect {
+                    channel,
+                    msg: mut m,
+                } => {
                     m.channel = Some(channel);
                     msg = m;
                 }
@@ -102,7 +105,10 @@ impl MiddlewareChain {
                 MiddlewareAction::Continue(m) => msg = m,
                 MiddlewareAction::Halt => return Ok(None),
                 MiddlewareAction::Transform(m) => msg = m,
-                MiddlewareAction::Redirect { channel, msg: mut m } => {
+                MiddlewareAction::Redirect {
+                    channel,
+                    msg: mut m,
+                } => {
                     m.channel = Some(channel);
                     msg = m;
                 }

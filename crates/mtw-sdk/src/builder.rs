@@ -121,15 +121,15 @@ impl ModuleManifestBuilder {
 
     /// Build the manifest, returning an error if required fields are missing
     pub fn build(self) -> Result<ModuleManifest, MtwError> {
-        let name = self.name.ok_or_else(|| {
-            MtwError::Config("module name is required".to_string())
-        })?;
-        let version = self.version.ok_or_else(|| {
-            MtwError::Config("module version is required".to_string())
-        })?;
-        let module_type = self.module_type.ok_or_else(|| {
-            MtwError::Config("module type is required".to_string())
-        })?;
+        let name = self
+            .name
+            .ok_or_else(|| MtwError::Config("module name is required".to_string()))?;
+        let version = self
+            .version
+            .ok_or_else(|| MtwError::Config("module version is required".to_string()))?;
+        let module_type = self
+            .module_type
+            .ok_or_else(|| MtwError::Config("module type is required".to_string()))?;
 
         Ok(ModuleManifest {
             name,
@@ -284,8 +284,7 @@ mod tests {
 
     #[test]
     fn test_create_manifest() {
-        let manifest =
-            create_manifest("my-module", "1.0.0", ModuleType::Middleware).unwrap();
+        let manifest = create_manifest("my-module", "1.0.0", ModuleType::Middleware).unwrap();
         assert_eq!(manifest.name, "my-module");
         assert_eq!(manifest.version, "1.0.0");
     }

@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use crate::formula::{FormulaContext, FormulaResult, SignalFormula};
 use crate::types::{Candle, OrderSide};
+use std::collections::HashMap;
 
 /// Williams %R oscillator.
 ///
@@ -12,15 +12,32 @@ use crate::types::{Candle, OrderSide};
 pub struct WilliamsRFormula;
 
 impl SignalFormula for WilliamsRFormula {
-    fn id(&self) -> &str { "williams_r" }
-    fn name(&self) -> &str { "Williams %R (14)" }
-    fn description(&self) -> &str { "Momentum: overbought/oversold oscillator (-100 to 0)" }
-    fn min_candles(&self) -> usize { 15 }
+    fn id(&self) -> &str {
+        "williams_r"
+    }
+    fn name(&self) -> &str {
+        "Williams %R (14)"
+    }
+    fn description(&self) -> &str {
+        "Momentum: overbought/oversold oscillator (-100 to 0)"
+    }
+    fn min_candles(&self) -> usize {
+        15
+    }
 
     fn compute(&self, candles: &[Candle], context: Option<&FormulaContext>) -> FormulaResult {
-        let period = context.and_then(|c| c.params.get("period")).copied().unwrap_or(14.0) as usize;
-        let overbought = context.and_then(|c| c.params.get("overbought")).copied().unwrap_or(-20.0);
-        let oversold = context.and_then(|c| c.params.get("oversold")).copied().unwrap_or(-80.0);
+        let period = context
+            .and_then(|c| c.params.get("period"))
+            .copied()
+            .unwrap_or(14.0) as usize;
+        let overbought = context
+            .and_then(|c| c.params.get("overbought"))
+            .copied()
+            .unwrap_or(-20.0);
+        let oversold = context
+            .and_then(|c| c.params.get("oversold"))
+            .copied()
+            .unwrap_or(-80.0);
 
         let n = candles.len();
         if n < period {
@@ -28,7 +45,10 @@ impl SignalFormula for WilliamsRFormula {
         }
 
         let window = &candles[n - period..n];
-        let highest = window.iter().map(|c| c.high).fold(f64::NEG_INFINITY, f64::max);
+        let highest = window
+            .iter()
+            .map(|c| c.high)
+            .fold(f64::NEG_INFINITY, f64::max);
         let lowest = window.iter().map(|c| c.low).fold(f64::INFINITY, f64::min);
         let close = candles[n - 1].close;
 
@@ -42,11 +62,21 @@ impl SignalFormula for WilliamsRFormula {
         // Also compute previous %R for crossover detection
         let prev_wr = if n > period {
             let prev_window = &candles[n - 1 - period..n - 1];
-            let ph = prev_window.iter().map(|c| c.high).fold(f64::NEG_INFINITY, f64::max);
-            let pl = prev_window.iter().map(|c| c.low).fold(f64::INFINITY, f64::min);
+            let ph = prev_window
+                .iter()
+                .map(|c| c.high)
+                .fold(f64::NEG_INFINITY, f64::max);
+            let pl = prev_window
+                .iter()
+                .map(|c| c.low)
+                .fold(f64::INFINITY, f64::min);
             let prev_close = candles[n - 2].close;
             let pr = ph - pl;
-            if pr > 0.0 { ((ph - prev_close) / pr) * -100.0 } else { -50.0 }
+            if pr > 0.0 {
+                ((ph - prev_close) / pr) * -100.0
+            } else {
+                -50.0
+            }
         } else {
             -50.0
         };
@@ -87,9 +117,18 @@ mod tests {
     use super::*;
 
     fn make_candles(prices: &[f64]) -> Vec<Candle> {
-        prices.iter().enumerate().map(|(i, &p)| Candle {
-            timestamp: i as u64, open: p, high: p + 1.0, low: p - 1.0, close: p, volume: 100.0,
-        }).collect()
+        prices
+            .iter()
+            .enumerate()
+            .map(|(i, &p)| Candle {
+                timestamp: i as u64,
+                open: p,
+                high: p + 1.0,
+                low: p - 1.0,
+                close: p,
+                volume: 100.0,
+            })
+            .collect()
     }
 
     #[test]

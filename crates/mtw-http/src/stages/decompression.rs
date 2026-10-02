@@ -52,10 +52,9 @@ impl PipelineStage for DecompressionStage {
                     encoding = %encoding,
                     "response has Content-Encoding header; body may not be decompressed"
                 );
-                response.metadata.insert(
-                    "content_encoding".into(),
-                    serde_json::json!(encoding),
-                );
+                response
+                    .metadata
+                    .insert("content_encoding".into(), serde_json::json!(encoding));
             }
         }
 

@@ -28,9 +28,10 @@ impl MtwMiddleware for AddTag {
         msg: MtwMessage,
         _ctx: &MiddlewareContext,
     ) -> Result<MiddlewareAction, MtwError> {
-        Ok(MiddlewareAction::Continue(
-            msg.with_metadata(self.name.clone(), serde_json::json!(self.priority)),
-        ))
+        Ok(MiddlewareAction::Continue(msg.with_metadata(
+            self.name.clone(),
+            serde_json::json!(self.priority),
+        )))
     }
 }
 

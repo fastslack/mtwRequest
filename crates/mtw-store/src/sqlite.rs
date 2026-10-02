@@ -96,9 +96,7 @@ impl SqliteStore {
     }
 
     /// Get a connection from the pool (for custom queries in modules)
-    pub fn connection(
-        &self,
-    ) -> Result<r2d2::PooledConnection<SqliteConnectionManager>, MtwError> {
+    pub fn connection(&self) -> Result<r2d2::PooledConnection<SqliteConnectionManager>, MtwError> {
         self.pool
             .get()
             .map_err(|e| MtwError::Internal(format!("pool exhausted: {}", e)))
@@ -121,10 +119,7 @@ impl MtwStore for SqliteStore {
     /// Query a table by name. Returns ALL rows (no filtering).
     /// Callers who need filtering should use `query_raw()` instead.
     async fn query(&self, table: &str, _params: serde_json::Value) -> StoreResult {
-        let sql = format!(
-            "SELECT * FROM {} LIMIT 1000",
-            sanitize_identifier(table)
-        );
+        let sql = format!("SELECT * FROM {} LIMIT 1000", sanitize_identifier(table));
         let pool = self.pool.clone();
 
         tokio::task::spawn_blocking(move || {
@@ -189,9 +184,7 @@ impl MtwStore for SqliteStore {
                 .filter_map(|r| r.ok())
                 .collect();
 
-            let size_bytes = std::fs::metadata(&path)
-                .map(|m| m.len())
-                .unwrap_or(0);
+            let size_bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
 
             Ok(serde_json::json!({
                 "driver": "sqlite",
@@ -223,11 +216,7 @@ fn execute_sql(
     let refs: Vec<&dyn rusqlite::types::ToSql> =
         rusqlite_params.iter().map(|b| b.as_ref()).collect();
 
-    let column_names: Vec<String> = stmt
-        .column_names()
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+    let column_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
 
     let rows = stmt
         .query_map(refs.as_slice(), |row| {
@@ -242,8 +231,7 @@ fn execute_sql(
 
     let mut results = Vec::new();
     for row in rows {
-        results
-            .push(row.map_err(|e| MtwError::Internal(format!("row: {}", e)))?);
+        results.push(row.map_err(|e| MtwError::Internal(format!("row: {}", e)))?);
     }
 
     Ok(serde_json::Value::Array(results))
@@ -479,7 +467,7 @@ mod tests {
         json_to_sql(&serde_json::json!(null));
         json_to_sql(&serde_json::json!(true));
         json_to_sql(&serde_json::json!(42));
-        json_to_sql(&serde_json::json!(3.14));
+        json_to_sql(&serde_json::json!(2.5));
         json_to_sql(&serde_json::json!("hello"));
         json_to_sql(&serde_json::json!({"key": "value"}));
     }

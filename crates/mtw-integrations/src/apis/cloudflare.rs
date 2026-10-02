@@ -19,10 +19,7 @@ pub enum CloudflareAuthMethod {
     /// API token (recommended).
     ApiToken(String),
     /// Global API key + email.
-    ApiKey {
-        api_key: String,
-        email: String,
-    },
+    ApiKey { api_key: String, email: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

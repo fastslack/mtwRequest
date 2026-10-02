@@ -5,6 +5,9 @@ use std::sync::Arc;
 use crate::pipeline::{PipelineAction, PipelineContext, PipelineStage};
 use crate::response::{MtwResponse, ResponseBody};
 
+/// A custom validator: returns `Err(message)` when the body is invalid.
+pub type CustomValidator = Arc<dyn Fn(&serde_json::Value) -> Result<(), String> + Send + Sync>;
+
 /// A single validation rule.
 #[derive(Clone)]
 pub struct ValidationRule {
@@ -25,7 +28,7 @@ pub enum ValidationRuleKind {
         expected_type: JsonType,
     },
     /// A custom validator function.
-    Custom(Arc<dyn Fn(&serde_json::Value) -> Result<(), String> + Send + Sync>),
+    Custom(CustomValidator),
 }
 
 /// Expected JSON types for field type validation.
@@ -66,19 +69,11 @@ impl std::fmt::Display for JsonType {
 }
 
 /// Configuration for the validation stage.
+#[derive(Default)]
 pub struct ValidationConfig {
     pub rules: Vec<ValidationRule>,
     /// If true, collect all errors. If false, fail on first error.
     pub collect_all: bool,
-}
-
-impl Default for ValidationConfig {
-    fn default() -> Self {
-        Self {
-            rules: Vec::new(),
-            collect_all: false,
-        }
-    }
 }
 
 /// Pipeline stage that validates response bodies against rules.
@@ -108,10 +103,7 @@ impl ValidationStage {
         }
     }
 
-    fn validate_value(
-        &self,
-        value: &serde_json::Value,
-    ) -> Vec<String> {
+    fn validate_value(&self, value: &serde_json::Value) -> Vec<String> {
         let mut errors = Vec::new();
 
         for rule in &self.config.rules {
@@ -246,10 +238,7 @@ mod tests {
             rules: vec![ValidationRule {
                 name: "positive_count".into(),
                 kind: ValidationRuleKind::Custom(Arc::new(|val| {
-                    let count = val
-                        .get("count")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0);
+                    let count = val.get("count").and_then(|v| v.as_i64()).unwrap_or(0);
                     if count > 0 {
                         Ok(())
                     } else {

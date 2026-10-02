@@ -69,9 +69,7 @@ pub struct McpTool {
 /// for the simple case and [`ToolResult::structured`] / [`ToolResult::ui`]
 /// for the new content types.
 pub type ToolHandler = Arc<
-    dyn Fn(Value) -> Pin<Box<dyn Future<Output = Result<ToolResult, String>> + Send>>
-        + Send
-        + Sync,
+    dyn Fn(Value) -> Pin<Box<dyn Future<Output = Result<ToolResult, String>> + Send>> + Send + Sync,
 >;
 
 /// What a tool returns. Encoded into the MCP `tools/call` response shape
@@ -102,18 +100,31 @@ pub struct UiContent {
 
 impl ToolResult {
     pub fn text(t: impl Into<String>) -> Self {
-        Self { text: t.into(), structured: None, ui: None, side_effects: None }
+        Self {
+            text: t.into(),
+            structured: None,
+            ui: None,
+            side_effects: None,
+        }
     }
 
     pub fn structured(t: impl Into<String>, value: Value) -> Self {
-        Self { text: t.into(), structured: Some(value), ui: None, side_effects: None }
+        Self {
+            text: t.into(),
+            structured: Some(value),
+            ui: None,
+            side_effects: None,
+        }
     }
 
     pub fn ui(t: impl Into<String>, mime_type: impl Into<String>, body: impl Into<String>) -> Self {
         Self {
             text: t.into(),
             structured: None,
-            ui: Some(UiContent { mime_type: mime_type.into(), body: body.into() }),
+            ui: Some(UiContent {
+                mime_type: mime_type.into(),
+                body: body.into(),
+            }),
             side_effects: None,
         }
     }
@@ -128,11 +139,15 @@ impl ToolResult {
 }
 
 impl From<String> for ToolResult {
-    fn from(s: String) -> Self { Self::text(s) }
+    fn from(s: String) -> Self {
+        Self::text(s)
+    }
 }
 
 impl From<&str> for ToolResult {
-    fn from(s: &str) -> Self { Self::text(s.to_string()) }
+    fn from(s: &str) -> Self {
+        Self::text(s.to_string())
+    }
 }
 
 // ── JSON-RPC frames ─────────────────────────────────────────────────────────
@@ -159,7 +174,12 @@ pub struct JsonRpcResponse {
 
 impl JsonRpcResponse {
     pub fn success(id: Value, result: Value) -> Self {
-        Self { jsonrpc: "2.0".into(), id, result: Some(result), error: None }
+        Self {
+            jsonrpc: "2.0".into(),
+            id,
+            result: Some(result),
+            error: None,
+        }
     }
     pub fn error(id: Value, code: i32, message: &str) -> Self {
         Self {
@@ -187,7 +207,9 @@ pub struct ClientCapabilities {
 }
 
 impl ClientCapabilities {
-    pub fn supports_elicitation(&self) -> bool { self.elicitation.is_some() }
+    pub fn supports_elicitation(&self) -> bool {
+        self.elicitation.is_some()
+    }
 
     pub fn supports_applications(&self) -> bool {
         self.experimental
@@ -352,9 +374,13 @@ impl McpServer {
         self
     }
 
-    pub fn tools(&self) -> &[McpTool] { &self.tools }
+    pub fn tools(&self) -> &[McpTool] {
+        &self.tools
+    }
 
-    pub fn session_handle(&self) -> Arc<RwLock<NegotiatedSession>> { self.session.clone() }
+    pub fn session_handle(&self) -> Arc<RwLock<NegotiatedSession>> {
+        self.session.clone()
+    }
 
     /// Invoke a tool by name without going through the JSON-RPC frame.
     /// Used by [`crate::code_mode`] to let scripts call other tools.
@@ -488,7 +514,11 @@ impl McpServer {
     }
 
     async fn handle_tools_call(&self, id: Value, params: Value) -> JsonRpcResponse {
-        let tool_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let tool_name = params
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         let args = params
             .get("arguments")
             .cloned()
@@ -505,7 +535,8 @@ impl McpServer {
         match (handler)(args).await {
             Ok(result) => {
                 let session = self.session.read().await.clone();
-                let receipt = self.maybe_sign_receipt(&tool_name, &args_for_receipt, &result, false);
+                let receipt =
+                    self.maybe_sign_receipt(&tool_name, &args_for_receipt, &result, false);
                 JsonRpcResponse::success(id, encode_tool_result(&result, &session, false, receipt))
             }
             Err(err) => {
@@ -523,6 +554,7 @@ impl McpServer {
     ///   * input — the raw `arguments` object the client sent
     ///   * output — a stable projection of the tool result (text +
     ///     structured payload + ui mimetype if present + isError)
+    ///
     /// so downstream verifiers can replay the call with the same
     /// arguments and confirm the produced output matches.
     fn maybe_sign_receipt(
@@ -730,6 +762,7 @@ fn encode_tool_result(
 ///     surface and not always shipped — we hash mimeType so swapping
 ///     content type is detectable, but not the body itself)
 ///   * isError flag
+///
 /// Side-effects live in the receipt body, not here.
 fn output_canonical_value(result: &ToolResult, is_error: bool) -> Value {
     let mut obj = serde_json::Map::new();
@@ -824,9 +857,15 @@ mod tests {
                 1,
             ))
             .await;
-        let resp = server.handle_request(req("tools/list", json!({}), 2)).await.unwrap();
+        let resp = server
+            .handle_request(req("tools/list", json!({}), 2))
+            .await
+            .unwrap();
         let tools = resp.result.unwrap()["tools"].clone();
-        assert!(tools[0].get("outputSchema").is_none(), "legacy must not see outputSchema");
+        assert!(
+            tools[0].get("outputSchema").is_none(),
+            "legacy must not see outputSchema"
+        );
 
         // New
         server
@@ -836,9 +875,15 @@ mod tests {
                 3,
             ))
             .await;
-        let resp = server.handle_request(req("tools/list", json!({}), 4)).await.unwrap();
+        let resp = server
+            .handle_request(req("tools/list", json!({}), 4))
+            .await
+            .unwrap();
         let tools = resp.result.unwrap()["tools"].clone();
-        assert!(tools[0].get("outputSchema").is_some(), "new client must see outputSchema");
+        assert!(
+            tools[0].get("outputSchema").is_some(),
+            "new client must see outputSchema"
+        );
     }
 
     #[tokio::test]
@@ -848,11 +893,7 @@ mod tests {
             "render",
             "render",
             json!({}),
-            Arc::new(|_| {
-                Box::pin(async {
-                    Ok(ToolResult::ui("hello", "text/html", "<b>hi</b>"))
-                })
-            }),
+            Arc::new(|_| Box::pin(async { Ok(ToolResult::ui("hello", "text/html", "<b>hi</b>")) })),
         );
 
         // Without applications cap
@@ -908,7 +949,10 @@ mod tests {
                 1,
             ))
             .await;
-        let resp = server.handle_request(req("tools/list", json!({}), 2)).await.unwrap();
+        let resp = server
+            .handle_request(req("tools/list", json!({}), 2))
+            .await
+            .unwrap();
         let v = resp.result.unwrap();
         assert_eq!(v["tools"][0]["name"], "old_tool");
         assert_eq!(v["tools"][0]["description"], "old description");
@@ -977,11 +1021,10 @@ mod tests {
             json!({}),
             Arc::new(|_| {
                 Box::pin(async {
-                    Ok(ToolResult::structured(
-                        "ok".to_string(),
-                        json!({"answer": 42}),
+                    Ok(
+                        ToolResult::structured("ok".to_string(), json!({"answer": 42}))
+                            .with_side_effects(vec!["log.appended:1".into()]),
                     )
-                    .with_side_effects(vec!["log.appended:1".into()]))
                 })
             }),
         );

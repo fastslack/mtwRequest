@@ -285,11 +285,7 @@ impl AnthropicProvider {
     }
 
     /// Generate embeddings via Voyage API (Anthropic's embedding partner).
-    pub async fn embed(
-        &self,
-        model: &str,
-        input: Vec<String>,
-    ) -> Result<Vec<Vec<f64>>, String> {
+    pub async fn embed(&self, model: &str, input: Vec<String>) -> Result<Vec<Vec<f64>>, String> {
         let model = if model.is_empty() {
             "voyage-3".to_string()
         } else {
@@ -422,7 +418,7 @@ mod tests {
     #[test]
     fn test_models() {
         assert_eq!(models::ALL.len(), 3);
-        assert!(models::CLAUDE_OPUS_4.context_window >= 200_000);
+        const { assert!(models::CLAUDE_OPUS_4.context_window >= 200_000) };
     }
 
     #[test]

@@ -130,8 +130,11 @@ impl MtwHttpClient {
 
         // Query parameters
         if !req.query.is_empty() {
-            let params: Vec<(&str, &str)> =
-                req.query.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+            let params: Vec<(&str, &str)> = req
+                .query
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect();
             builder = builder.query(&params);
         }
 

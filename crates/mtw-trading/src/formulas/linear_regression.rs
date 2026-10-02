@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use crate::formula::{FormulaContext, FormulaResult, SignalFormula};
 use crate::types::{Candle, OrderSide};
+use std::collections::HashMap;
 
 /// Linear Regression with R-squared and standard error bands.
 ///
@@ -10,13 +10,24 @@ use crate::types::{Candle, OrderSide};
 pub struct LinearRegressionFormula;
 
 impl SignalFormula for LinearRegressionFormula {
-    fn id(&self) -> &str { "linear_regression" }
-    fn name(&self) -> &str { "Linear Regression (20)" }
-    fn description(&self) -> &str { "Trend direction from least-squares fit with R² and error bands" }
-    fn min_candles(&self) -> usize { 25 }
+    fn id(&self) -> &str {
+        "linear_regression"
+    }
+    fn name(&self) -> &str {
+        "Linear Regression (20)"
+    }
+    fn description(&self) -> &str {
+        "Trend direction from least-squares fit with R² and error bands"
+    }
+    fn min_candles(&self) -> usize {
+        25
+    }
 
     fn compute(&self, candles: &[Candle], context: Option<&FormulaContext>) -> FormulaResult {
-        let period = context.and_then(|c| c.params.get("period")).copied().unwrap_or(20.0) as usize;
+        let period = context
+            .and_then(|c| c.params.get("period"))
+            .copied()
+            .unwrap_or(20.0) as usize;
         let n = candles.len();
         if n < period {
             return FormulaResult::neutral("insufficient data");
@@ -34,7 +45,11 @@ impl SignalFormula for LinearRegressionFormula {
         let deviation = (actual - predicted) / std_err.max(0.0001);
 
         // Slope normalized to price (percentage per bar)
-        let slope_pct = if predicted != 0.0 { slope / predicted * 100.0 } else { 0.0 };
+        let slope_pct = if predicted != 0.0 {
+            slope / predicted * 100.0
+        } else {
+            0.0
+        };
 
         let mut indicators = HashMap::new();
         indicators.insert("slope".into(), (slope * 10000.0).round() / 10000.0);
@@ -65,7 +80,10 @@ impl SignalFormula for LinearRegressionFormula {
             side,
             confidence: confidence.min(90.0),
             indicators,
-            reasoning: format!("LinReg slope {:.4} R²={:.3} dev {:.2}σ", slope, r_squared, deviation),
+            reasoning: format!(
+                "LinReg slope {:.4} R²={:.3} dev {:.2}σ",
+                slope, r_squared, deviation
+            ),
         }
     }
 }
@@ -74,7 +92,9 @@ impl SignalFormula for LinearRegressionFormula {
 /// Returns (slope, intercept, r_squared, standard_error).
 fn least_squares(data: &[f64]) -> (f64, f64, f64, f64) {
     let n = data.len() as f64;
-    if n < 2.0 { return (0.0, data.first().copied().unwrap_or(0.0), 0.0, 0.0); }
+    if n < 2.0 {
+        return (0.0, data.first().copied().unwrap_or(0.0), 0.0, 0.0);
+    }
 
     let mut sum_x = 0.0;
     let mut sum_y = 0.0;
@@ -107,10 +127,18 @@ fn least_squares(data: &[f64]) -> (f64, f64, f64, f64) {
         let predicted = slope * i as f64 + intercept;
         ss_res += (y - predicted).powi(2);
     }
-    let r_squared = if ss_tot > 0.0 { 1.0 - ss_res / ss_tot } else { 0.0 };
+    let r_squared = if ss_tot > 0.0 {
+        1.0 - ss_res / ss_tot
+    } else {
+        0.0
+    };
 
     // Standard error of regression
-    let std_err = if n > 2.0 { (ss_res / (n - 2.0)).sqrt() } else { 0.0 };
+    let std_err = if n > 2.0 {
+        (ss_res / (n - 2.0)).sqrt()
+    } else {
+        0.0
+    };
 
     (slope, intercept, r_squared.max(0.0), std_err)
 }
@@ -120,9 +148,18 @@ mod tests {
     use super::*;
 
     fn make_candles(prices: &[f64]) -> Vec<Candle> {
-        prices.iter().enumerate().map(|(i, &p)| Candle {
-            timestamp: i as u64, open: p, high: p + 1.0, low: p - 1.0, close: p, volume: 100.0,
-        }).collect()
+        prices
+            .iter()
+            .enumerate()
+            .map(|(i, &p)| Candle {
+                timestamp: i as u64,
+                open: p,
+                high: p + 1.0,
+                low: p - 1.0,
+                close: p,
+                volume: 100.0,
+            })
+            .collect()
     }
 
     #[test]

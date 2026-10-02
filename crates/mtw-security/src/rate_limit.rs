@@ -78,14 +78,15 @@ impl RateLimiter {
     pub fn consume(&self, key: &str) -> Result<(), MtwError> {
         let now = Instant::now();
 
-        let mut entry = self.entries.entry(key.to_string()).or_insert_with(|| {
-            RateLimitEntry {
+        let mut entry = self
+            .entries
+            .entry(key.to_string())
+            .or_insert_with(|| RateLimitEntry {
                 count: 0,
                 window_start: now,
                 blocked: false,
                 blocked_until: None,
-            }
-        });
+            });
 
         // Unblock if block duration expired
         if entry.blocked {
@@ -169,9 +170,7 @@ impl RateLimiter {
         let now = Instant::now();
         self.entries
             .iter()
-            .filter(|e| {
-                e.blocked && e.blocked_until.map(|u| now < u).unwrap_or(true)
-            })
+            .filter(|e| e.blocked && e.blocked_until.map(|u| now < u).unwrap_or(true))
             .map(|e| e.key().clone())
             .collect()
     }
@@ -184,10 +183,7 @@ impl RateLimiter {
             .iter()
             .filter(|e| {
                 let window_expired = e.window_start.elapsed() >= self.config.window_duration * 2;
-                let block_expired = e
-                    .blocked_until
-                    .map(|u| now >= u)
-                    .unwrap_or(true);
+                let block_expired = e.blocked_until.map(|u| now >= u).unwrap_or(true);
                 window_expired && block_expired && !e.blocked
             })
             .map(|e| e.key().clone())

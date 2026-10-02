@@ -45,7 +45,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     mgr.create_channel(CHANNEL, false, None, 0);
 
     tracing::info!(%bind, "hive mind server up");
-    tracing::info!("open examples/hive_viewer.html?port={} and fire bots", bind.port());
+    tracing::info!(
+        "open examples/hive_viewer.html?port={} and fire bots",
+        bind.port()
+    );
 
     let msgs_in = Arc::new(AtomicU64::new(0));
     let msgs_out = Arc::new(AtomicU64::new(0));

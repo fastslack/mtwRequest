@@ -5,17 +5,17 @@
 //! call over the Unix socket bridge.
 
 use dashmap::DashMap;
+use mtw_ai::provider::{CompletionRequest, Message, MtwAIProvider};
+use mtw_ai::providers::anthropic::{AnthropicConfig, AnthropicProvider};
+use mtw_ai::providers::lmstudio::{LMStudioConfig, LMStudioProvider};
+use mtw_ai::providers::ollama::{OllamaConfig, OllamaProvider};
+use mtw_ai::providers::openai::{OpenAIConfig, OpenAIProvider};
 use mtw_bridge::server::BridgeServer;
+use mtw_security::rate_limit::RateLimiter;
 use mtw_trading::formula::FormulaRegistry;
 use mtw_trading::formulas;
 use mtw_trading::monitor::TradeMonitor;
 use mtw_trading::types::OrderSide;
-use mtw_security::rate_limit::RateLimiter;
-use mtw_ai::provider::{CompletionRequest, Message, MtwAIProvider};
-use mtw_ai::providers::openai::{OpenAIConfig, OpenAIProvider};
-use mtw_ai::providers::anthropic::{AnthropicConfig, AnthropicProvider};
-use mtw_ai::providers::ollama::{OllamaConfig, OllamaProvider};
-use mtw_ai::providers::lmstudio::{LMStudioConfig, LMStudioProvider};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
@@ -45,8 +45,7 @@ impl RustServices {
         let mut formula_registry = FormulaRegistry::new();
         formulas::register_all(&mut formula_registry);
 
-        let providers: Arc<DashMap<String, Arc<dyn MtwAIProvider>>> =
-            Arc::new(DashMap::new());
+        let providers: Arc<DashMap<String, Arc<dyn MtwAIProvider>>> = Arc::new(DashMap::new());
 
         // Seed providers from env (backwards-compatible with existing docker-compose).
         let default_provider = Self::seed_providers_from_env(&providers);
@@ -71,9 +70,7 @@ impl RustServices {
 
     /// Seed the provider map from environment variables.
     /// Returns the name of the default provider.
-    fn seed_providers_from_env(
-        providers: &DashMap<String, Arc<dyn MtwAIProvider>>,
-    ) -> String {
+    fn seed_providers_from_env(providers: &DashMap<String, Arc<dyn MtwAIProvider>>) -> String {
         let chosen = std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "openai".to_string());
 
         if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
@@ -93,8 +90,8 @@ impl RustServices {
         }
         if let Ok(key) = std::env::var("OPENAI_API_KEY") {
             if !key.is_empty() {
-                let model = std::env::var("LLM_MODEL")
-                    .unwrap_or_else(|_| "gpt-4o-mini".to_string());
+                let model =
+                    std::env::var("LLM_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string());
                 let base_url = std::env::var("OPENAI_BASE_URL")
                     .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
                 tracing::info!(provider = "openai", model = %model, "seeded from env");
@@ -109,8 +106,8 @@ impl RustServices {
             }
         }
 
-        let ollama_url = std::env::var("OLLAMA_URL")
-            .unwrap_or_else(|_| "http://localhost:11434".to_string());
+        let ollama_url =
+            std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".to_string());
         let ollama_model = if chosen == "ollama" {
             std::env::var("LLM_MODEL").unwrap_or_else(|_| "llama3".to_string())
         } else {
@@ -223,8 +220,8 @@ impl RustServices {
             Arc::new(move |args| {
                 let mon = mon.clone();
                 Box::pin(async move {
-                    let pos: mtw_trading::monitor::MonitoredPosition =
-                        serde_json::from_value(args).map_err(|e| {
+                    let pos: mtw_trading::monitor::MonitoredPosition = serde_json::from_value(args)
+                        .map_err(|e| {
                             mtw_core::MtwError::Internal(format!("invalid position: {}", e))
                         })?;
                     mon.add_position(pos);
@@ -243,9 +240,7 @@ impl RustServices {
                     let trade_id = args
                         .get("trade_id")
                         .and_then(|v| v.as_str())
-                        .ok_or_else(|| {
-                            mtw_core::MtwError::Internal("missing trade_id".into())
-                        })?;
+                        .ok_or_else(|| mtw_core::MtwError::Internal("missing trade_id".into()))?;
                     let price = args
                         .get("current_price")
                         .and_then(|v| v.as_f64())
@@ -271,15 +266,10 @@ impl RustServices {
             Arc::new(move |args| {
                 let mon = mon.clone();
                 Box::pin(async move {
-                    let prices: std::collections::HashMap<String, f64> =
-                        serde_json::from_value(
-                            args.get("prices")
-                                .cloned()
-                                .unwrap_or(serde_json::json!({})),
-                        )
-                        .map_err(|e| {
-                            mtw_core::MtwError::Internal(format!("invalid prices: {}", e))
-                        })?;
+                    let prices: std::collections::HashMap<String, f64> = serde_json::from_value(
+                        args.get("prices").cloned().unwrap_or(serde_json::json!({})),
+                    )
+                    .map_err(|e| mtw_core::MtwError::Internal(format!("invalid prices: {}", e)))?;
 
                     for (symbol, price) in &prices {
                         mon.update_price(symbol, *price);
@@ -301,9 +291,7 @@ impl RustServices {
                     let trade_id = args
                         .get("trade_id")
                         .and_then(|v| v.as_str())
-                        .ok_or_else(|| {
-                            mtw_core::MtwError::Internal("missing trade_id".into())
-                        })?;
+                        .ok_or_else(|| mtw_core::MtwError::Internal("missing trade_id".into()))?;
                     mon.remove_position(trade_id);
                     Ok(serde_json::json!({"ok": true}))
                 })
@@ -318,10 +306,7 @@ impl RustServices {
                     let entry = args.get("entry").and_then(|v| v.as_f64()).unwrap_or(0.0);
                     let exit = args.get("exit").and_then(|v| v.as_f64()).unwrap_or(0.0);
                     let amount = args.get("amount").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    let side_str = args
-                        .get("side")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("buy");
+                    let side_str = args.get("side").and_then(|v| v.as_str()).unwrap_or("buy");
                     let fee_rate = args
                         .get("fee_rate")
                         .and_then(|v| v.as_f64())
@@ -435,7 +420,11 @@ impl RustServices {
                 let semaphores = semaphores.clone();
                 Box::pin(async move {
                     let provider_name = args.get("provider").and_then(|v| v.as_str()).unwrap_or("");
-                    let key = if provider_name.is_empty() { &default_name } else { provider_name };
+                    let key = if provider_name.is_empty() {
+                        &default_name
+                    } else {
+                        provider_name
+                    };
                     let provider = providers
                         .get(key)
                         .map(|r| Arc::clone(r.value()))
@@ -443,7 +432,10 @@ impl RustServices {
                             mtw_core::MtwError::Internal(format!(
                                 "provider '{}' not registered (available: {:?})",
                                 key,
-                                providers.iter().map(|e| e.key().clone()).collect::<Vec<_>>(),
+                                providers
+                                    .iter()
+                                    .map(|e| e.key().clone())
+                                    .collect::<Vec<_>>(),
                             ))
                         })?;
 
@@ -452,15 +444,15 @@ impl RustServices {
                         .entry(key.to_string())
                         .or_insert_with(|| Arc::new(Semaphore::new(1)))
                         .clone();
-                    let _permit = sem.acquire().await.map_err(|_| {
-                        mtw_core::MtwError::Internal("semaphore closed".into())
-                    })?;
+                    let _permit = sem
+                        .acquire()
+                        .await
+                        .map_err(|_| mtw_core::MtwError::Internal("semaphore closed".into()))?;
 
                     let system = args.get("system").and_then(|v| v.as_str()).unwrap_or("");
-                    let user = args
-                        .get("user")
-                        .and_then(|v| v.as_str())
-                        .ok_or_else(|| mtw_core::MtwError::Internal("missing 'user' message".into()))?;
+                    let user = args.get("user").and_then(|v| v.as_str()).ok_or_else(|| {
+                        mtw_core::MtwError::Internal("missing 'user' message".into())
+                    })?;
                     let model = args
                         .get("model")
                         .and_then(|v| v.as_str())
@@ -482,7 +474,11 @@ impl RustServices {
                     messages.push(Message::user(user));
 
                     let req = CompletionRequest {
-                        model: if model.is_empty() { String::new() } else { model },
+                        model: if model.is_empty() {
+                            String::new()
+                        } else {
+                            model
+                        },
                         messages,
                         tools: None,
                         temperature,
@@ -490,9 +486,10 @@ impl RustServices {
                         metadata: Default::default(),
                     };
 
-                    let response = provider.complete(req).await.map_err(|e| {
-                        mtw_core::MtwError::Internal(format!("LLM error: {}", e))
-                    })?;
+                    let response = provider
+                        .complete(req)
+                        .await
+                        .map_err(|e| mtw_core::MtwError::Internal(format!("LLM error: {}", e)))?;
 
                     Ok(serde_json::json!({
                         "text": response.content,
@@ -514,7 +511,9 @@ impl RustServices {
         server: &BridgeServer,
         kernel_bridge: Option<Arc<dyn mtw_bridge::MtwBridge>>,
     ) {
-        use mtw_ai::executor::{AgentConfig, ExecutionConfig, ExecutorEngine, MtwAgentExecutor, ToolDefinition};
+        use mtw_ai::executor::{
+            AgentConfig, ExecutionConfig, ExecutorEngine, MtwAgentExecutor, ToolDefinition,
+        };
         use mtw_ai::store::{AgentStore, AgentStoreConfig};
         use mtw_ai::store_sqlite::SqliteAgentStore;
 
@@ -545,8 +544,8 @@ impl RustServices {
 
         // Open agent store (if MTW_AGENTS_DB is set or default path exists).
         let store: Option<Arc<dyn AgentStore>> = {
-            let path = std::env::var("MTW_AGENTS_DB")
-                .unwrap_or_else(|_| "./data/agents.db".to_string());
+            let path =
+                std::env::var("MTW_AGENTS_DB").unwrap_or_else(|_| "./data/agents.db".to_string());
             if let Some(parent) = std::path::Path::new(&path).parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
@@ -580,10 +579,14 @@ impl RustServices {
                 let kb = kernel_bridge.clone();
                 let store = store_for_run.clone();
                 Box::pin(async move {
-                    let agent_id = args.get("agent_id").and_then(|v| v.as_str())
+                    let agent_id = args
+                        .get("agent_id")
+                        .and_then(|v| v.as_str())
                         .ok_or_else(|| mtw_core::MtwError::Internal("missing 'agent_id'".into()))?
                         .to_string();
-                    let goal = args.get("goal").and_then(|v| v.as_str())
+                    let goal = args
+                        .get("goal")
+                        .and_then(|v| v.as_str())
                         .ok_or_else(|| mtw_core::MtwError::Internal("missing 'goal'".into()))?
                         .to_string();
 
@@ -611,18 +614,42 @@ impl RustServices {
                         None
                     };
                     let ac = from_store.unwrap_or_else(|| {
-                        let tool_names: Vec<String> = args.get("tool_names")
+                        let tool_names: Vec<String> = args
+                            .get("tool_names")
                             .and_then(|v| v.as_array())
-                            .map(|arr| arr.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                                    .collect()
+                            })
                             .unwrap_or_default();
                         AgentConfig {
                             id: agent_id.clone(),
-                            name: args.get("name").and_then(|v| v.as_str()).unwrap_or(&agent_id).to_string(),
-                            provider: args.get("provider").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                            model: args.get("model").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                            system_prompt: args.get("system_prompt").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            name: args
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(&agent_id)
+                                .to_string(),
+                            provider: args
+                                .get("provider")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            model: args
+                                .get("model")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            system_prompt: args
+                                .get("system_prompt")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
                             tool_names,
-                            token_budget: args.get("token_budget").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                            token_budget: args
+                                .get("token_budget")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0) as u32,
                         }
                     });
 
@@ -638,9 +665,7 @@ impl RustServices {
                                 handler: Arc::new(move |tool_args| {
                                     let kb = kb_clone.clone();
                                     let tool = name.clone();
-                                    Box::pin(async move {
-                                        kb.call_tool(&tool, tool_args).await
-                                    })
+                                    Box::pin(async move { kb.call_tool(&tool, tool_args).await })
                                 }),
                             });
                         }
@@ -671,25 +696,49 @@ impl RustServices {
                     let store = store.as_ref().ok_or_else(|| {
                         mtw_core::MtwError::Internal("agent store not available".into())
                     })?;
-                    let id = args.get("id").and_then(|v| v.as_str())
+                    let id = args
+                        .get("id")
+                        .and_then(|v| v.as_str())
                         .map(|s| s.to_string())
                         .unwrap_or_else(|| ulid::Ulid::new().to_string());
-                    let name = args.get("name").and_then(|v| v.as_str())
+                    let name = args
+                        .get("name")
+                        .and_then(|v| v.as_str())
                         .ok_or_else(|| mtw_core::MtwError::Internal("missing 'name'".into()))?
                         .to_string();
-                    let tool_names: Vec<String> = args.get("tool_names")
+                    let tool_names: Vec<String> = args
+                        .get("tool_names")
                         .and_then(|v| v.as_array())
-                        .map(|arr| arr.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                                .collect()
+                        })
                         .unwrap_or_default();
 
                     let agent = AgentConfig {
                         id: id.clone(),
                         name,
-                        provider: args.get("provider").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                        model: args.get("model").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                        system_prompt: args.get("system_prompt").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        provider: args
+                            .get("provider")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        model: args
+                            .get("model")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        system_prompt: args
+                            .get("system_prompt")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
                         tool_names,
-                        token_budget: args.get("token_budget").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                        token_budget: args
+                            .get("token_budget")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0) as u32,
                     };
                     store.save_agent(&agent).await?;
                     Ok(serde_json::json!({"id": id, "status": "created"}))
@@ -906,12 +955,20 @@ mod tests {
     #[test]
     fn fingerprint_does_not_contain_plaintext_key() {
         let key = "sk-very-secret-key";
-        let spec = ProviderSpec { name: "openai", api_key: key, model: "", base_url: "" };
+        let spec = ProviderSpec {
+            name: "openai",
+            api_key: key,
+            model: "",
+            base_url: "",
+        };
         let fp = provider_fingerprint(&spec);
         let hex: String = fp.iter().map(|b| format!("{:02x}", b)).collect();
         assert!(!hex.contains(key));
         assert!(!fp.windows(key.len()).any(|w| w == key.as_bytes()));
-        let other = ProviderSpec { api_key: "sk-other", ..spec };
+        let other = ProviderSpec {
+            api_key: "sk-other",
+            ..spec
+        };
         assert_ne!(fp, provider_fingerprint(&other));
     }
 }

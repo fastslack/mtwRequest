@@ -187,7 +187,7 @@ impl TaskProvider for TaskRegistry {
             .get(task_id)
             .ok_or_else(|| format!("task not found: {}", task_id))?;
         let record = entry.value().lock().await;
-        Ok(json!({ "task": Self::snapshot(&*record) }))
+        Ok(json!({ "task": Self::snapshot(&record) }))
     }
 
     async fn list(&self, filter: Value) -> Result<Value, String> {
@@ -209,7 +209,7 @@ impl TaskProvider for TaskRegistry {
                     continue;
                 }
             }
-            out.push(Self::snapshot(&*r));
+            out.push(Self::snapshot(&r));
             if out.len() >= limit {
                 break;
             }
@@ -233,6 +233,6 @@ impl TaskProvider for TaskRegistry {
             r.status = TaskStatus::Cancelled;
             r.finished_at = Some(Self::now());
         }
-        Ok(json!({ "task": Self::snapshot(&*r) }))
+        Ok(json!({ "task": Self::snapshot(&r) }))
     }
 }

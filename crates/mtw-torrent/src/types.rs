@@ -118,8 +118,12 @@ pub struct TorrentDetail {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum TorrentSource {
-    Magnet { magnet: String },
-    Url { torrent_url: String },
+    Magnet {
+        magnet: String,
+    },
+    Url {
+        torrent_url: String,
+    },
     Buffer {
         #[serde(with = "serde_bytes_buffer")]
         torrent_buffer: Vec<u8>,
@@ -141,7 +145,10 @@ fn true_default() -> bool {
 
 impl Default for NotifyOptions {
     fn default() -> Self {
-        Self { progress: true, done: true }
+        Self {
+            progress: true,
+            done: true,
+        }
     }
 }
 
@@ -265,7 +272,9 @@ mod tests {
     #[test]
     fn add_spec_round_trip() {
         let spec = AddTorrentSpec {
-            source: TorrentSource::Magnet { magnet: "magnet:?xt=urn:btih:abc".into() },
+            source: TorrentSource::Magnet {
+                magnet: "magnet:?xt=urn:btih:abc".into(),
+            },
             encryption_profile: Some("clear".into()),
             category: Some("film".into()),
             tags: vec!["sintel".into()],

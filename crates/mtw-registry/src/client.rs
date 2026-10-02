@@ -162,13 +162,12 @@ impl RegistryClient {
     }
 
     /// Get information about a specific module
-    pub async fn get_module(
-        &self,
-        name: &str,
-        version: &str,
-    ) -> Result<ModuleInfo, RegistryError> {
+    pub async fn get_module(&self, name: &str, version: &str) -> Result<ModuleInfo, RegistryError> {
         let path = format!("/v1/modules/{name}/{version}");
-        let resp = self.auth(self.http.get(self.endpoint(&path))).send().await?;
+        let resp = self
+            .auth(self.http.get(self.endpoint(&path)))
+            .send()
+            .await?;
         let body = handle_status(resp, &format!("{name}@{version}")).await?;
         body.json::<ModuleInfo>()
             .await
@@ -208,13 +207,12 @@ impl RegistryClient {
     }
 
     /// Download a module package
-    pub async fn download(
-        &self,
-        name: &str,
-        version: &str,
-    ) -> Result<Vec<u8>, RegistryError> {
+    pub async fn download(&self, name: &str, version: &str) -> Result<Vec<u8>, RegistryError> {
         let path = format!("/v1/modules/{name}/{version}/tarball");
-        let resp = self.auth(self.http.get(self.endpoint(&path))).send().await?;
+        let resp = self
+            .auth(self.http.get(self.endpoint(&path)))
+            .send()
+            .await?;
         let body = handle_status(resp, &format!("{name}@{version}")).await?;
         let bytes = body.bytes().await?;
         Ok(bytes.to_vec())

@@ -23,9 +23,7 @@ use tokio_tungstenite::tungstenite::Message;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (count, url, concurrency, hz) = parse_args();
-    println!(
-        "hive bot · {count} bots · {hz} Hz · url {url} · connect-concurrency {concurrency}"
-    );
+    println!("hive bot · {count} bots · {hz} Hz · url {url} · connect-concurrency {concurrency}");
 
     let live = Arc::new(AtomicU64::new(0));
     let published = Arc::new(AtomicU64::new(0));
@@ -50,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "live={l:>6} | pub/s={:>7} | recv/s={:>9} | recv/bot/s={:>5}",
                     p.saturating_sub(last_pub),
                     r.saturating_sub(last_rcv),
-                    if l > 0 { (r.saturating_sub(last_rcv)) / l } else { 0 }
+                    r.saturating_sub(last_rcv).checked_div(l).unwrap_or(0)
                 );
                 last_pub = p;
                 last_rcv = r;
@@ -65,7 +63,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let published = published.clone();
         let received = received.clone();
         let sem = sem.clone();
-        let t0 = t0;
         let h = tokio::spawn(async move {
             let permit = sem.acquire_owned().await.unwrap();
             let ws = match connect_async(&url).await {
@@ -125,7 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "timestamp": 0
                 })
                 .to_string();
-                if tx.send(Message::Text(msg.into())).await.is_err() {
+                if tx.send(Message::Text(msg)).await.is_err() {
                     break;
                 }
                 published.fetch_add(1, Ordering::Relaxed);
@@ -150,7 +147,7 @@ fn galaxy_xy(i: usize, t: f32) -> (f32, f32) {
     // two arms + some perpendicular wobble
     let arm = (idx * 2.399_963) % std::f32::consts::TAU; // golden angle
     let r = 0.30 + 0.45 * ((idx * 0.0131 + t * 0.35).sin() * 0.5 + 0.5);
-    let th = arm + t * (0.18 + (idx * 0.000_017) as f32);
+    let th = arm + t * (0.18 + (idx * 0.000_017));
     let x = r * th.cos() + 0.07 * (t * 0.9 + idx * 0.021).sin();
     let y = r * th.sin() + 0.07 * (t * 0.7 + idx * 0.017).cos();
     (x, y)
@@ -170,7 +167,10 @@ fn parse_args() -> (usize, String, usize, f32) {
     while i < args.len() {
         match args[i].as_str() {
             "--count" | "-c" => {
-                count = args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(count);
+                count = args
+                    .get(i + 1)
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(count);
                 i += 2;
             }
             "--url" | "-u" => {

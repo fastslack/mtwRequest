@@ -72,16 +72,9 @@ pub struct WgAddrConfig {
 impl WgAddrConfig {
     /// Build from string forms (the way they appear in TOML).
     /// Accepts `10.64.0.5` (assumes /32), `10.64.0.5/24`, `fd00::5/128`.
-    pub fn from_strings(
-        ipv4: Option<&str>,
-        ipv6: Option<&str>,
-    ) -> Result<Self, MtwError> {
-        let v4 = ipv4
-            .map(|s| parse_v4_cidr(s))
-            .transpose()?;
-        let v6 = ipv6
-            .map(|s| parse_v6_cidr(s))
-            .transpose()?;
+    pub fn from_strings(ipv4: Option<&str>, ipv6: Option<&str>) -> Result<Self, MtwError> {
+        let v4 = ipv4.map(|s| parse_v4_cidr(s)).transpose()?;
+        let v6 = ipv6.map(|s| parse_v6_cidr(s)).transpose()?;
         if v4.is_none() && v6.is_none() {
             return Err(MtwError::Config(
                 "wireguard: at least one of local_ipv4/local_ipv6 must be set".into(),
@@ -96,9 +89,12 @@ impl WgAddrConfig {
 
 fn parse_v4_cidr(s: &str) -> Result<(Ipv4Address, u8), MtwError> {
     let (addr, prefix) = match s.split_once('/') {
-        Some((a, p)) => (a, p.parse::<u8>().map_err(|e| {
-            MtwError::Config(format!("wireguard: invalid v4 prefix '{}': {}", p, e))
-        })?),
+        Some((a, p)) => (
+            a,
+            p.parse::<u8>().map_err(|e| {
+                MtwError::Config(format!("wireguard: invalid v4 prefix '{}': {}", p, e))
+            })?,
+        ),
         None => (s, 32),
     };
     let octets: Vec<u8> = addr
@@ -120,14 +116,17 @@ fn parse_v4_cidr(s: &str) -> Result<(Ipv4Address, u8), MtwError> {
 
 fn parse_v6_cidr(s: &str) -> Result<(Ipv6Address, u8), MtwError> {
     let (addr, prefix) = match s.split_once('/') {
-        Some((a, p)) => (a, p.parse::<u8>().map_err(|e| {
-            MtwError::Config(format!("wireguard: invalid v6 prefix '{}': {}", p, e))
-        })?),
+        Some((a, p)) => (
+            a,
+            p.parse::<u8>().map_err(|e| {
+                MtwError::Config(format!("wireguard: invalid v6 prefix '{}': {}", p, e))
+            })?,
+        ),
         None => (s, 128),
     };
-    let parsed: std::net::Ipv6Addr = addr.parse().map_err(|e| {
-        MtwError::Config(format!("wireguard: invalid v6 addr '{}': {}", addr, e))
-    })?;
+    let parsed: std::net::Ipv6Addr = addr
+        .parse()
+        .map_err(|e| MtwError::Config(format!("wireguard: invalid v6 addr '{}': {}", addr, e)))?;
     // smoltcp re-exports `core::net::Ipv6Addr` as `Ipv6Address`, so
     // construct via the std API.
     Ok((Ipv6Address::from(parsed.octets()), prefix))
@@ -264,9 +263,9 @@ impl WgStack {
         mut tunnel: WireGuardTunnel,
         addr: WgAddrConfig,
     ) -> Result<(Self, WireGuardTunnel), MtwError> {
-        let inbound_rx = tunnel
-            .take_inbound_receiver()
-            .ok_or_else(|| MtwError::Internal("wireguard: stack already attached to this tunnel".into()))?;
+        let inbound_rx = tunnel.take_inbound_receiver().ok_or_else(|| {
+            MtwError::Internal("wireguard: stack already attached to this tunnel".into())
+        })?;
         let outbound_tx = tunnel.outbound_sender();
 
         let device = WgDevice::new(inbound_rx, outbound_tx);
@@ -277,11 +276,7 @@ impl WgStack {
         let mut device = device;
         let started = Instant::now();
         let now = SmolInstant::from_millis(started.elapsed().as_millis() as i64);
-        let mut iface = Interface::new(
-            Config::new(HardwareAddress::Ip),
-            &mut device,
-            now,
-        );
+        let mut iface = Interface::new(Config::new(HardwareAddress::Ip), &mut device, now);
 
         // Apply IP addresses.
         iface.update_ip_addrs(|ips| {
@@ -368,8 +363,7 @@ mod tests {
 
     #[test]
     fn parses_v4_with_prefix() {
-        let cfg =
-            WgAddrConfig::from_strings(Some("10.64.0.5/24"), None).unwrap();
+        let cfg = WgAddrConfig::from_strings(Some("10.64.0.5/24"), None).unwrap();
         let (addr, prefix) = cfg.local_ipv4.unwrap();
         assert_eq!(addr, Ipv4Address::new(10, 64, 0, 5));
         assert_eq!(prefix, 24);
@@ -384,8 +378,7 @@ mod tests {
 
     #[test]
     fn parses_v6_with_prefix() {
-        let cfg =
-            WgAddrConfig::from_strings(None, Some("fd00::5/64")).unwrap();
+        let cfg = WgAddrConfig::from_strings(None, Some("fd00::5/64")).unwrap();
         let (_, prefix) = cfg.local_ipv6.unwrap();
         assert_eq!(prefix, 64);
     }

@@ -57,10 +57,7 @@ mod tests {
 
     #[test]
     fn extract_basic_infohash() {
-        let m = format!(
-            "magnet:?xt=urn:btih:{}&dn=Sintel.mp4",
-            "a".repeat(40)
-        );
+        let m = format!("magnet:?xt=urn:btih:{}&dn=Sintel.mp4", "a".repeat(40));
         assert_eq!(extract_infohash(&m).unwrap(), "a".repeat(40));
     }
 

@@ -188,10 +188,7 @@ mod tests {
     #[test]
     fn test_json_body_sets_content_type() {
         let req = MtwRequest::post("https://example.com").json(serde_json::json!({"a": 1}));
-        assert_eq!(
-            req.headers.get("content-type").unwrap(),
-            "application/json"
-        );
+        assert_eq!(req.headers.get("content-type").unwrap(), "application/json");
         assert!(matches!(req.body, Some(Body::Json(_))));
     }
 

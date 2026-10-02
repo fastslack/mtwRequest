@@ -111,6 +111,11 @@ pub trait MtwAgentExecutor: Send + Sync {
     fn active_runs(&self) -> Vec<String>;
 }
 
+/// Async handler invoked with the tool arguments.
+pub type ToolHandler = Arc<
+    dyn Fn(Value) -> Pin<Box<dyn Future<Output = Result<Value, MtwError>> + Send>> + Send + Sync,
+>;
+
 /// A tool that can be invoked by the executor during a run.
 pub struct ToolDefinition {
     /// Tool name (must be unique within the executor)
@@ -120,8 +125,7 @@ pub struct ToolDefinition {
     /// JSON Schema describing the tool parameters
     pub parameters: Value,
     /// Async handler invoked when the LLM requests this tool
-    pub handler:
-        Arc<dyn Fn(Value) -> Pin<Box<dyn Future<Output = Result<Value, MtwError>> + Send>> + Send + Sync>,
+    pub handler: ToolHandler,
 }
 
 impl std::fmt::Debug for ToolDefinition {

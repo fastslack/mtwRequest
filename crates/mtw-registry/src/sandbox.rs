@@ -138,14 +138,18 @@ impl std::fmt::Debug for WasmSandbox {
 
 impl WasmSandbox {
     /// Create a new WASM sandbox with the given configuration
-    pub fn new(config: SandboxConfig, permissions: SandboxPermissions) -> Result<Self, SandboxError> {
+    pub fn new(
+        config: SandboxConfig,
+        permissions: SandboxPermissions,
+    ) -> Result<Self, SandboxError> {
         if config.enable_wasi {
             // WASI support is intentionally deferred — see the module-level docs.
             return Err(SandboxError::WasiUnsupported);
         }
         let mut engine_config = wasmtime::Config::new();
         engine_config.consume_fuel(true).epoch_interruption(false);
-        let engine = Engine::new(&engine_config).map_err(|e| SandboxError::Engine(e.to_string()))?;
+        let engine =
+            Engine::new(&engine_config).map_err(|e| SandboxError::Engine(e.to_string()))?;
 
         Ok(Self {
             engine,
@@ -169,10 +173,7 @@ impl WasmSandbox {
     pub fn load_module(&self, wasm_bytes: &[u8]) -> Result<(), SandboxError> {
         let module = Module::new(&self.engine, wasm_bytes)
             .map_err(|e| SandboxError::LoadError(e.to_string()))?;
-        *self
-            .module
-            .lock()
-            .expect("sandbox module lock poisoned") = Some(module);
+        *self.module.lock().expect("sandbox module lock poisoned") = Some(module);
         Ok(())
     }
 
@@ -191,10 +192,7 @@ impl WasmSandbox {
     /// guest ABI. `args` are copied into guest memory via `mtw_alloc`; the
     /// return value is the bytes the guest writes at the returned pointer.
     pub fn execute(&self, function: &str, args: &[u8]) -> Result<Vec<u8>, SandboxError> {
-        let module_guard = self
-            .module
-            .lock()
-            .expect("sandbox module lock poisoned");
+        let module_guard = self.module.lock().expect("sandbox module lock poisoned");
         let module = module_guard.as_ref().ok_or(SandboxError::NotLoaded)?;
 
         let limits = StoreLimitsBuilder::new()
@@ -295,7 +293,10 @@ mod tests {
         let err = sandbox
             .validate_permissions(&[Permission::Network])
             .unwrap_err();
-        assert!(matches!(err, SandboxError::PermissionDenied(Permission::Network)));
+        assert!(matches!(
+            err,
+            SandboxError::PermissionDenied(Permission::Network)
+        ));
     }
 
     #[test]

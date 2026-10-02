@@ -153,10 +153,12 @@ impl AgentStore for SqliteAgentStore {
         let pool = self.pool.clone();
         let agent = agent.clone();
         tokio::task::spawn_blocking(move || {
-            let conn = pool.get().map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
+            let conn = pool
+                .get()
+                .map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
             let now = now_iso();
-            let tool_names = serde_json::to_string(&agent.tool_names)
-                .unwrap_or_else(|_| "[]".to_string());
+            let tool_names =
+                serde_json::to_string(&agent.tool_names).unwrap_or_else(|_| "[]".to_string());
 
             conn.execute(
                 "INSERT INTO agents
@@ -193,7 +195,9 @@ impl AgentStore for SqliteAgentStore {
         let pool = self.pool.clone();
         let id = agent_id.to_string();
         tokio::task::spawn_blocking(move || {
-            let conn = pool.get().map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
+            let conn = pool
+                .get()
+                .map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
             let mut stmt = conn
                 .prepare_cached(
                     "SELECT id, name, provider, model, system_prompt, tool_names, token_budget
@@ -221,7 +225,9 @@ impl AgentStore for SqliteAgentStore {
     async fn list_agents(&self) -> Result<Vec<AgentConfig>, MtwError> {
         let pool = self.pool.clone();
         tokio::task::spawn_blocking(move || {
-            let conn = pool.get().map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
+            let conn = pool
+                .get()
+                .map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
             let mut stmt = conn
                 .prepare_cached(
                     "SELECT id, name, provider, model, system_prompt, tool_names, token_budget
@@ -235,10 +241,7 @@ impl AgentStore for SqliteAgentStore {
                         rusqlite::Error::FromSqlConversionFailure(
                             0,
                             rusqlite::types::Type::Text,
-                            Box::new(std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                e.to_string(),
-                            )),
+                            Box::new(std::io::Error::other(e.to_string())),
                         )
                     })
                 })
@@ -287,9 +290,11 @@ impl AgentStore for SqliteAgentStore {
         let pool = self.pool.clone();
         let run = run.clone();
         tokio::task::spawn_blocking(move || {
-            let conn = pool.get().map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
-            let trigger_payload = serde_json::to_string(&run.trigger_payload)
-                .unwrap_or_else(|_| "{}".to_string());
+            let conn = pool
+                .get()
+                .map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
+            let trigger_payload =
+                serde_json::to_string(&run.trigger_payload).unwrap_or_else(|_| "{}".to_string());
 
             conn.execute(
                 "INSERT INTO agent_runs
@@ -324,7 +329,9 @@ impl AgentStore for SqliteAgentStore {
         let id = run_id.to_string();
         let update = update.clone();
         tokio::task::spawn_blocking(move || {
-            let conn = pool.get().map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
+            let conn = pool
+                .get()
+                .map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
 
             // Build dynamic SET clause; only update fields the caller set.
             let mut sets: Vec<&str> = Vec::new();
@@ -366,8 +373,7 @@ impl AgentStore for SqliteAgentStore {
             let sql = format!("UPDATE agent_runs SET {} WHERE id = ?", sets.join(", "));
             vals.push(Box::new(id));
 
-            let refs: Vec<&dyn rusqlite::types::ToSql> =
-                vals.iter().map(|b| b.as_ref()).collect();
+            let refs: Vec<&dyn rusqlite::types::ToSql> = vals.iter().map(|b| b.as_ref()).collect();
 
             conn.execute(&sql, refs.as_slice())
                 .map_err(|e| MtwError::Internal(format!("update_run: {}", e)))?;
@@ -381,7 +387,9 @@ impl AgentStore for SqliteAgentStore {
         let pool = self.pool.clone();
         let id = run_id.to_string();
         tokio::task::spawn_blocking(move || {
-            let conn = pool.get().map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
+            let conn = pool
+                .get()
+                .map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
             let mut stmt = conn
                 .prepare_cached(
                     "SELECT id, agent_id, trigger_type, trigger_payload, goal, status, result,
@@ -411,7 +419,9 @@ impl AgentStore for SqliteAgentStore {
         let pool = self.pool.clone();
         let filter = filter.clone();
         tokio::task::spawn_blocking(move || {
-            let conn = pool.get().map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
+            let conn = pool
+                .get()
+                .map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
 
             let mut sql = String::from(
                 "SELECT id, agent_id, trigger_type, trigger_payload, goal, status, result,
@@ -439,8 +449,7 @@ impl AgentStore for SqliteAgentStore {
                 vals.push(Box::new(lim as i64));
             }
 
-            let refs: Vec<&dyn rusqlite::types::ToSql> =
-                vals.iter().map(|b| b.as_ref()).collect();
+            let refs: Vec<&dyn rusqlite::types::ToSql> = vals.iter().map(|b| b.as_ref()).collect();
 
             let mut stmt = conn
                 .prepare(&sql)
@@ -452,10 +461,7 @@ impl AgentStore for SqliteAgentStore {
                         rusqlite::Error::FromSqlConversionFailure(
                             0,
                             rusqlite::types::Type::Text,
-                            Box::new(std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                e.to_string(),
-                            )),
+                            Box::new(std::io::Error::other(e.to_string())),
                         )
                     })
                 })
@@ -475,9 +481,11 @@ impl AgentStore for SqliteAgentStore {
         let pool = self.pool.clone();
         let step = step.clone();
         tokio::task::spawn_blocking(move || {
-            let conn = pool.get().map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
-            let tool_input = serde_json::to_string(&step.tool_input)
-                .unwrap_or_else(|_| "{}".to_string());
+            let conn = pool
+                .get()
+                .map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
+            let tool_input =
+                serde_json::to_string(&step.tool_input).unwrap_or_else(|_| "{}".to_string());
 
             conn.execute(
                 "INSERT INTO agent_steps
@@ -508,7 +516,9 @@ impl AgentStore for SqliteAgentStore {
         let pool = self.pool.clone();
         let id = run_id.to_string();
         tokio::task::spawn_blocking(move || {
-            let conn = pool.get().map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
+            let conn = pool
+                .get()
+                .map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
             let mut stmt = conn
                 .prepare_cached(
                     "SELECT id, run_id, step_number, step_type, content, tool_name, tool_input,
@@ -524,10 +534,7 @@ impl AgentStore for SqliteAgentStore {
                         rusqlite::Error::FromSqlConversionFailure(
                             0,
                             rusqlite::types::Type::Text,
-                            Box::new(std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                e.to_string(),
-                            )),
+                            Box::new(std::io::Error::other(e.to_string())),
                         )
                     })
                 })
@@ -547,7 +554,9 @@ impl AgentStore for SqliteAgentStore {
         let pool = self.pool.clone();
         let m = memory.clone();
         tokio::task::spawn_blocking(move || {
-            let conn = pool.get().map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
+            let conn = pool
+                .get()
+                .map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
             conn.execute(
                 "INSERT INTO agent_memory
                    (id, agent_id, role, content, run_id, created_at)
@@ -576,7 +585,9 @@ impl AgentStore for SqliteAgentStore {
         let pool = self.pool.clone();
         let id = agent_id.to_string();
         tokio::task::spawn_blocking(move || {
-            let conn = pool.get().map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
+            let conn = pool
+                .get()
+                .map_err(|e| MtwError::Internal(format!("pool: {}", e)))?;
             let mut stmt = conn
                 .prepare_cached(
                     "SELECT id, agent_id, role, content, run_id, created_at
@@ -616,20 +627,28 @@ fn row_to_agent(row: &rusqlite::Row<'_>) -> Result<AgentConfig, MtwError> {
     let tool_names_json: String = row
         .get(5)
         .map_err(|e| MtwError::Internal(format!("tool_names: {}", e)))?;
-    let tool_names: Vec<String> =
-        serde_json::from_str(&tool_names_json).unwrap_or_default();
+    let tool_names: Vec<String> = serde_json::from_str(&tool_names_json).unwrap_or_default();
     Ok(AgentConfig {
-        id: row.get(0).map_err(|e| MtwError::Internal(format!("id: {}", e)))?,
-        name: row.get(1).map_err(|e| MtwError::Internal(format!("name: {}", e)))?,
-        provider: row.get(2).map_err(|e| MtwError::Internal(format!("provider: {}", e)))?,
-        model: row.get(3).map_err(|e| MtwError::Internal(format!("model: {}", e)))?,
+        id: row
+            .get(0)
+            .map_err(|e| MtwError::Internal(format!("id: {}", e)))?,
+        name: row
+            .get(1)
+            .map_err(|e| MtwError::Internal(format!("name: {}", e)))?,
+        provider: row
+            .get(2)
+            .map_err(|e| MtwError::Internal(format!("provider: {}", e)))?,
+        model: row
+            .get(3)
+            .map_err(|e| MtwError::Internal(format!("model: {}", e)))?,
         system_prompt: row
             .get(4)
             .map_err(|e| MtwError::Internal(format!("system_prompt: {}", e)))?,
         tool_names,
         token_budget: row
             .get::<_, i64>(6)
-            .map_err(|e| MtwError::Internal(format!("token_budget: {}", e)))? as u32,
+            .map_err(|e| MtwError::Internal(format!("token_budget: {}", e)))?
+            as u32,
     })
 }
 
@@ -645,21 +664,33 @@ fn row_to_run(row: &rusqlite::Row<'_>) -> Result<AgentRun, MtwError> {
         .map_err(|e| MtwError::Internal(format!("status: {}", e)))?;
 
     Ok(AgentRun {
-        id: row.get(0).map_err(|e| MtwError::Internal(format!("id: {}", e)))?,
-        agent_id: row.get(1).map_err(|e| MtwError::Internal(format!("agent_id: {}", e)))?,
+        id: row
+            .get(0)
+            .map_err(|e| MtwError::Internal(format!("id: {}", e)))?,
+        agent_id: row
+            .get(1)
+            .map_err(|e| MtwError::Internal(format!("agent_id: {}", e)))?,
         trigger_type: str_to_trigger_type(&trigger_type_str),
         trigger_payload: serde_json::from_str(&trigger_payload_str)
             .unwrap_or(serde_json::Value::Null),
-        goal: row.get(4).map_err(|e| MtwError::Internal(format!("goal: {}", e)))?,
+        goal: row
+            .get(4)
+            .map_err(|e| MtwError::Internal(format!("goal: {}", e)))?,
         status: str_to_status(&status_str),
-        result: row.get(6).map_err(|e| MtwError::Internal(format!("result: {}", e)))?,
-        error: row.get(7).map_err(|e| MtwError::Internal(format!("error: {}", e)))?,
+        result: row
+            .get(6)
+            .map_err(|e| MtwError::Internal(format!("result: {}", e)))?,
+        error: row
+            .get(7)
+            .map_err(|e| MtwError::Internal(format!("error: {}", e)))?,
         steps_count: row
             .get::<_, i64>(8)
-            .map_err(|e| MtwError::Internal(format!("steps_count: {}", e)))? as u32,
+            .map_err(|e| MtwError::Internal(format!("steps_count: {}", e)))?
+            as u32,
         tokens_used: row
             .get::<_, i64>(9)
-            .map_err(|e| MtwError::Internal(format!("tokens_used: {}", e)))? as u32,
+            .map_err(|e| MtwError::Internal(format!("tokens_used: {}", e)))?
+            as u32,
         started_at: row.get(10).ok(),
         completed_at: row.get(11).ok(),
         created_at: row
@@ -676,16 +707,27 @@ fn row_to_step(row: &rusqlite::Row<'_>) -> Result<AgentStep, MtwError> {
         .get(6)
         .map_err(|e| MtwError::Internal(format!("tool_input: {}", e)))?;
     Ok(AgentStep {
-        id: row.get(0).map_err(|e| MtwError::Internal(format!("id: {}", e)))?,
-        run_id: row.get(1).map_err(|e| MtwError::Internal(format!("run_id: {}", e)))?,
+        id: row
+            .get(0)
+            .map_err(|e| MtwError::Internal(format!("id: {}", e)))?,
+        run_id: row
+            .get(1)
+            .map_err(|e| MtwError::Internal(format!("run_id: {}", e)))?,
         step_number: row
             .get::<_, i64>(2)
-            .map_err(|e| MtwError::Internal(format!("step_number: {}", e)))? as u32,
+            .map_err(|e| MtwError::Internal(format!("step_number: {}", e)))?
+            as u32,
         step_type: str_to_step_type(&step_type_str),
-        content: row.get(4).map_err(|e| MtwError::Internal(format!("content: {}", e)))?,
-        tool_name: row.get(5).map_err(|e| MtwError::Internal(format!("tool_name: {}", e)))?,
+        content: row
+            .get(4)
+            .map_err(|e| MtwError::Internal(format!("content: {}", e)))?,
+        tool_name: row
+            .get(5)
+            .map_err(|e| MtwError::Internal(format!("tool_name: {}", e)))?,
         tool_input: serde_json::from_str(&tool_input_str).unwrap_or(serde_json::Value::Null),
-        tool_output: row.get(7).map_err(|e| MtwError::Internal(format!("tool_output: {}", e)))?,
+        tool_output: row
+            .get(7)
+            .map_err(|e| MtwError::Internal(format!("tool_output: {}", e)))?,
         tokens: row
             .get::<_, i64>(8)
             .map_err(|e| MtwError::Internal(format!("tokens: {}", e)))? as u32,

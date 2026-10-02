@@ -7,8 +7,8 @@ use mtw_codec::MtwCodec;
 use mtw_core::MtwError;
 use mtw_protocol::frame::{Frame, FrameType};
 use mtw_protocol::{
-    ConnId, ConnMetadata, ConnTarget, DisconnectReason, EnvelopeSink, MsgType, MtwMessage,
-    Payload, SharedEnvelope, TransportEvent,
+    ConnId, ConnMetadata, ConnTarget, DisconnectReason, EnvelopeSink, MsgType, MtwMessage, Payload,
+    SharedEnvelope, TransportEvent,
 };
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -77,6 +77,7 @@ impl WebSocketTransport {
     }
 
     /// Handle a single WebSocket connection
+    #[allow(clippy::too_many_arguments)]
     async fn handle_connection(
         stream: TcpStream,
         addr: SocketAddr,
@@ -95,6 +96,8 @@ impl WebSocketTransport {
         let msgpack_flag = Arc::new(AtomicBool::new(false));
         let cb_flag = msgpack_flag.clone();
 
+        // The handshake callback's signature is fixed by tungstenite.
+        #[allow(clippy::result_large_err)]
         let callback =
             move |req: &Request, mut resp: Response| -> Result<Response, ErrorResponse> {
                 // The header is a comma‑separated list of preferences; pick
@@ -162,7 +165,9 @@ impl WebSocketTransport {
         } else if let Ok(encoded) = codec.encode(&ack) {
             let _ = ws_sink
                 .send(WsMessage::Text(
-                    String::from_utf8(encoded.to_vec()).unwrap_or_default().into(),
+                    String::from_utf8(encoded.to_vec())
+                        .unwrap_or_default()
+                        .into(),
                 ))
                 .await;
         }
@@ -207,7 +212,8 @@ impl WebSocketTransport {
         let connections_ping = connections.clone();
         let conn_id_ping = conn_id.clone();
         let ping_handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(ping_interval));
+            let mut interval =
+                tokio::time::interval(tokio::time::Duration::from_secs(ping_interval));
             loop {
                 interval.tick().await;
                 if let Some(sender) = connections_ping.get(&conn_id_ping) {
@@ -399,7 +405,11 @@ impl MtwTransport for WebSocketTransport {
             WsMessage::Binary(frame)
         } else {
             let encoded = self.codec.encode(&msg)?;
-            WsMessage::Text(String::from_utf8(encoded.to_vec()).unwrap_or_default().into())
+            WsMessage::Text(
+                String::from_utf8(encoded.to_vec())
+                    .unwrap_or_default()
+                    .into(),
+            )
         };
 
         if let Some(sender) = self.connections.get(conn_id) {

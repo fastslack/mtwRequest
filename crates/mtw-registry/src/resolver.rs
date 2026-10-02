@@ -105,9 +105,7 @@ impl DependencyResolver {
             if let Some(module) = self.modules.get(name) {
                 for (dep_name, _) in &module.dependencies {
                     if all_deps.contains(dep_name) {
-                        adj.entry(dep_name.clone())
-                            .or_default()
-                            .push(name.clone());
+                        adj.entry(dep_name.clone()).or_default().push(name.clone());
                         *in_degree.entry(name.clone()).or_insert(0) += 1;
                     }
                 }
@@ -254,8 +252,14 @@ fn tilde_match(available: &str, constraint: &str) -> bool {
 fn parse_version_parts(version: &str) -> Option<(u64, u64, u64)> {
     let parts: Vec<&str> = version.split('.').collect();
     let major = parts.first()?.parse::<u64>().ok()?;
-    let minor = parts.get(1).and_then(|p| p.parse::<u64>().ok()).unwrap_or(0);
-    let patch = parts.get(2).and_then(|p| p.parse::<u64>().ok()).unwrap_or(0);
+    let minor = parts
+        .get(1)
+        .and_then(|p| p.parse::<u64>().ok())
+        .unwrap_or(0);
+    let patch = parts
+        .get(2)
+        .and_then(|p| p.parse::<u64>().ok())
+        .unwrap_or(0);
     Some((major, minor, patch))
 }
 
@@ -277,9 +281,7 @@ mod tests {
             dependencies: vec![("a".to_string(), "1.0.0".to_string())],
         });
 
-        let result = resolver
-            .resolve(&["b".to_string()])
-            .unwrap();
+        let result = resolver.resolve(&["b".to_string()]).unwrap();
         assert_eq!(result.install_order.len(), 2);
         assert_eq!(result.install_order[0].name, "a");
         assert_eq!(result.install_order[1].name, "b");
@@ -312,9 +314,7 @@ mod tests {
             ],
         });
 
-        let result = resolver
-            .resolve(&["top".to_string()])
-            .unwrap();
+        let result = resolver.resolve(&["top".to_string()]).unwrap();
         assert_eq!(result.install_order.len(), 4);
         // base must come before left and right, which must come before top
         let pos = |name: &str| {
@@ -442,9 +442,7 @@ mod tests {
             dependencies: vec![],
         });
 
-        let result = resolver
-            .resolve(&["standalone".to_string()])
-            .unwrap();
+        let result = resolver.resolve(&["standalone".to_string()]).unwrap();
         assert_eq!(result.install_order.len(), 1);
         assert_eq!(result.install_order[0].name, "standalone");
     }

@@ -57,12 +57,10 @@ impl PipelineStage for TransformStage {
     ) -> Result<PipelineAction, MtwError> {
         let json_value = match &response.body {
             ResponseBody::Json(v) => v.clone(),
-            ResponseBody::Bytes(b) => {
-                match serde_json::from_slice::<serde_json::Value>(b) {
-                    Ok(v) => v,
-                    Err(_) => return Ok(PipelineAction::Continue(response)),
-                }
-            }
+            ResponseBody::Bytes(b) => match serde_json::from_slice::<serde_json::Value>(b) {
+                Ok(v) => v,
+                Err(_) => return Ok(PipelineAction::Continue(response)),
+            },
             ResponseBody::Empty => return Ok(PipelineAction::Continue(response)),
         };
 

@@ -38,9 +38,9 @@
 //!   custom protocols) so the same profile applies end-to-end.
 
 pub mod config;
-pub mod profile;
 pub mod factory;
 pub mod global;
+pub mod profile;
 
 #[cfg(feature = "wireguard")]
 pub mod wireguard;

@@ -11,11 +11,7 @@ pub async fn run(path: &str, dry_run: bool) -> CliResult {
     let root = Path::new(path);
     let manifest_path = root.join("mtw-module.toml");
     if !manifest_path.exists() {
-        return Err(format!(
-            "no mtw-module.toml found at {}",
-            manifest_path.display()
-        )
-        .into());
+        return Err(format!("no mtw-module.toml found at {}", manifest_path.display()).into());
     }
 
     let manifest = RegistryManifest::from_file(&manifest_path)
@@ -41,7 +37,10 @@ pub async fn run(path: &str, dry_run: bool) -> CliResult {
     let client = RegistryClient::new(cfg);
     let result = client.publish(&manifest, package).await?;
 
-    println!("published {}@{} — {}", result.name, result.version, result.url);
+    println!(
+        "published {}@{} — {}",
+        result.name, result.version, result.url
+    );
     Ok(())
 }
 

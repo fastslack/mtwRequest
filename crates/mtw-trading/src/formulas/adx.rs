@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use crate::formula::{FormulaContext, FormulaResult, SignalFormula};
 use crate::types::{Candle, OrderSide};
+use std::collections::HashMap;
 
 /// Average Directional Index (ADX) with +DI/-DI.
 ///
@@ -10,13 +10,24 @@ use crate::types::{Candle, OrderSide};
 pub struct AdxFormula;
 
 impl SignalFormula for AdxFormula {
-    fn id(&self) -> &str { "adx" }
-    fn name(&self) -> &str { "ADX (14)" }
-    fn description(&self) -> &str { "Trend strength with directional indicators (+DI/-DI)" }
-    fn min_candles(&self) -> usize { 30 }
+    fn id(&self) -> &str {
+        "adx"
+    }
+    fn name(&self) -> &str {
+        "ADX (14)"
+    }
+    fn description(&self) -> &str {
+        "Trend strength with directional indicators (+DI/-DI)"
+    }
+    fn min_candles(&self) -> usize {
+        30
+    }
 
     fn compute(&self, candles: &[Candle], context: Option<&FormulaContext>) -> FormulaResult {
-        let period = context.and_then(|c| c.params.get("period")).copied().unwrap_or(14.0) as usize;
+        let period = context
+            .and_then(|c| c.params.get("period"))
+            .copied()
+            .unwrap_or(14.0) as usize;
         let n = candles.len();
         if n < period + 1 {
             return FormulaResult::neutral("insufficient data");
@@ -56,12 +67,14 @@ impl SignalFormula for AdxFormula {
 
         // Smoothed using Wilder's method (EMA with alpha = 1/period)
         let smooth = |data: &[f64], p: usize| -> Vec<f64> {
-            if data.len() < p { return Vec::new(); }
+            if data.len() < p {
+                return Vec::new();
+            }
             let mut result = Vec::with_capacity(data.len());
             let first: f64 = data[..p].iter().sum();
             result.push(first);
-            for i in p..data.len() {
-                let val = result.last().unwrap() - result.last().unwrap() / p as f64 + data[i];
+            for &x in &data[p..] {
+                let val = result.last().unwrap() - result.last().unwrap() / p as f64 + x;
                 result.push(val);
             }
             result
@@ -90,7 +103,11 @@ impl SignalFormula for AdxFormula {
             let pdi = 100.0 * smooth_plus[i] / smooth_tr[i];
             let mdi = 100.0 * smooth_minus[i] / smooth_tr[i];
             let sum = pdi + mdi;
-            let dx = if sum > 0.0 { 100.0 * (pdi - mdi).abs() / sum } else { 0.0 };
+            let dx = if sum > 0.0 {
+                100.0 * (pdi - mdi).abs() / sum
+            } else {
+                0.0
+            };
             dx_vals.push(dx);
             last_plus_di = pdi;
             last_minus_di = mdi;
@@ -102,8 +119,8 @@ impl SignalFormula for AdxFormula {
         }
         let first_adx: f64 = dx_vals[..period].iter().sum::<f64>() / period as f64;
         let mut adx = first_adx;
-        for i in period..dx_vals.len() {
-            adx = (adx * (period as f64 - 1.0) + dx_vals[i]) / period as f64;
+        for &dx in &dx_vals[period..] {
+            adx = (adx * (period as f64 - 1.0) + dx) / period as f64;
         }
 
         let mut indicators = HashMap::new();
@@ -130,7 +147,10 @@ impl SignalFormula for AdxFormula {
             side,
             confidence,
             indicators,
-            reasoning: format!("ADX {:.1} +DI {:.1} -DI {:.1}", adx, last_plus_di, last_minus_di),
+            reasoning: format!(
+                "ADX {:.1} +DI {:.1} -DI {:.1}",
+                adx, last_plus_di, last_minus_di
+            ),
         }
     }
 }
@@ -140,17 +160,23 @@ mod tests {
     use super::*;
 
     fn trending_candles(up: bool) -> Vec<Candle> {
-        (0..50).map(|i| {
-            let base = if up { 100.0 + i as f64 * 2.0 } else { 200.0 - i as f64 * 2.0 };
-            Candle {
-                timestamp: i as u64,
-                open: base - 0.5,
-                high: base + 1.5,
-                low: base - 1.5,
-                close: base + 0.5,
-                volume: 1000.0,
-            }
-        }).collect()
+        (0..50)
+            .map(|i| {
+                let base = if up {
+                    100.0 + i as f64 * 2.0
+                } else {
+                    200.0 - i as f64 * 2.0
+                };
+                Candle {
+                    timestamp: i as u64,
+                    open: base - 0.5,
+                    high: base + 1.5,
+                    low: base - 1.5,
+                    close: base + 0.5,
+                    volume: 1000.0,
+                }
+            })
+            .collect()
     }
 
     #[test]

@@ -10,10 +10,9 @@ pub struct Migration {
 }
 
 /// The full migration set. Append new migrations to the end.
-pub const MIGRATIONS: &[Migration] = &[
-    Migration {
-        version: 1,
-        sql: r#"
+pub const MIGRATIONS: &[Migration] = &[Migration {
+    version: 1,
+    sql: r#"
             CREATE TABLE IF NOT EXISTS agents (
                 id              TEXT PRIMARY KEY,
                 name            TEXT NOT NULL,
@@ -72,8 +71,7 @@ pub const MIGRATIONS: &[Migration] = &[
             CREATE INDEX IF NOT EXISTS idx_agent_memory_agent
                 ON agent_memory(agent_id, created_at DESC);
         "#,
-    },
-];
+}];
 
 /// Apply all pending migrations to a connection.
 ///

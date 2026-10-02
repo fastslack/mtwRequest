@@ -166,10 +166,8 @@ mod tests {
             .unwrap();
 
         let mw = AuthMiddleware::new(Arc::new(JwtAuth::new(JwtConfig::new("test-secret"))));
-        let msg = MtwMessage::event("hello").with_metadata(
-            "auth_token",
-            serde_json::Value::String(token.token),
-        );
+        let msg = MtwMessage::event("hello")
+            .with_metadata("auth_token", serde_json::Value::String(token.token));
         let ctx = make_ctx();
 
         let result = mw.on_inbound(msg, &ctx).await.unwrap();
@@ -188,17 +186,13 @@ mod tests {
     #[tokio::test]
     async fn test_custom_token_key() {
         let jwt = JwtAuth::new(JwtConfig::new("test-secret"));
-        let token = jwt
-            .create_token("user-1", vec![], HashMap::new())
-            .unwrap();
+        let token = jwt.create_token("user-1", vec![], HashMap::new()).unwrap();
 
         let mw = AuthMiddleware::new(Arc::new(JwtAuth::new(JwtConfig::new("test-secret"))))
             .with_token_key("x-api-token");
 
-        let msg = MtwMessage::event("hello").with_metadata(
-            "x-api-token",
-            serde_json::Value::String(token.token),
-        );
+        let msg = MtwMessage::event("hello")
+            .with_metadata("x-api-token", serde_json::Value::String(token.token));
         let ctx = make_ctx();
 
         let result = mw.on_inbound(msg, &ctx).await.unwrap();

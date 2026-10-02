@@ -6,7 +6,7 @@ use crate::pipeline::{PipelineAction, PipelineContext, PipelineStage};
 use crate::response::{MtwResponse, PaginationInfo, ResponseBody};
 
 /// Configuration for pagination extraction.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PaginationConfig {
     /// JSON field that contains the next page cursor or URL.
     pub next_field: Option<String>,
@@ -18,18 +18,6 @@ pub struct PaginationConfig {
     pub page_field: Option<String>,
     /// JSON field for items per page.
     pub per_page_field: Option<String>,
-}
-
-impl Default for PaginationConfig {
-    fn default() -> Self {
-        Self {
-            next_field: None,
-            total_field: None,
-            has_more_field: None,
-            page_field: None,
-            per_page_field: None,
-        }
-    }
 }
 
 /// Pipeline stage that extracts pagination info from Link headers and JSON body fields.
@@ -73,10 +61,7 @@ impl PaginationStage {
     }
 
     /// Extract pagination info from JSON body.
-    fn extract_from_json(
-        &self,
-        json: &serde_json::Value,
-    ) -> PaginationInfo {
+    fn extract_from_json(&self, json: &serde_json::Value) -> PaginationInfo {
         let mut info = PaginationInfo::default();
 
         // Try configured fields first, then common defaults
@@ -184,11 +169,9 @@ impl PipelineStage for PaginationStage {
         // Extract from JSON body
         let json_info = match &response.body {
             ResponseBody::Json(v) => Some(self.extract_from_json(v)),
-            ResponseBody::Bytes(b) => {
-                serde_json::from_slice::<serde_json::Value>(b)
-                    .ok()
-                    .map(|v| self.extract_from_json(&v))
-            }
+            ResponseBody::Bytes(b) => serde_json::from_slice::<serde_json::Value>(b)
+                .ok()
+                .map(|v| self.extract_from_json(&v)),
             ResponseBody::Empty => None,
         };
 

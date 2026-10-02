@@ -136,11 +136,10 @@ fn run_handler() -> ToolHandler {
                         return Dynamic::from("dispatcher not attached".to_string());
                     };
                     let server = server.clone();
-                    let json_args: Value = rhai::serde::from_dynamic(&Dynamic::from_map(args))
-                        .unwrap_or(Value::Null);
-                    let outcome = dispatch_handle.block_on(async move {
-                        server.call_tool(&name, json_args).await
-                    });
+                    let json_args: Value =
+                        rhai::serde::from_dynamic(&Dynamic::from_map(args)).unwrap_or(Value::Null);
+                    let outcome = dispatch_handle
+                        .block_on(async move { server.call_tool(&name, json_args).await });
                     match outcome {
                         Ok(r) => {
                             // Prefer structured payload when present.

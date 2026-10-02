@@ -268,7 +268,11 @@ impl SocialService {
         self.state
             .read()
             .ok()
-            .and_then(|s| s.follows.get(pubkey).map(|v| v.value.iter().cloned().collect()))
+            .and_then(|s| {
+                s.follows
+                    .get(pubkey)
+                    .map(|v| v.value.iter().cloned().collect())
+            })
             .unwrap_or_default()
     }
 
@@ -278,7 +282,7 @@ impl SocialService {
             Ok(s) => s.posts.values().cloned().collect(),
             Err(_) => return Vec::new(),
         };
-        posts.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        posts.sort_by_key(|p| std::cmp::Reverse(p.timestamp));
         posts.truncate(limit);
         posts
     }
@@ -300,7 +304,7 @@ impl SocialService {
                 .collect(),
             Err(_) => return Vec::new(),
         };
-        posts.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        posts.sort_by_key(|p| std::cmp::Reverse(p.timestamp));
         posts.truncate(limit);
         posts
     }
@@ -329,7 +333,7 @@ impl SocialService {
                 .collect(),
             Err(_) => return Vec::new(),
         };
-        replies.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        replies.sort_by_key(|r| std::cmp::Reverse(r.timestamp));
         replies
     }
 
@@ -372,7 +376,9 @@ mod tests {
     #[test]
     fn post_roundtrip_through_local_ingest() {
         let s = svc();
-        let msg = s.create_post("hola mundo", vec!["greeting".into()], vec![]).unwrap();
+        let msg = s
+            .create_post("hola mundo", vec!["greeting".into()], vec![])
+            .unwrap();
         assert!(msg.pubkey.is_some() && msg.sig.is_some());
 
         let timeline = s.timeline(10);
@@ -449,7 +455,11 @@ mod tests {
         other.ingest(&newer).unwrap();
         other.ingest(&older).unwrap(); // older arrives second — should NOT replace
         assert_eq!(
-            other.profile_of(s.my_pubkey()).unwrap().display_name.unwrap(),
+            other
+                .profile_of(s.my_pubkey())
+                .unwrap()
+                .display_name
+                .unwrap(),
             "v2"
         );
     }
@@ -501,7 +511,11 @@ mod tests {
         // Bob tries to delete Alice's post — should be rejected silently.
         let bob_delete = bob.delete(vec![alice_post.id.clone()]).unwrap();
         alice.ingest(&bob_delete).unwrap();
-        assert_eq!(alice.timeline(10).len(), 1, "bob cannot delete alice's post");
+        assert_eq!(
+            alice.timeline(10).len(),
+            1,
+            "bob cannot delete alice's post"
+        );
 
         // Alice deletes her own post — should propagate.
         let alice_delete = alice.delete(vec![alice_post.id.clone()]).unwrap();
@@ -517,10 +531,14 @@ mod tests {
         let stranger = SocialService::new(Arc::new(MtwIdentity::generate()));
 
         // Alice follows Bob but not the stranger.
-        alice.set_follows(vec![bob.my_pubkey().to_string()]).unwrap();
+        alice
+            .set_follows(vec![bob.my_pubkey().to_string()])
+            .unwrap();
 
         let bob_post = bob.create_post("from bob", vec![], vec![]).unwrap();
-        let stranger_post = stranger.create_post("from stranger", vec![], vec![]).unwrap();
+        let stranger_post = stranger
+            .create_post("from stranger", vec![], vec![])
+            .unwrap();
 
         alice.ingest(&bob_post).unwrap();
         alice.ingest(&stranger_post).unwrap();

@@ -52,7 +52,10 @@ impl RetryStage {
     /// Calculate the delay for a given attempt using exponential backoff with jitter.
     pub fn calculate_delay(&self, attempt: u32) -> Duration {
         let base = self.config.initial_delay.as_millis() as f64
-            * self.config.backoff_factor.powi(attempt.saturating_sub(1) as i32);
+            * self
+                .config
+                .backoff_factor
+                .powi(attempt.saturating_sub(1) as i32);
         let capped = base.min(self.config.max_delay.as_millis() as f64);
         // Simple jitter: 75%-100% of calculated delay
         let jitter_factor = 0.75 + (attempt as f64 * 0.07 % 0.25);

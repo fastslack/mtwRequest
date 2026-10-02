@@ -73,9 +73,7 @@ impl PipelineStage for StatusCheckStage {
         }
 
         // Check if this is a retryable status code
-        if self.config.retryable_codes.contains(&status)
-            && context.attempt <= context.max_retries
-        {
+        if self.config.retryable_codes.contains(&status) && context.attempt <= context.max_retries {
             tracing::warn!(status, attempt = context.attempt, "retryable status code");
             return Ok(PipelineAction::Retry(context.request.clone()));
         }

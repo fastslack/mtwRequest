@@ -134,7 +134,9 @@ impl PipelineStage for CacheStage {
         let etag = response.headers.get("etag").cloned();
         let last_modified = response.headers.get("last-modified").cloned();
         let cache_control = response.headers.get("cache-control").cloned();
-        let max_age = cache_control.as_ref().and_then(|cc| Self::parse_max_age(cc));
+        let max_age = cache_control
+            .as_ref()
+            .and_then(|cc| Self::parse_max_age(cc));
 
         // Populate CacheInfo on the response
         response.cache_info = Some(CacheInfo {
@@ -237,10 +239,7 @@ mod tests {
     #[tokio::test]
     async fn test_max_age_parsing() {
         assert_eq!(CacheStage::parse_max_age("max-age=3600"), Some(3600));
-        assert_eq!(
-            CacheStage::parse_max_age("public, max-age=600"),
-            Some(600)
-        );
+        assert_eq!(CacheStage::parse_max_age("public, max-age=600"), Some(600));
         assert_eq!(CacheStage::parse_max_age("no-cache"), None);
     }
 

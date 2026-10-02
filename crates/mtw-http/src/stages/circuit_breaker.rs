@@ -223,10 +223,7 @@ mod tests {
             stage.process(resp, &mut ctx).await.unwrap();
         }
 
-        assert_eq!(
-            stage.state_for("api.example.com").await,
-            CircuitState::Open
-        );
+        assert_eq!(stage.state_for("api.example.com").await, CircuitState::Open);
 
         // Next request should be rejected
         let resp = MtwResponse::new(200);
@@ -272,10 +269,7 @@ mod tests {
             let resp = MtwResponse::new(500);
             stage.process(resp, &mut ctx).await.unwrap();
         }
-        assert_eq!(
-            stage.state_for("api.example.com").await,
-            CircuitState::Open
-        );
+        assert_eq!(stage.state_for("api.example.com").await, CircuitState::Open);
 
         // Wait for recovery timeout
         tokio::time::sleep(Duration::from_millis(20)).await;

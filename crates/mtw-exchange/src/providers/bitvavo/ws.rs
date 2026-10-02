@@ -42,10 +42,19 @@ impl ReconnectState {
 /// Subscription request for Bitvavo WebSocket.
 #[derive(Debug, Clone)]
 pub enum Subscription {
-    Ticker24h { markets: Vec<String> },
-    Candles { markets: Vec<String>, intervals: Vec<String> },
-    Book { markets: Vec<String> },
-    Trades { markets: Vec<String> },
+    Ticker24h {
+        markets: Vec<String>,
+    },
+    Candles {
+        markets: Vec<String>,
+        intervals: Vec<String>,
+    },
+    Book {
+        markets: Vec<String>,
+    },
+    Trades {
+        markets: Vec<String>,
+    },
 }
 
 /// Bitvavo WebSocket client for real-time market data streaming.
@@ -76,10 +85,7 @@ impl BitvavoWebSocket {
     }
 
     /// Connect and start the read loop. Automatically reconnects on failure.
-    pub async fn connect(
-        &mut self,
-        credentials: ExchangeCredentials,
-    ) -> Result<(), ExchangeError> {
+    pub async fn connect(&mut self, credentials: ExchangeCredentials) -> Result<(), ExchangeError> {
         let event_tx = self.event_tx.clone();
         let subs = self.subscriptions.clone();
         let mut shutdown_rx = self.shutdown_tx.subscribe();
@@ -200,37 +206,26 @@ impl BitvavoWebSocket {
 /// Convert a Subscription to a Bitvavo WebSocket JSON message.
 fn subscription_to_json(sub: &Subscription) -> String {
     match sub {
-        Subscription::Ticker24h { markets } => {
-            serde_json::json!({
-                "action": "subscribe",
-                "channels": [{ "name": "ticker24h", "markets": markets }]
-            })
-            .to_string()
-        }
-        Subscription::Candles {
-            markets,
-            intervals,
-        } => {
-            serde_json::json!({
-                "action": "subscribe",
-                "channels": [{ "name": "candles", "markets": markets, "interval": intervals }]
-            })
-            .to_string()
-        }
-        Subscription::Book { markets } => {
-            serde_json::json!({
-                "action": "subscribe",
-                "channels": [{ "name": "book", "markets": markets }]
-            })
-            .to_string()
-        }
-        Subscription::Trades { markets } => {
-            serde_json::json!({
-                "action": "subscribe",
-                "channels": [{ "name": "trades", "markets": markets }]
-            })
-            .to_string()
-        }
+        Subscription::Ticker24h { markets } => serde_json::json!({
+            "action": "subscribe",
+            "channels": [{ "name": "ticker24h", "markets": markets }]
+        })
+        .to_string(),
+        Subscription::Candles { markets, intervals } => serde_json::json!({
+            "action": "subscribe",
+            "channels": [{ "name": "candles", "markets": markets, "interval": intervals }]
+        })
+        .to_string(),
+        Subscription::Book { markets } => serde_json::json!({
+            "action": "subscribe",
+            "channels": [{ "name": "book", "markets": markets }]
+        })
+        .to_string(),
+        Subscription::Trades { markets } => serde_json::json!({
+            "action": "subscribe",
+            "channels": [{ "name": "trades", "markets": markets }]
+        })
+        .to_string(),
     }
 }
 
@@ -248,9 +243,7 @@ fn dispatch_message(text: &str, event_tx: &mpsc::UnboundedSender<ExchangeEvent>)
 
     match event_name {
         "ticker24h" => {
-            if let Ok(ticker) =
-                serde_json::from_value::<BitvavoWsTicker>(parsed["data"].clone())
-            {
+            if let Ok(ticker) = serde_json::from_value::<BitvavoWsTicker>(parsed["data"].clone()) {
                 let open = parse_str_f64(&ticker.open);
                 let last = parse_str_f64(&ticker.last);
                 let change_24h = if open > 0.0 {
@@ -274,8 +267,7 @@ fn dispatch_message(text: &str, event_tx: &mpsc::UnboundedSender<ExchangeEvent>)
             }
         }
         "candle" => {
-            if let Ok(ws_candle) =
-                serde_json::from_value::<BitvavoWsCandle>(parsed["data"].clone())
+            if let Ok(ws_candle) = serde_json::from_value::<BitvavoWsCandle>(parsed["data"].clone())
             {
                 let raw = BitvavoCandle(ws_candle.candle);
                 if let (Some(ts), Some(o), Some(h), Some(l), Some(c), Some(v)) = (

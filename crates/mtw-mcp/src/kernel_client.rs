@@ -9,8 +9,8 @@
 //! Configuration (env vars, all optional with sensible defaults):
 //!   * `KERNEL_URL`         — base URL (default: `http://localhost:3087`)
 //!   * `KERNEL_AUTH_TOKEN`  — Bearer token; if empty, requests go unauth and
-//!                            the kernel returns 401 unless `KERNEL_ALLOW_UNAUTH=1`
-//!                            is set on the kernel side.
+//!     the kernel returns 401 unless `KERNEL_ALLOW_UNAUTH=1`
+//!     is set on the kernel side.
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -92,14 +92,20 @@ impl KernelClient {
     /// Build a client from env. Never fails — missing creds just produce 401s
     /// at call time, which we surface back to Claude as a clear error.
     pub fn from_env() -> Self {
-        let base_url = std::env::var("KERNEL_URL")
-            .unwrap_or_else(|_| "http://localhost:3087".to_string());
-        let token = std::env::var("KERNEL_AUTH_TOKEN").ok().filter(|s| !s.is_empty());
+        let base_url =
+            std::env::var("KERNEL_URL").unwrap_or_else(|_| "http://localhost:3087".to_string());
+        let token = std::env::var("KERNEL_AUTH_TOKEN")
+            .ok()
+            .filter(|s| !s.is_empty());
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
             .expect("reqwest client build");
-        Self { base_url, token, http }
+        Self {
+            base_url,
+            token,
+            http,
+        }
     }
 
     fn auth(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
@@ -156,7 +162,11 @@ impl KernelClient {
         workspace: Option<&str>,
     ) -> Result<KernelRunResponse, String> {
         let url = format!("{}/api/agents/run", self.base_url);
-        let body = RunRequest { agent_id, goal, workspace };
+        let body = RunRequest {
+            agent_id,
+            goal,
+            workspace,
+        };
         let resp = self
             .auth(self.http.post(&url).json(&body))
             .send()
@@ -168,9 +178,9 @@ impl KernelClient {
             .await
             .map_err(|e| format!("kernel /api/agents/run body parse: {}", e))?;
         if !status.is_success() {
-            return Err(parsed.error.unwrap_or_else(|| {
-                format!("kernel /api/agents/run -> HTTP {}", status.as_u16())
-            }));
+            return Err(parsed
+                .error
+                .unwrap_or_else(|| format!("kernel /api/agents/run -> HTTP {}", status.as_u16())));
         }
         Ok(parsed)
     }

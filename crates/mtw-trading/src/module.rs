@@ -104,14 +104,14 @@ impl MtwModule for TradingModule {
 
         // Expose via shared state
         if let Some(ref reg) = self.formula_registry {
-            let formula_list: Vec<String> = reg.list().iter().map(|(id, _)| id.to_string()).collect();
+            let formula_list: Vec<String> =
+                reg.list().iter().map(|(id, _)| id.to_string()).collect();
             ctx.shared.set(
                 "trading.formulas",
                 serde_json::to_value(&formula_list).unwrap_or_default(),
             );
         }
-        ctx.shared
-            .set("trading.loaded", serde_json::json!(true));
+        ctx.shared.set("trading.loaded", serde_json::json!(true));
 
         Ok(())
     }
@@ -185,7 +185,10 @@ mod tests {
         assert!(reg.list().len() >= 15);
 
         // Shared state should be set
-        assert_eq!(ctx.shared.get("trading.loaded"), Some(serde_json::json!(true)));
+        assert_eq!(
+            ctx.shared.get("trading.loaded"),
+            Some(serde_json::json!(true))
+        );
 
         module.on_start(&ctx).await.unwrap();
 

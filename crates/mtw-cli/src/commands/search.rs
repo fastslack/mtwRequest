@@ -4,11 +4,7 @@ use mtw_registry::{RegistryClient, RegistryConfig, SearchFilters};
 
 use super::CliResult;
 
-pub async fn run(
-    query: &str,
-    module_type: Option<&str>,
-    author: Option<&str>,
-) -> CliResult {
+pub async fn run(query: &str, module_type: Option<&str>, author: Option<&str>) -> CliResult {
     let config = registry_config();
     let client = RegistryClient::new(config);
     let filters = SearchFilters {
@@ -23,7 +19,7 @@ pub async fn run(
         return Ok(());
     }
 
-    println!("{:<28}  {:<10}  {:<8}  {}", "NAME", "VERSION", "⇩", "DESCRIPTION");
+    println!("{:<28}  {:<10}  {:<8}  DESCRIPTION", "NAME", "VERSION", "⇩");
     for m in results {
         println!(
             "{:<28}  {:<10}  {:<8}  {}",

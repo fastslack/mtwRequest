@@ -76,7 +76,9 @@ pub struct WhatsAppSection {
     pub connect_timeout_secs: u64,
 }
 
-fn default_whatsapp_enabled() -> bool { true }
+fn default_whatsapp_enabled() -> bool {
+    true
+}
 fn default_whatsapp_socket() -> String {
     #[cfg(windows)]
     {
@@ -87,7 +89,9 @@ fn default_whatsapp_socket() -> String {
         "/var/run/mtw-whatsapp/whatsapp.sock".to_string()
     }
 }
-fn default_whatsapp_connect_timeout() -> u64 { 60 }
+fn default_whatsapp_connect_timeout() -> u64 {
+    60
+}
 
 /// Store configuration section
 ///
@@ -366,11 +370,11 @@ impl MtwConfig {
     }
 
     /// Parse configuration from a TOML string
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(content: &str) -> Result<Self, MtwError> {
         // Expand environment variables in the content
         let expanded = Self::expand_env_vars(content);
-        toml::from_str(&expanded)
-            .map_err(|e| MtwError::Config(format!("invalid config: {}", e)))
+        toml::from_str(&expanded).map_err(|e| MtwError::Config(format!("invalid config: {}", e)))
     }
 
     /// Expand ${ENV_VAR} patterns in config values
@@ -382,7 +386,12 @@ impl MtwConfig {
             if let Some(end) = result[start..].find('}') {
                 let var_name = &result[start + 2..start + end];
                 let value = std::env::var(var_name).unwrap_or_default();
-                result = format!("{}{}{}", &result[..start], value, &result[start + end + 1..]);
+                result = format!(
+                    "{}{}{}",
+                    &result[..start],
+                    value,
+                    &result[start + end + 1..]
+                );
             } else {
                 break;
             }
@@ -487,7 +496,7 @@ mod tests {
         assert_eq!(config.agents.len(), 1);
         assert_eq!(config.agents[0].name, "assistant");
         assert_eq!(config.channels.len(), 1);
-        assert_eq!(config.channels[0].auth, true);
+        assert!(config.channels[0].auth);
     }
 
     #[test]
@@ -504,7 +513,10 @@ mod tests {
         "#;
         let config = MtwConfig::from_str(toml).unwrap();
         assert_eq!(config.channels[0].history_max_bytes, 2_097_152);
-        assert_eq!(config.channels[0].history_max_bytes, DEFAULT_CHANNEL_HISTORY_MAX_BYTES);
+        assert_eq!(
+            config.channels[0].history_max_bytes,
+            DEFAULT_CHANNEL_HISTORY_MAX_BYTES
+        );
         assert_eq!(config.channels[1].history_max_bytes, 4096);
     }
 
@@ -544,9 +556,9 @@ mod tests {
 
         let store = config.store.unwrap();
         assert_eq!(store.path, "./data/app.db");
-        assert!(store.readonly);         // default: true
-        assert_eq!(store.pool_size, 4);  // default: 4
-        assert_eq!(store.cache_mb, 64);  // default: 64
+        assert!(store.readonly); // default: true
+        assert_eq!(store.pool_size, 4); // default: 4
+        assert_eq!(store.cache_mb, 64); // default: 64
         assert!(store.bridge.is_none());
     }
 

@@ -31,7 +31,9 @@ pub struct SkillResources {
 }
 
 impl SkillResources {
-    pub fn new(registry: Arc<SkillRegistry>) -> Self { Self { registry } }
+    pub fn new(registry: Arc<SkillRegistry>) -> Self {
+        Self { registry }
+    }
 }
 
 #[async_trait]
@@ -107,7 +109,9 @@ pub struct SkillPrompts {
 }
 
 impl SkillPrompts {
-    pub fn new(registry: Arc<SkillRegistry>) -> Self { Self { registry } }
+    pub fn new(registry: Arc<SkillRegistry>) -> Self {
+        Self { registry }
+    }
 }
 
 #[async_trait]

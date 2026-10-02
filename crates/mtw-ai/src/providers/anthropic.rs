@@ -135,7 +135,6 @@ struct StreamDelta {
     stop_reason: Option<String>,
 }
 
-
 fn build_anthropic_request(
     req: &CompletionRequest,
     default_model: &str,
@@ -236,8 +235,7 @@ impl MtwAIProvider for AnthropicProvider {
     }
 
     async fn complete(&self, req: CompletionRequest) -> Result<CompletionResponse, MtwError> {
-        let anthropic_req =
-            build_anthropic_request(&req, &self.config.default_model, false);
+        let anthropic_req = build_anthropic_request(&req, &self.config.default_model, false);
 
         let url = format!("{}/v1/messages", self.config.base_url);
         let resp = self
@@ -255,9 +253,7 @@ impl MtwAIProvider for AnthropicProvider {
         let body: AnthropicResponse = resp
             .json()
             .await
-            .map_err(|e| {
-                MtwError::Internal(format!("anthropic response parse failed: {}", e))
-            })?;
+            .map_err(|e| MtwError::Internal(format!("anthropic response parse failed: {}", e)))?;
 
         if let Some(err) = body.error {
             return Err(MtwError::Internal(format!(
@@ -282,10 +278,7 @@ impl MtwAIProvider for AnthropicProvider {
                         tool_calls.push(ToolCall {
                             id: block.id.clone().unwrap_or_default(),
                             name: block.name.clone().unwrap_or_default(),
-                            arguments: block
-                                .input
-                                .clone()
-                                .unwrap_or(serde_json::json!({})),
+                            arguments: block.input.clone().unwrap_or(serde_json::json!({})),
                         });
                     }
                     _ => {}
@@ -323,8 +316,7 @@ impl MtwAIProvider for AnthropicProvider {
         &self,
         req: CompletionRequest,
     ) -> Pin<Box<dyn Stream<Item = Result<StreamChunk, MtwError>> + Send>> {
-        let anthropic_req =
-            build_anthropic_request(&req, &self.config.default_model, true);
+        let anthropic_req = build_anthropic_request(&req, &self.config.default_model, true);
 
         let url = format!("{}/v1/messages", self.config.base_url);
         let client = self.client.clone();
@@ -572,7 +564,13 @@ mod tests {
     #[test]
     fn test_finish_reason_from_anthropic() {
         assert_eq!(FinishReason::from_anthropic("end_turn"), FinishReason::Stop);
-        assert_eq!(FinishReason::from_anthropic("max_tokens"), FinishReason::Length);
-        assert_eq!(FinishReason::from_anthropic("tool_use"), FinishReason::ToolUse);
+        assert_eq!(
+            FinishReason::from_anthropic("max_tokens"),
+            FinishReason::Length
+        );
+        assert_eq!(
+            FinishReason::from_anthropic("tool_use"),
+            FinishReason::ToolUse
+        );
     }
 }

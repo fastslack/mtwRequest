@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"net"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -14,7 +15,14 @@ func testEndpoint(t *testing.T) string {
 	if runtime.GOOS == "windows" {
 		return `\\.\pipe\mtw-bridge-test-` + strconv.FormatInt(time.Now().UnixNano(), 10)
 	}
-	return filepath.Join(t.TempDir(), "bridge.sock")
+	// Not t.TempDir(): on macOS it nests the test name under a long $TMPDIR
+	// and overflows the 104-byte unix socket path limit.
+	dir, err := os.MkdirTemp("", "mb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return filepath.Join(dir, "bridge.sock")
 }
 
 // A peer that reconnects must find the endpoint accepting again (Review Focus 1).

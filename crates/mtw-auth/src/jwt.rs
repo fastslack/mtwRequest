@@ -285,11 +285,7 @@ mod tests {
     async fn test_validate_token() {
         let auth = JwtAuth::new(test_config());
         let token = auth
-            .create_token(
-                "user-456",
-                vec!["editor".to_string()],
-                HashMap::new(),
-            )
+            .create_token("user-456", vec!["editor".to_string()], HashMap::new())
             .unwrap();
 
         let claims = auth.validate(&token.token).await.unwrap();
@@ -328,9 +324,7 @@ mod tests {
     #[tokio::test]
     async fn test_cannot_refresh_with_access_token() {
         let auth = JwtAuth::new(test_config());
-        let token = auth
-            .create_token("user-1", vec![], HashMap::new())
-            .unwrap();
+        let token = auth.create_token("user-1", vec![], HashMap::new()).unwrap();
 
         let result = auth.refresh(&token.token).await;
         assert!(result.is_err());
@@ -339,9 +333,7 @@ mod tests {
     #[tokio::test]
     async fn test_cannot_auth_with_refresh_token() {
         let auth = JwtAuth::new(test_config());
-        let token = auth
-            .create_token("user-1", vec![], HashMap::new())
-            .unwrap();
+        let token = auth.create_token("user-1", vec![], HashMap::new()).unwrap();
 
         let refresh = token.refresh_token.unwrap();
         let result = auth.validate(&refresh).await;
@@ -375,9 +367,7 @@ mod tests {
         custom.insert("team".to_string(), serde_json::json!("engineering"));
         custom.insert("level".to_string(), serde_json::json!(5));
 
-        let token = auth
-            .create_token("user-custom", vec![], custom)
-            .unwrap();
+        let token = auth.create_token("user-custom", vec![], custom).unwrap();
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         let claims = rt.block_on(auth.validate(&token.token)).unwrap();

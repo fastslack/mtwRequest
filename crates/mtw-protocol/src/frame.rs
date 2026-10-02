@@ -7,7 +7,7 @@ use crate::message::MtwMessage;
 pub const PROTOCOL_VERSION: u8 = 1;
 
 /// Magic bytes to identify mtwRequest binary frames
-const MAGIC: [u8; 3] = [b'M', b'T', b'W'];
+const MAGIC: [u8; 3] = *b"MTW";
 
 /// Maximum frame size (10MB)
 pub const MAX_FRAME_SIZE: usize = 10 * 1024 * 1024;
@@ -135,7 +135,7 @@ impl Frame {
         }
 
         // Check magic
-        if &data[..3] != &MAGIC {
+        if data[..3] != MAGIC {
             return Err(ProtocolError::InvalidFormat("invalid magic bytes".into()));
         }
         data.advance(3);

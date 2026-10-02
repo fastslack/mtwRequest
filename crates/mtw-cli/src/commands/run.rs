@@ -8,10 +8,7 @@ use super::CliResult;
 pub fn run(config_path: Option<&str>) -> CliResult {
     let config = config_path.unwrap_or("mtw.toml");
     if !Path::new(config).exists() {
-        return Err(format!(
-            "no config file found at {config:?} — run `mtw init` first"
-        )
-        .into());
+        return Err(format!("no config file found at {config:?} — run `mtw init` first").into());
     }
 
     let server_bin = resolve_server_binary()?;

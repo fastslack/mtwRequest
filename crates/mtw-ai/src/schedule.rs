@@ -5,27 +5,54 @@ use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentSchedule {
-    pub id: String, pub agent_id: String, pub interval_ms: u64,
-    pub cron_expression: String, pub goal_override: Option<String>,
-    pub next_run_at: String, pub last_run_at: Option<String>,
-    pub active: bool, pub created_at: String,
+    pub id: String,
+    pub agent_id: String,
+    pub interval_ms: u64,
+    pub cron_expression: String,
+    pub goal_override: Option<String>,
+    pub next_run_at: String,
+    pub last_run_at: Option<String>,
+    pub active: bool,
+    pub created_at: String,
 }
 
-pub struct ScheduleManager { schedules: DashMap<String, AgentSchedule> }
+pub struct ScheduleManager {
+    schedules: DashMap<String, AgentSchedule>,
+}
 
 impl ScheduleManager {
-    pub fn new() -> Self { Self { schedules: DashMap::new() } }
-    pub fn add(&self, schedule: AgentSchedule) { self.schedules.insert(schedule.id.clone(), schedule); }
-    pub fn remove(&self, id: &str) -> bool { self.schedules.remove(id).is_some() }
-    pub fn list(&self) -> Vec<AgentSchedule> { self.schedules.iter().map(|e| e.value().clone()).collect() }
+    pub fn new() -> Self {
+        Self {
+            schedules: DashMap::new(),
+        }
+    }
+    pub fn add(&self, schedule: AgentSchedule) {
+        self.schedules.insert(schedule.id.clone(), schedule);
+    }
+    pub fn remove(&self, id: &str) -> bool {
+        self.schedules.remove(id).is_some()
+    }
+    pub fn list(&self) -> Vec<AgentSchedule> {
+        self.schedules.iter().map(|e| e.value().clone()).collect()
+    }
 
     pub fn list_due(&self, now: &str) -> Vec<AgentSchedule> {
-        self.schedules.iter().filter(|e| e.active && e.next_run_at.as_str() <= now).map(|e| e.value().clone()).collect()
+        self.schedules
+            .iter()
+            .filter(|e| e.active && e.next_run_at.as_str() <= now)
+            .map(|e| e.value().clone())
+            .collect()
     }
 
     pub fn mark_run(&self, id: &str) -> Result<(), MtwError> {
-        let mut s = self.schedules.get_mut(id).ok_or_else(|| MtwError::Agent(format!("schedule not found: {}", id)))?;
-        let now_secs: u64 = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+        let mut s = self
+            .schedules
+            .get_mut(id)
+            .ok_or_else(|| MtwError::Agent(format!("schedule not found: {}", id)))?;
+        let now_secs: u64 = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
         s.last_run_at = Some(now_secs.to_string());
         let next = now_secs + s.interval_ms / 1000;
         s.next_run_at = next.to_string();
@@ -33,12 +60,20 @@ impl ScheduleManager {
     }
 
     pub fn set_active(&self, id: &str, active: bool) -> Result<(), MtwError> {
-        let mut s = self.schedules.get_mut(id).ok_or_else(|| MtwError::Agent(format!("schedule not found: {}", id)))?;
-        s.active = active; Ok(())
+        let mut s = self
+            .schedules
+            .get_mut(id)
+            .ok_or_else(|| MtwError::Agent(format!("schedule not found: {}", id)))?;
+        s.active = active;
+        Ok(())
     }
 }
 
-impl Default for ScheduleManager { fn default() -> Self { Self::new() } }
+impl Default for ScheduleManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Represents a schedule that is due for execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,9 +150,17 @@ mod tests {
     #[test]
     fn test_schedule() {
         let mgr = ScheduleManager::new();
-        mgr.add(AgentSchedule { id: "s1".into(), agent_id: "a1".into(), interval_ms: 60000,
-            cron_expression: "".into(), goal_override: None, next_run_at: "0".into(),
-            last_run_at: None, active: true, created_at: "0".into() });
+        mgr.add(AgentSchedule {
+            id: "s1".into(),
+            agent_id: "a1".into(),
+            interval_ms: 60000,
+            cron_expression: "".into(),
+            goal_override: None,
+            next_run_at: "0".into(),
+            last_run_at: None,
+            active: true,
+            created_at: "0".into(),
+        });
         assert_eq!(mgr.list_due("999999999999").len(), 1);
         mgr.mark_run("s1").unwrap();
         let s = mgr.list()[0].clone();

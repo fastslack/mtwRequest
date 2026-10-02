@@ -60,8 +60,7 @@ impl BitvavoProvider {
     async fn get(&self, path: &str) -> Result<serde_json::Value, ExchangeError> {
         self.rate_limiter.acquire().await;
         let url = format!("{}{}", BITVAVO_REST_URL, path);
-        let (timestamp, signature, api_key) =
-            auth::sign(&self.credentials, "GET", path, "");
+        let (timestamp, signature, api_key) = auth::sign(&self.credentials, "GET", path, "");
 
         let resp = self
             .client
@@ -147,8 +146,7 @@ impl BitvavoProvider {
     async fn delete(&self, path: &str) -> Result<serde_json::Value, ExchangeError> {
         self.rate_limiter.acquire().await;
         let url = format!("{}{}", BITVAVO_REST_URL, path);
-        let (timestamp, signature, api_key) =
-            auth::sign(&self.credentials, "DELETE", path, "");
+        let (timestamp, signature, api_key) = auth::sign(&self.credentials, "DELETE", path, "");
 
         let resp = self
             .client
@@ -266,10 +264,7 @@ impl ExchangeProvider for BitvavoProvider {
         timeframe: &str,
         limit: usize,
     ) -> Result<Vec<Candle>, ExchangeError> {
-        let path = format!(
-            "/{}/candles?interval={}&limit={}",
-            symbol, timeframe, limit
-        );
+        let path = format!("/{}/candles?interval={}&limit={}", symbol, timeframe, limit);
         let data = self.get(&path).await?;
         let raw_candles: Vec<BitvavoCandle> =
             serde_json::from_value(data).map_err(|e| ExchangeError::Deserialization {
@@ -292,11 +287,7 @@ impl ExchangeProvider for BitvavoProvider {
             .collect())
     }
 
-    async fn get_order_book(
-        &self,
-        symbol: &str,
-        limit: usize,
-    ) -> Result<OrderBook, ExchangeError> {
+    async fn get_order_book(&self, symbol: &str, limit: usize) -> Result<OrderBook, ExchangeError> {
         let path = format!("/{}/book?depth={}", symbol, limit);
         let data = self.get(&path).await?;
         let book: BitvavoOrderBook =

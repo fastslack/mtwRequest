@@ -74,7 +74,11 @@ impl fmt::Display for SecurityEvent {
                 code,
                 user_id,
                 platform,
-            } => write!(f, "pairing requested: {} on {} (code: {})", user_id, platform, code),
+            } => write!(
+                f,
+                "pairing requested: {} on {} (code: {})",
+                user_id, platform, code
+            ),
             Self::PairingApproved {
                 user_id, platform, ..
             } => write!(f, "pairing approved: {} on {}", user_id, platform),

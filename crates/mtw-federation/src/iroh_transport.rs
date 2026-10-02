@@ -19,8 +19,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use iroh::{Endpoint, NodeAddr, NodeId};
 use iroh::key::SecretKey;
+use iroh::{Endpoint, NodeAddr, NodeId};
 use mtw_core::MtwError;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
@@ -130,13 +130,10 @@ impl IrohSyncTransport {
             .map_err(|e| MtwError::Transport(format!("invalid node_id: {}", e)))?;
         let addr = NodeAddr::new(node_id);
 
-        tokio::time::timeout(
-            self.connect_timeout,
-            self.endpoint.connect(addr, ALPN),
-        )
-        .await
-        .map_err(|_| MtwError::Transport("iroh connect timeout".into()))?
-        .map_err(|e| MtwError::Transport(format!("iroh connect: {}", e)))
+        tokio::time::timeout(self.connect_timeout, self.endpoint.connect(addr, ALPN))
+            .await
+            .map_err(|_| MtwError::Transport("iroh connect timeout".into()))?
+            .map_err(|e| MtwError::Transport(format!("iroh connect: {}", e)))
     }
 
     async fn round_trip(
@@ -174,16 +171,19 @@ impl MtwSyncTransport for IrohSyncTransport {
         since_version: u64,
         limit: usize,
     ) -> Result<Vec<ChangeLogEntry>, MtwError> {
-        let req = IrohRequest::Pull { since_version, limit };
+        let req = IrohRequest::Pull {
+            since_version,
+            limit,
+        };
         match self.round_trip(peer, &req).await? {
             IrohResponse::Changes { entries } => Ok(entries),
             IrohResponse::Error { message } => Err(MtwError::Transport(format!(
                 "remote error on pull: {}",
                 message
             ))),
-            IrohResponse::Pushed { .. } => {
-                Err(MtwError::Transport("unexpected pushed response on pull".into()))
-            }
+            IrohResponse::Pushed { .. } => Err(MtwError::Transport(
+                "unexpected pushed response on pull".into(),
+            )),
         }
     }
 
@@ -201,9 +201,9 @@ impl MtwSyncTransport for IrohSyncTransport {
                 "remote error on push: {}",
                 message
             ))),
-            IrohResponse::Changes { .. } => {
-                Err(MtwError::Transport("unexpected changes response on push".into()))
-            }
+            IrohResponse::Changes { .. } => Err(MtwError::Transport(
+                "unexpected changes response on push".into(),
+            )),
         }
     }
 }
@@ -262,7 +262,10 @@ async fn handle_stream(
     };
 
     let response = match serde_json::from_slice::<IrohRequest>(&request_bytes) {
-        Ok(IrohRequest::Pull { since_version, limit }) => {
+        Ok(IrohRequest::Pull {
+            since_version,
+            limit,
+        }) => {
             let entries = changelog.get_changes_since(since_version, limit);
             IrohResponse::Changes { entries }
         }

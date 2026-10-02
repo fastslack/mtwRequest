@@ -1,20 +1,30 @@
-use std::collections::HashMap;
 use crate::formula::{compute_atr, FormulaContext, FormulaResult, SignalFormula};
 use crate::types::{Candle, OrderSide};
+use std::collections::HashMap;
 
 pub struct SuperTrendFormula;
 
 impl SignalFormula for SuperTrendFormula {
-    fn id(&self) -> &str { "supertrend" }
-    fn name(&self) -> &str { "SuperTrend (10, 3.0)" }
-    fn description(&self) -> &str { "Trend: ATR-based trend flip detection" }
-    fn min_candles(&self) -> usize { 20 }
+    fn id(&self) -> &str {
+        "supertrend"
+    }
+    fn name(&self) -> &str {
+        "SuperTrend (10, 3.0)"
+    }
+    fn description(&self) -> &str {
+        "Trend: ATR-based trend flip detection"
+    }
+    fn min_candles(&self) -> usize {
+        20
+    }
 
     fn compute(&self, candles: &[Candle], _context: Option<&FormulaContext>) -> FormulaResult {
         let period = 10;
         let multiplier = 3.0;
         let atr = compute_atr(candles, period);
-        if atr.len() < 2 { return FormulaResult::neutral("insufficient data"); }
+        if atr.len() < 2 {
+            return FormulaResult::neutral("insufficient data");
+        }
         let n = candles.len() - 1;
         let hl2 = (candles[n].high + candles[n].low) / 2.0;
         let upper_band = hl2 + multiplier * atr[n];
@@ -32,10 +42,19 @@ impl SignalFormula for SuperTrendFormula {
         indicators.insert("upper".into(), (upper_band * 100.0).round() / 100.0);
         indicators.insert("lower".into(), (lower_band * 100.0).round() / 100.0);
         FormulaResult {
-            side: if flip_up { Some(OrderSide::Buy) } else if flip_down { Some(OrderSide::Sell) } else { None },
+            side: if flip_up {
+                Some(OrderSide::Buy)
+            } else if flip_down {
+                Some(OrderSide::Sell)
+            } else {
+                None
+            },
             confidence: if flip_up || flip_down { 65.0 } else { 0.0 },
             indicators,
-            reasoning: format!("SuperTrend ATR {:.2} bands [{:.2}, {:.2}]", atr[n], lower_band, upper_band),
+            reasoning: format!(
+                "SuperTrend ATR {:.2} bands [{:.2}, {:.2}]",
+                atr[n], lower_band, upper_band
+            ),
         }
     }
 }

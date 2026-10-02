@@ -86,10 +86,9 @@ impl PipelineStage for TimeoutStage {
                 timeout_ms = self.config.request_timeout.as_millis() as u64,
                 "request exceeded timeout threshold"
             );
-            response.metadata.insert(
-                "timeout_exceeded".into(),
-                serde_json::json!(true),
-            );
+            response
+                .metadata
+                .insert("timeout_exceeded".into(), serde_json::json!(true));
         }
 
         Ok(PipelineAction::Continue(response))
@@ -125,7 +124,7 @@ mod tests {
                 resp.metadata.get("request_duration_ms"),
                 Some(&serde_json::json!(100u64))
             );
-            assert!(resp.metadata.get("timeout_exceeded").is_none());
+            assert!(!resp.metadata.contains_key("timeout_exceeded"));
         } else {
             panic!("expected Continue");
         }

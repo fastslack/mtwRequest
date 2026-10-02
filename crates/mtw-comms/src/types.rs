@@ -27,19 +27,38 @@ impl fmt::Display for CommChannel {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum CommDirection { Inbound, Outbound }
+pub enum CommDirection {
+    Inbound,
+    Outbound,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum CommStatus { Draft, Ready, Sending, Sent, Failed, Archived }
+pub enum CommStatus {
+    Draft,
+    Ready,
+    Sending,
+    Sent,
+    Failed,
+    Archived,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AccountType { Personal, Work, Transactional, Marketing }
+pub enum AccountType {
+    Personal,
+    Work,
+    Transactional,
+    Marketing,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AccountProvider { Gmail, Resend, Smtp }
+pub enum AccountProvider {
+    Gmail,
+    Resend,
+    Smtp,
+}
 
 #[cfg(test)]
 mod tests {

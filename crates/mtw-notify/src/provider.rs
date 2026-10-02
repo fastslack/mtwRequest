@@ -26,19 +26,14 @@ impl Default for NotifyCapabilities {
 }
 
 /// Notification priority level
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum NotificationPriority {
     Low,
+    #[default]
     Normal,
     High,
     Critical,
-}
-
-impl Default for NotificationPriority {
-    fn default() -> Self {
-        Self::Normal
-    }
 }
 
 /// Attachment type
@@ -211,17 +206,16 @@ mod tests {
 
     #[test]
     fn test_notification_with_buttons() {
-        let n = Notification::new("Task due")
-            .with_button_row(vec![
-                NotificationButton {
-                    text: "Complete".into(),
-                    callback_data: "complete:task:123".into(),
-                },
-                NotificationButton {
-                    text: "Snooze".into(),
-                    callback_data: "snooze:task:123".into(),
-                },
-            ]);
+        let n = Notification::new("Task due").with_button_row(vec![
+            NotificationButton {
+                text: "Complete".into(),
+                callback_data: "complete:task:123".into(),
+            },
+            NotificationButton {
+                text: "Snooze".into(),
+                callback_data: "snooze:task:123".into(),
+            },
+        ]);
 
         assert_eq!(n.buttons.len(), 1);
         assert_eq!(n.buttons[0].len(), 2);

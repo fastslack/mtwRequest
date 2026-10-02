@@ -244,9 +244,7 @@ mod tests {
             .await
             .unwrap();
 
-        let stats = collector
-            .get_stats("GET http://example.com/api")
-            .unwrap();
+        let stats = collector.get_stats("GET http://example.com/api").unwrap();
         assert_eq!(stats.request_count, 3);
         assert_eq!(stats.success_count, 2);
         assert_eq!(stats.failure_count, 1);
@@ -273,9 +271,7 @@ mod tests {
                 .unwrap();
         }
 
-        let stats = collector
-            .get_stats("GET http://example.com/api")
-            .unwrap();
+        let stats = collector.get_stats("GET http://example.com/api").unwrap();
         assert!((stats.success_rate() - 0.8).abs() < 0.001);
     }
 
@@ -294,9 +290,7 @@ mod tests {
             .await
             .unwrap();
 
-        let stats = collector
-            .get_stats("GET http://example.com/api")
-            .unwrap();
+        let stats = collector.get_stats("GET http://example.com/api").unwrap();
         assert!((stats.avg_duration_ms() - 150.0).abs() < 0.001);
     }
 

@@ -57,8 +57,9 @@ pub fn build_client_builder(
             // gateway without touching code.
         }
         OutboundProfile::Proxy { url, no_proxy } => {
-            let mut proxy = reqwest::Proxy::all(url.as_str())
-                .map_err(|e| MtwError::Config(format!("mtw-net: invalid proxy url '{}': {}", url, e)))?;
+            let mut proxy = reqwest::Proxy::all(url.as_str()).map_err(|e| {
+                MtwError::Config(format!("mtw-net: invalid proxy url '{}': {}", url, e))
+            })?;
             if !no_proxy.is_empty() {
                 let bypass = no_proxy.join(",");
                 proxy = proxy.no_proxy(reqwest::NoProxy::from_string(&bypass));

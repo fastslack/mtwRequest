@@ -49,8 +49,8 @@ impl AgentsCtx {
     /// `mtw_agents_run` against an unregistered provider will fail with
     /// a clear "provider not found" error.
     pub fn bootstrap() -> Result<Self, MtwError> {
-        let path = std::env::var("MTW_AGENTS_DB")
-            .unwrap_or_else(|_| "./data/agents.db".to_string());
+        let path =
+            std::env::var("MTW_AGENTS_DB").unwrap_or_else(|_| "./data/agents.db".to_string());
 
         if let Some(parent) = Path::new(&path).parent() {
             if !parent.as_os_str().is_empty() {
@@ -81,16 +81,13 @@ impl AgentsCtx {
         // Register providers conditionally on credentials/availability.
         if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
             if !key.is_empty() {
-                engine.register_provider(Arc::new(AnthropicProvider::new(
-                    AnthropicConfig::new(key),
-                )));
+                engine
+                    .register_provider(Arc::new(AnthropicProvider::new(AnthropicConfig::new(key))));
             }
         }
         if let Ok(key) = std::env::var("OPENAI_API_KEY") {
             if !key.is_empty() {
-                engine.register_provider(Arc::new(OpenAIProvider::new(
-                    OpenAIConfig::new(key),
-                )));
+                engine.register_provider(Arc::new(OpenAIProvider::new(OpenAIConfig::new(key))));
             }
         }
         let ollama_cfg = if let Ok(url) = std::env::var("OLLAMA_BASE_URL") {

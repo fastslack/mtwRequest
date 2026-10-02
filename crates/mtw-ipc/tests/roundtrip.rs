@@ -17,7 +17,9 @@ async fn serve_echo(mut listener: IpcListener, clients: usize) {
             let (r, mut w) = tokio::io::split(stream);
             let mut lines = BufReader::new(r).lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                w.write_all(format!("echo:{line}\n").as_bytes()).await.unwrap();
+                w.write_all(format!("echo:{line}\n").as_bytes())
+                    .await
+                    .unwrap();
             }
         });
     }
@@ -43,7 +45,10 @@ async fn round_trip_and_sequential_reconnects() {
     // Three clients one after another: a reconnecting peer must always find
     // the endpoint accepting again (Review Focus 1).
     for i in 0..3 {
-        assert_eq!(ask(&endpoint, &format!("ping{i}")).await, format!("echo:ping{i}"));
+        assert_eq!(
+            ask(&endpoint, &format!("ping{i}")).await,
+            format!("echo:ping{i}")
+        );
     }
     server.await.unwrap();
 }

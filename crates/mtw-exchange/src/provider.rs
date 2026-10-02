@@ -54,11 +54,7 @@ pub trait ExchangeProvider: Send + Sync {
     ) -> Result<Vec<Candle>, ExchangeError>;
 
     /// Fetch order book
-    async fn get_order_book(
-        &self,
-        symbol: &str,
-        limit: usize,
-    ) -> Result<OrderBook, ExchangeError>;
+    async fn get_order_book(&self, symbol: &str, limit: usize) -> Result<OrderBook, ExchangeError>;
 
     /// Fetch available trading pairs/markets
     async fn get_markets(&self) -> Result<Vec<String>, ExchangeError>;

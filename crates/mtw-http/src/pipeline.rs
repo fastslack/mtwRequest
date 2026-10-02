@@ -65,9 +65,7 @@ pub struct ResponsePipeline {
 
 impl ResponsePipeline {
     pub fn new() -> Self {
-        Self {
-            stages: Vec::new(),
-        }
+        Self { stages: Vec::new() }
     }
 
     /// Add a stage and re-sort by priority.

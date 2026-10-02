@@ -68,7 +68,11 @@ fn epoch_to_civil(secs: u64) -> (i32, u32, u32, u32, u32, u32) {
     let sec = rem % 60;
 
     let z = days + 719468;
-    let era = if z >= 0 { z / 146097 } else { (z - 146096) / 146097 };
+    let era = if z >= 0 {
+        z / 146097
+    } else {
+        (z - 146096) / 146097
+    };
     let doe = (z - era * 146097) as u64;
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
     let y = yoe as i64 + era * 400;
@@ -201,21 +205,17 @@ impl TorrentEngine for MockEngine {
     }
 
     async fn pause(&self, infohash: &str) -> Result<TorrentDetail, MtwError> {
-        let mut d = self
-            .inner
-            .items
-            .get_mut(infohash)
-            .ok_or_else(|| MtwError::module("torrent", format!("infohash {} not found", infohash)))?;
+        let mut d = self.inner.items.get_mut(infohash).ok_or_else(|| {
+            MtwError::module("torrent", format!("infohash {} not found", infohash))
+        })?;
         d.summary.status = TorrentStatus::Paused;
         Ok(d.clone())
     }
 
     async fn resume(&self, infohash: &str) -> Result<TorrentDetail, MtwError> {
-        let mut d = self
-            .inner
-            .items
-            .get_mut(infohash)
-            .ok_or_else(|| MtwError::module("torrent", format!("infohash {} not found", infohash)))?;
+        let mut d = self.inner.items.get_mut(infohash).ok_or_else(|| {
+            MtwError::module("torrent", format!("infohash {} not found", infohash))
+        })?;
         d.summary.status = TorrentStatus::Downloading;
         Ok(d.clone())
     }
@@ -289,7 +289,9 @@ mod tests {
         let engine = MockEngine::new("/tmp/mtw-torrent-test");
         let magnet = format!("magnet:?xt=urn:btih:{}", "b".repeat(40));
         let spec1 = AddTorrentSpec {
-            source: TorrentSource::Magnet { magnet: magnet.clone() },
+            source: TorrentSource::Magnet {
+                magnet: magnet.clone(),
+            },
             encryption_profile: None,
             category: None,
             tags: vec![],
@@ -438,11 +440,14 @@ mod tests {
     fn _exhaustive_filekind_keeps_compiler_happy() {
         // Touch enum variants so unused-import lints don't trigger when
         // upstream refactors files.
-        let _ = (FileKind::Other, TorrentFile {
-            name: "x".into(),
-            path: "x".into(),
-            size: 0,
-            kind: FileKind::Other,
-        });
+        let _ = (
+            FileKind::Other,
+            TorrentFile {
+                name: "x".into(),
+                path: "x".into(),
+                size: 0,
+                kind: FileKind::Other,
+            },
+        );
     }
 }

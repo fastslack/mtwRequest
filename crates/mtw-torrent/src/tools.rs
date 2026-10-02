@@ -69,8 +69,14 @@ fn register_list(server: &BridgeServer, engine: Arc<dyn TorrentEngine>) {
                 .get("status")
                 .and_then(|v| v.as_str())
                 .and_then(parse_status);
-            let limit = args.get("limit").and_then(|v| v.as_u64()).map(|v| v as usize);
-            let offset = args.get("offset").and_then(|v| v.as_u64()).map(|v| v as usize);
+            let limit = args
+                .get("limit")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize);
+            let offset = args
+                .get("offset")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize);
             let filter = ListFilter {
                 status,
                 limit,
@@ -214,8 +220,13 @@ mod tests {
     use super::*;
     use crate::mock::MockEngine;
 
-    fn make_setup() -> (BridgeServer, Arc<dyn TorrentEngine>, Arc<std::sync::RwLock<TorrentConfig>>) {
-        let server = BridgeServer::new(format!("/tmp/mtw-torrent-tools-{}.sock", ulid::Ulid::new()));
+    fn make_setup() -> (
+        BridgeServer,
+        Arc<dyn TorrentEngine>,
+        Arc<std::sync::RwLock<TorrentConfig>>,
+    ) {
+        let server =
+            BridgeServer::new(format!("/tmp/mtw-torrent-tools-{}.sock", ulid::Ulid::new()));
         let engine: Arc<dyn TorrentEngine> = Arc::new(MockEngine::new("/tmp/mock"));
         let config = Arc::new(std::sync::RwLock::new(TorrentConfig::default()));
         register_tools(&server, engine.clone(), config.clone());

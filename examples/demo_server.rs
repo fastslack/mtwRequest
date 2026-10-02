@@ -3,19 +3,17 @@
 //! Run with: cargo run --example demo_server
 //! Then connect with: cargo run --example demo_client
 
+use mtw_protocol::{MsgType, MtwMessage, Payload, TransportEvent};
+use mtw_router::{ChannelManager, MiddlewareChain, MtwRouter};
 use mtw_transport::ws::WebSocketTransport;
 use mtw_transport::MtwTransport;
-use mtw_router::{ChannelManager, MiddlewareChain, MtwRouter};
-use mtw_protocol::{MsgType, MtwMessage, Payload, TransportEvent};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
-    tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("info").init();
 
     let addr: SocketAddr = "127.0.0.1:7741".parse()?;
 

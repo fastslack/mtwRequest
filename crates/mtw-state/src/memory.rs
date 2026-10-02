@@ -282,10 +282,7 @@ mod tests {
         let store = MemoryStore::new();
         assert!(!store.exists("key1").await.unwrap());
 
-        store
-            .set("key1", serde_json::json!(true))
-            .await
-            .unwrap();
+        store.set("key1", serde_json::json!(true)).await.unwrap();
         assert!(store.exists("key1").await.unwrap());
     }
 
@@ -296,10 +293,7 @@ mod tests {
             .set("user:1", serde_json::json!("alice"))
             .await
             .unwrap();
-        store
-            .set("user:2", serde_json::json!("bob"))
-            .await
-            .unwrap();
+        store.set("user:2", serde_json::json!("bob")).await.unwrap();
         store
             .set("session:1", serde_json::json!("sess"))
             .await
@@ -348,14 +342,8 @@ mod tests {
     #[tokio::test]
     async fn test_overwrite() {
         let store = MemoryStore::new();
-        store
-            .set("key", serde_json::json!("v1"))
-            .await
-            .unwrap();
-        store
-            .set("key", serde_json::json!("v2"))
-            .await
-            .unwrap();
+        store.set("key", serde_json::json!("v1")).await.unwrap();
+        store.set("key", serde_json::json!("v2")).await.unwrap();
 
         let val = store.get("key").await.unwrap();
         assert_eq!(val, Some(serde_json::json!("v2")));

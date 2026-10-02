@@ -68,20 +68,16 @@ impl MockClient {
         duration: Duration,
     ) -> Result<Option<MtwMessage>, MtwError> {
         match timeout(duration, self.stream.next()).await {
-            Ok(Some(Ok(ws_msg))) => {
-                match ws_msg {
-                    WsMessage::Text(text) => {
-                        let msg: MtwMessage = serde_json::from_str(&text)
-                            .map_err(|e| MtwError::Codec(format!("deserialize error: {}", e)))?;
-                        Ok(Some(msg))
-                    }
-                    WsMessage::Close(_) => Ok(None),
-                    _ => Ok(None),
+            Ok(Some(Ok(ws_msg))) => match ws_msg {
+                WsMessage::Text(text) => {
+                    let msg: MtwMessage = serde_json::from_str(&text)
+                        .map_err(|e| MtwError::Codec(format!("deserialize error: {}", e)))?;
+                    Ok(Some(msg))
                 }
-            }
-            Ok(Some(Err(e))) => {
-                Err(MtwError::Transport(format!("receive error: {}", e)))
-            }
+                WsMessage::Close(_) => Ok(None),
+                _ => Ok(None),
+            },
+            Ok(Some(Err(e))) => Err(MtwError::Transport(format!("receive error: {}", e))),
             Ok(None) => Ok(None), // Stream ended
             Err(_) => Ok(None),   // Timeout
         }

@@ -68,9 +68,9 @@ impl TorrentEventPublisher {
     /// the dedicated topics — this keeps the kernel's topic stream clean.
     pub fn progress_if_active(&self, detail: &TorrentDetail) {
         match detail.summary.status {
-            TorrentStatus::Downloading
-            | TorrentStatus::Metadata
-            | TorrentStatus::Seeding => self.progress(detail),
+            TorrentStatus::Downloading | TorrentStatus::Metadata | TorrentStatus::Seeding => {
+                self.progress(detail)
+            }
             _ => {}
         }
     }
@@ -79,7 +79,7 @@ impl TorrentEventPublisher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{TorrentSummary, TorrentDetail};
+    use crate::types::{TorrentDetail, TorrentSummary};
 
     fn fake_detail(status: TorrentStatus) -> TorrentDetail {
         TorrentDetail {

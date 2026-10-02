@@ -115,7 +115,6 @@ struct OllamaModelInfo {
     size: Option<u64>,
 }
 
-
 /// Ollama AI provider for local models
 pub struct OllamaProvider {
     config: OllamaConfig,

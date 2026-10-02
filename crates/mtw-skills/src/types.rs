@@ -6,10 +6,22 @@ use std::str::FromStr;
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SkillPermission {
-    ReadContacts, WriteContacts, ReadTasks, WriteTasks,
-    ReadReminders, WriteReminders, ReadEvents, WriteEvents,
-    ReadFinance, WriteFinance, ReadHealth, WriteHealth,
-    Network, FileSystem, Notifications, Voice,
+    ReadContacts,
+    WriteContacts,
+    ReadTasks,
+    WriteTasks,
+    ReadReminders,
+    WriteReminders,
+    ReadEvents,
+    WriteEvents,
+    ReadFinance,
+    WriteFinance,
+    ReadHealth,
+    WriteHealth,
+    Network,
+    FileSystem,
+    Notifications,
+    Voice,
     #[serde(untagged)]
     Custom(String),
 }
@@ -42,14 +54,22 @@ impl FromStr for SkillPermission {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "read:contacts" => Ok(Self::ReadContacts), "write:contacts" => Ok(Self::WriteContacts),
-            "read:tasks" => Ok(Self::ReadTasks), "write:tasks" => Ok(Self::WriteTasks),
-            "read:reminders" => Ok(Self::ReadReminders), "write:reminders" => Ok(Self::WriteReminders),
-            "read:events" => Ok(Self::ReadEvents), "write:events" => Ok(Self::WriteEvents),
-            "read:finance" => Ok(Self::ReadFinance), "write:finance" => Ok(Self::WriteFinance),
-            "read:health" => Ok(Self::ReadHealth), "write:health" => Ok(Self::WriteHealth),
-            "network" => Ok(Self::Network), "filesystem" => Ok(Self::FileSystem),
-            "notifications" => Ok(Self::Notifications), "voice" => Ok(Self::Voice),
+            "read:contacts" => Ok(Self::ReadContacts),
+            "write:contacts" => Ok(Self::WriteContacts),
+            "read:tasks" => Ok(Self::ReadTasks),
+            "write:tasks" => Ok(Self::WriteTasks),
+            "read:reminders" => Ok(Self::ReadReminders),
+            "write:reminders" => Ok(Self::WriteReminders),
+            "read:events" => Ok(Self::ReadEvents),
+            "write:events" => Ok(Self::WriteEvents),
+            "read:finance" => Ok(Self::ReadFinance),
+            "write:finance" => Ok(Self::WriteFinance),
+            "read:health" => Ok(Self::ReadHealth),
+            "write:health" => Ok(Self::WriteHealth),
+            "network" => Ok(Self::Network),
+            "filesystem" => Ok(Self::FileSystem),
+            "notifications" => Ok(Self::Notifications),
+            "voice" => Ok(Self::Voice),
             other => Ok(Self::Custom(other.to_string())),
         }
     }
@@ -57,13 +77,27 @@ impl FromStr for SkillPermission {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SkillCategory { Productivity, Communication, Finance, Health, Home, Utility, Custom }
+pub enum SkillCategory {
+    Productivity,
+    Communication,
+    Finance,
+    Health,
+    Home,
+    Utility,
+    Custom,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillMetadata {
-    pub id: String, pub name: String, pub description: String, pub version: String,
-    pub author: String, pub homepage: Option<String>, pub icon: Option<String>,
-    pub category: Option<SkillCategory>, pub permissions: Vec<SkillPermission>,
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub version: String,
+    pub author: String,
+    pub homepage: Option<String>,
+    pub icon: Option<String>,
+    pub category: Option<SkillCategory>,
+    pub permissions: Vec<SkillPermission>,
     pub tags: Vec<String>,
 }
 
@@ -85,19 +119,43 @@ pub struct SkillConfig {
 }
 
 impl Default for SkillConfig {
-    fn default() -> Self { Self { enabled: true, granted_permissions: Vec::new(), settings: HashMap::new() } }
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            granted_permissions: Vec::new(),
+            settings: HashMap::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SkillSource {
-    Local { path: String }, Npm { package: String, version: Option<String> },
-    Git { url: String, ref_name: Option<String> }, Bundled { id: String },
+    Local {
+        path: String,
+    },
+    Npm {
+        package: String,
+        version: Option<String>,
+    },
+    Git {
+        url: String,
+        ref_name: Option<String>,
+    },
+    Bundled {
+        id: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SkillStatus { Available, Installed, Active, Disabled, Error }
+pub enum SkillStatus {
+    Available,
+    Installed,
+    Active,
+    Disabled,
+    Error,
+}
 
 #[cfg(test)]
 mod tests {

@@ -39,7 +39,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let transport = Arc::new(transport);
 
     tracing::info!(%bind, pulse_hz, "orbital swarm server up");
-    tracing::info!("open examples/swarm_viewer.html and connect to ws://{}/ws", bind);
+    tracing::info!(
+        "open examples/swarm_viewer.html and connect to ws://{}/ws",
+        bind
+    );
 
     let msgs_sent = Arc::new(AtomicU64::new(0));
     let pulses_sent = Arc::new(AtomicU64::new(0));
@@ -57,7 +60,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pulses_sent.clone(),
         started,
     );
-    spawn_event_loop(transport.clone(), event_rx, pulses_sent.clone(), msgs_sent.clone());
+    spawn_event_loop(
+        transport.clone(),
+        event_rx,
+        pulses_sent.clone(),
+        msgs_sent.clone(),
+    );
 
     tokio::signal::ctrl_c().await?;
     tracing::info!("shutting down");
@@ -139,6 +147,8 @@ fn spawn_metrics_loop(
                 msgs_sent.fetch_add(fanout, Ordering::Relaxed);
             }
 
+            // `%` rather than `is_multiple_of`: the workspace MSRV (1.80) predates it.
+            #[allow(clippy::manual_is_multiple_of)]
             if uptime_s % 5 == 0 {
                 tracing::info!(
                     conns,
@@ -175,7 +185,7 @@ fn spawn_event_loop(
                             let hue = v
                                 .get("h")
                                 .and_then(|x| x.as_u64())
-                                .unwrap_or((now_ms() % 360) as u64);
+                                .unwrap_or(now_ms() % 360);
                             let out = MtwMessage::new(
                                 MsgType::Event,
                                 Payload::Json(serde_json::json!({

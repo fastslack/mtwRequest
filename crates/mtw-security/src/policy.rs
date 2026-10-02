@@ -2,17 +2,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Security policy mode
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum PolicyMode {
     Allowlist,
+    #[default]
     Denylist,
-}
-
-impl Default for PolicyMode {
-    fn default() -> Self {
-        Self::Denylist
-    }
 }
 
 /// Security policy defining tool access rules
@@ -85,7 +80,11 @@ impl PolicyEngine {
     /// Check if a tool is allowed for a given user and platform
     pub fn is_tool_allowed(&self, tool_name: &str, user_id: &str, platform: &str) -> bool {
         // Trusted platforms bypass all checks
-        if self.config.trusted_platforms.contains(&platform.to_string()) {
+        if self
+            .config
+            .trusted_platforms
+            .contains(&platform.to_string())
+        {
             return true;
         }
 
@@ -102,12 +101,14 @@ impl PolicyEngine {
             .unwrap_or(&self.config.default_policy);
 
         match policy.mode {
-            PolicyMode::Allowlist => {
-                policy.allowed_tools.iter().any(|p| pattern_matches(p, tool_name))
-            }
-            PolicyMode::Denylist => {
-                !policy.denied_tools.iter().any(|p| pattern_matches(p, tool_name))
-            }
+            PolicyMode::Allowlist => policy
+                .allowed_tools
+                .iter()
+                .any(|p| pattern_matches(p, tool_name)),
+            PolicyMode::Denylist => !policy
+                .denied_tools
+                .iter()
+                .any(|p| pattern_matches(p, tool_name)),
         }
     }
 

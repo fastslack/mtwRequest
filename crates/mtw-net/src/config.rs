@@ -5,21 +5,16 @@ use crate::profile::OutboundProfile;
 
 /// Minimum TLS version the factory will accept. `Tls13` is recommended;
 /// `Tls12` exists for legacy endpoints.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TlsVersionFloor {
     #[serde(alias = "1.2", alias = "TLSv1.2")]
+    // 1.2 by default — many public APIs still negotiate it. Operators
+    // can raise to 1.3 from config.
+    #[default]
     Tls12,
     #[serde(alias = "1.3", alias = "TLSv1.3")]
     Tls13,
-}
-
-impl Default for TlsVersionFloor {
-    fn default() -> Self {
-        // 1.2 by default — many public APIs still negotiate it. Operators
-        // can raise to 1.3 from config.
-        Self::Tls12
-    }
 }
 
 /// Top-level network configuration. Lives under `[net]` in `mtw.toml`.

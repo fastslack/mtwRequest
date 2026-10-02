@@ -297,12 +297,7 @@ mod tests {
     #[tokio::test]
     async fn test_validate_through_trait() {
         let auth = ApiKeyAuth::new(ApiKeyConfig::default());
-        let entry = auth.generate_key(
-            "user-2",
-            vec!["editor".to_string()],
-            HashMap::new(),
-            None,
-        );
+        let entry = auth.generate_key("user-2", vec!["editor".to_string()], HashMap::new(), None);
 
         let claims = auth.validate(&entry.key).await.unwrap();
         assert_eq!(claims.sub, "user-2");

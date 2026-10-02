@@ -198,7 +198,11 @@ impl TorrentConfig {
         let base = std::env::var("XDG_DATA_HOME")
             .ok()
             .map(PathBuf::from)
-            .or_else(|| std::env::var("HOME").ok().map(|h| PathBuf::from(h).join(".local/share")))
+            .or_else(|| {
+                std::env::var("HOME")
+                    .ok()
+                    .map(|h| PathBuf::from(h).join(".local/share"))
+            })
             .unwrap_or_else(|| PathBuf::from("/var/lib"));
         base.join("mtwrequest").join("torrents")
     }
@@ -251,10 +255,7 @@ mod tests {
         let cfg = TorrentConfig::default();
         assert!(cfg.enabled);
         assert!(cfg.profiles.contains_key("clear"));
-        assert!(matches!(
-            cfg.profiles["clear"],
-            EncryptionProfile::Direct
-        ));
+        assert!(matches!(cfg.profiles["clear"], EncryptionProfile::Direct));
     }
 
     #[test]
@@ -320,8 +321,10 @@ socks5 = "127.0.0.1:9050"
 "#,
         )
         .unwrap();
-        let mut cfg = TorrentConfig::default();
-        cfg.profiles_file = Some(path);
+        let mut cfg = TorrentConfig {
+            profiles_file: Some(path),
+            ..Default::default()
+        };
         cfg.load_profiles_file().unwrap();
         assert!(cfg.profiles.contains_key("tor"));
     }

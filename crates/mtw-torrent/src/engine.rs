@@ -5,9 +5,7 @@
 use async_trait::async_trait;
 use mtw_core::MtwError;
 
-use crate::types::{
-    AddTorrentSpec, TorrentDetail, TorrentHealth, TorrentStatus, TorrentSummary,
-};
+use crate::types::{AddTorrentSpec, TorrentDetail, TorrentHealth, TorrentStatus, TorrentSummary};
 
 /// Filter for `torrent.list`.
 #[derive(Debug, Clone, Default)]
@@ -60,5 +58,6 @@ pub trait TorrentEngine: Send + Sync {
     ///
     /// Returns `None` when the data plane is not running (e.g. the
     /// engine is the `clear`-only stub without a backing HTTP server).
-    async fn stream_url(&self, infohash: &str, file_idx: usize) -> Result<Option<String>, MtwError>;
+    async fn stream_url(&self, infohash: &str, file_idx: usize)
+        -> Result<Option<String>, MtwError>;
 }

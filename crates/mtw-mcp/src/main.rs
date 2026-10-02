@@ -143,13 +143,16 @@ async fn main() {
         None
     } else {
         let path = std::env::var("MTW_ATTEST_KEY").unwrap_or_else(|_| {
-            let agents_db = std::env::var("MTW_AGENTS_DB")
-                .unwrap_or_else(|_| "./data/agents.db".to_string());
+            let agents_db =
+                std::env::var("MTW_AGENTS_DB").unwrap_or_else(|_| "./data/agents.db".to_string());
             let parent = std::path::Path::new(&agents_db)
                 .parent()
                 .map(|p| p.to_path_buf())
                 .unwrap_or_else(|| std::path::PathBuf::from("./data"));
-            parent.join("server-identity.key").to_string_lossy().into_owned()
+            parent
+                .join("server-identity.key")
+                .to_string_lossy()
+                .into_owned()
         });
         match mtw_attest::Identity::load_or_create(&path) {
             Ok(id) => {
@@ -202,8 +205,12 @@ async fn main() {
         mtw_skills::registry::SkillRegistryConfig::default(),
     ));
     server = server
-        .with_resources(Arc::new(resources::SkillResources::new(skill_registry.clone())))
-        .with_prompts(Arc::new(resources::SkillPrompts::new(skill_registry.clone())));
+        .with_resources(Arc::new(resources::SkillResources::new(
+            skill_registry.clone(),
+        )))
+        .with_prompts(Arc::new(resources::SkillPrompts::new(
+            skill_registry.clone(),
+        )));
 
     // Wrap and activate code-mode dispatcher.
     let server = Arc::new(server);

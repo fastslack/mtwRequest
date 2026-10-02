@@ -16,8 +16,8 @@ use mtw_ai::provider::{
     ProviderCapabilities, StreamChunk, Usage,
 };
 use mtw_core::MtwError;
-use std::pin::Pin;
 use std::collections::VecDeque;
+use std::pin::Pin;
 use std::sync::Mutex;
 
 /// A rule that maps a substring in the last user message to a canned response.

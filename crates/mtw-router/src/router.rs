@@ -7,8 +7,14 @@ use crate::channel::ChannelManager;
 use crate::middleware::{MiddlewareChain, MiddlewareContext};
 
 /// Message handler callback type
-pub type MessageHandler =
-    Arc<dyn Fn(ConnId, MtwMessage) -> futures::future::BoxFuture<'static, Result<Option<MtwMessage>, MtwError>> + Send + Sync>;
+pub type MessageHandler = Arc<
+    dyn Fn(
+            ConnId,
+            MtwMessage,
+        ) -> futures::future::BoxFuture<'static, Result<Option<MtwMessage>, MtwError>>
+        + Send
+        + Sync,
+>;
 
 /// The main router — connects transport events to channels and handlers
 pub struct MtwRouter {
@@ -40,7 +46,11 @@ impl MtwRouter {
     pub async fn handle_event(
         &self,
         event: TransportEvent,
-        transport_send: &dyn Fn(ConnId, MtwMessage) -> futures::future::BoxFuture<'static, Result<(), MtwError>>,
+        transport_send: &dyn Fn(
+            ConnId,
+            MtwMessage,
+        )
+            -> futures::future::BoxFuture<'static, Result<(), MtwError>>,
     ) -> Result<(), MtwError> {
         match event {
             TransportEvent::Connected(conn_id, meta) => {
@@ -101,7 +111,10 @@ impl MtwRouter {
                             if let Some(channel) = self.channels.get(channel_name) {
                                 channel.publish(msg, Some(&conn_id)).await?;
                             } else {
-                                let err = MtwMessage::error(404, format!("channel '{}' not found", channel_name));
+                                let err = MtwMessage::error(
+                                    404,
+                                    format!("channel '{}' not found", channel_name),
+                                );
                                 transport_send(conn_id, err).await?;
                             }
                         }
@@ -116,7 +129,9 @@ impl MtwRouter {
                         // Check registered handlers
                         for (msg_type, handler) in &self.handlers {
                             if msg_type == other {
-                                if let Some(response) = handler(conn_id.clone(), msg.clone()).await? {
+                                if let Some(response) =
+                                    handler(conn_id.clone(), msg.clone()).await?
+                                {
                                     transport_send(conn_id.clone(), response).await?;
                                 }
                             }
@@ -167,13 +182,18 @@ mod tests {
             connected_at: 0,
         };
 
-        let send_fn = |_conn_id: ConnId, _msg: MtwMessage| -> futures::future::BoxFuture<'_, Result<(), MtwError>> {
+        let send_fn = |_conn_id: ConnId,
+                       _msg: MtwMessage|
+         -> futures::future::BoxFuture<'_, Result<(), MtwError>> {
             Box::pin(async { Ok(()) })
         };
 
         // Connect
         router
-            .handle_event(TransportEvent::Connected("conn1".to_string(), meta), &send_fn)
+            .handle_event(
+                TransportEvent::Connected("conn1".to_string(), meta),
+                &send_fn,
+            )
             .await
             .unwrap();
 

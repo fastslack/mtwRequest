@@ -6,12 +6,10 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 
+use super::openai::{build_oai_request, OaiResponse, OaiUsage};
 use crate::provider::{
     CompletionRequest, CompletionResponse, FinishReason, ModelInfo, MtwAIProvider,
     ProviderCapabilities, StreamChunk, Usage,
-};
-use super::openai::{
-    build_oai_request, OaiResponse, OaiUsage,
 };
 
 /// Configuration for the LM Studio provider (local, OpenAI-compatible)
@@ -75,7 +73,6 @@ struct LmsModelsResponse {
 struct LmsModelEntry {
     id: Option<String>,
 }
-
 
 fn oai_usage_to_usage(u: Option<&OaiUsage>) -> Usage {
     u.map_or(Usage::default(), |u| Usage {
@@ -159,9 +156,7 @@ impl MtwAIProvider for LMStudioProvider {
         let body: OaiResponse = resp
             .json()
             .await
-            .map_err(|e| {
-                MtwError::Internal(format!("lmstudio response parse failed: {}", e))
-            })?;
+            .map_err(|e| MtwError::Internal(format!("lmstudio response parse failed: {}", e)))?;
 
         if let Some(err) = body.error {
             return Err(MtwError::Internal(format!(

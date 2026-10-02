@@ -157,7 +157,11 @@ mod tests {
         let env = SharedEnvelope::new(MtwMessage::new(MsgType::Event, Payload::Text("hi".into())));
         let a = env.text_bytes();
         let b = env.text_bytes();
-        assert_eq!(a.as_ptr(), b.as_ptr(), "text_bytes() should share the same Bytes arc");
+        assert_eq!(
+            a.as_ptr(),
+            b.as_ptr(),
+            "text_bytes() should share the same Bytes arc"
+        );
     }
 
     #[test]
@@ -171,6 +175,10 @@ mod tests {
         let env = SharedEnvelope::new(MtwMessage::new(MsgType::Event, Payload::Text("hi".into())));
         let a = env.binary();
         let b = env.binary();
-        assert_eq!(a.as_ptr(), b.as_ptr(), "binary() should hand out the same Bytes arc");
+        assert_eq!(
+            a.as_ptr(),
+            b.as_ptr(),
+            "binary() should hand out the same Bytes arc"
+        );
     }
 }

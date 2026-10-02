@@ -226,11 +226,7 @@ impl LmStudioProvider {
     }
 
     /// Generate embeddings (OpenAI-compatible).
-    pub async fn embed(
-        &self,
-        model: &str,
-        input: Vec<String>,
-    ) -> Result<Vec<Vec<f64>>, String> {
+    pub async fn embed(&self, model: &str, input: Vec<String>) -> Result<Vec<Vec<f64>>, String> {
         let body = json!({
             "model": self.resolve_model(model),
             "input": input,

@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use crate::types::OrderSide;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use crate::types::OrderSide;
+use std::collections::HashMap;
 
 /// Reason a position was closed by the monitor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -303,7 +303,12 @@ impl Default for TradeMonitor {
 mod tests {
     use super::*;
 
-    fn long_position(trade_id: &str, entry: f64, sl: Option<f64>, tp: Option<f64>) -> MonitoredPosition {
+    fn long_position(
+        trade_id: &str,
+        entry: f64,
+        sl: Option<f64>,
+        tp: Option<f64>,
+    ) -> MonitoredPosition {
         MonitoredPosition {
             trade_id: trade_id.to_string(),
             symbol: "BTC/USDT".to_string(),
@@ -319,7 +324,12 @@ mod tests {
         }
     }
 
-    fn short_position(trade_id: &str, entry: f64, sl: Option<f64>, tp: Option<f64>) -> MonitoredPosition {
+    fn short_position(
+        trade_id: &str,
+        entry: f64,
+        sl: Option<f64>,
+        tp: Option<f64>,
+    ) -> MonitoredPosition {
         MonitoredPosition {
             trade_id: trade_id.to_string(),
             symbol: "ETH/USDT".to_string(),
@@ -470,7 +480,7 @@ mod tests {
 
         let mut prices = HashMap::new();
         prices.insert("BTC/USDT".to_string(), 48000.0); // SL hit for long
-        prices.insert("ETH/USDT".to_string(), 2750.0);  // TP hit for short
+        prices.insert("ETH/USDT".to_string(), 2750.0); // TP hit for short
 
         let signals = monitor.check_all(&prices);
         assert_eq!(signals.len(), 2);

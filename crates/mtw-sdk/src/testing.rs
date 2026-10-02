@@ -2,8 +2,8 @@
 //!
 //! For a full-featured testing harness, see the `mtw-test` crate.
 
-use mtw_core::module::{ModuleContext, MtwModule, SharedState};
 use mtw_core::error::MtwError;
+use mtw_core::module::{ModuleContext, MtwModule, SharedState};
 use std::sync::Arc;
 
 /// Create a ModuleContext suitable for testing
@@ -11,6 +11,7 @@ pub struct TestModuleContext;
 
 impl TestModuleContext {
     /// Create a default test context with empty config
+    #[allow(clippy::new_ret_no_self)]
     pub fn new() -> ModuleContext {
         ModuleContext {
             config: serde_json::json!({}),
@@ -63,9 +64,9 @@ pub async fn assert_middleware_passes(
         mtw_router::middleware::MiddlewareAction::Continue(m) => Ok(m),
         mtw_router::middleware::MiddlewareAction::Transform(m) => Ok(m),
         mtw_router::middleware::MiddlewareAction::Redirect { msg, .. } => Ok(msg),
-        mtw_router::middleware::MiddlewareAction::Halt => {
-            Err(MtwError::Internal("middleware halted the message".to_string()))
-        }
+        mtw_router::middleware::MiddlewareAction::Halt => Err(MtwError::Internal(
+            "middleware halted the message".to_string(),
+        )),
     }
 }
 
@@ -129,9 +130,8 @@ mod tests {
 
     #[test]
     fn test_create_context_with_shared() {
-        let ctx = TestModuleContext::with_shared(vec![
-            ("key".to_string(), serde_json::json!("value")),
-        ]);
+        let ctx =
+            TestModuleContext::with_shared(vec![("key".to_string(), serde_json::json!("value"))]);
         assert_eq!(ctx.shared.get("key"), Some(serde_json::json!("value")));
     }
 

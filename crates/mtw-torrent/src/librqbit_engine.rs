@@ -252,8 +252,12 @@ impl LibrqbitEngine {
             .as_ref()
             .map(|s| {
                 (
-                    s.pending_name.clone().unwrap_or_else(|| infohash.to_string()),
-                    s.pending_magnet.clone().unwrap_or_else(|| fallback_magnet.to_string()),
+                    s.pending_name
+                        .clone()
+                        .unwrap_or_else(|| infohash.to_string()),
+                    s.pending_magnet
+                        .clone()
+                        .unwrap_or_else(|| fallback_magnet.to_string()),
                     s.encryption_profile.clone(),
                     s.category.clone(),
                     s.tags.clone(),
@@ -381,10 +385,7 @@ impl TorrentEngine for LibrqbitEngine {
             });
 
             // Synthetic detail from the just-seeded sidecar.
-            return Ok(self.synthetic_pending_detail(
-                &ih,
-                magnet_hint.as_deref().unwrap_or(""),
-            ));
+            return Ok(self.synthetic_pending_detail(&ih, magnet_hint.as_deref().unwrap_or("")));
         }
 
         // No infohash hint (URL or buffer) → we have to await the add to
@@ -443,9 +444,9 @@ impl TorrentEngine for LibrqbitEngine {
 
     async fn list(&self, filter: &ListFilter) -> Result<ListResult, MtwError> {
         // Resolved torrents from the session.
-        let mut all: Vec<TorrentSummary> = self.session.with_torrents(|iter| {
-            iter.map(|(_, mgr)| self.detail_for(mgr).summary).collect()
-        });
+        let mut all: Vec<TorrentSummary> = self
+            .session
+            .with_torrents(|iter| iter.map(|(_, mgr)| self.detail_for(mgr).summary).collect());
         // Pending magnets that the session hasn't resolved yet — visible
         // to the kernel under `status: metadata` so the UI can render
         // them right after `add` returned.
@@ -453,10 +454,7 @@ impl TorrentEngine for LibrqbitEngine {
             all.iter().map(|s| s.infohash.clone()).collect();
         for entry in self.meta_sidecar.iter() {
             if entry.pending_resolve && !already.contains(entry.key()) {
-                all.push(
-                    self.synthetic_pending_detail(entry.key(), "")
-                        .summary,
-                );
+                all.push(self.synthetic_pending_detail(entry.key(), "").summary);
             }
         }
 
@@ -484,7 +482,10 @@ impl TorrentEngine for LibrqbitEngine {
             Err(e) => {
                 let msg = format!("{:#}", e);
                 if !msg.to_ascii_lowercase().contains("not found") {
-                    return Err(MtwError::module("torrent", format!("librqbit delete: {}", msg)));
+                    return Err(MtwError::module(
+                        "torrent",
+                        format!("librqbit delete: {}", msg),
+                    ));
                 }
             }
         }
@@ -562,10 +563,7 @@ impl TorrentEngine for LibrqbitEngine {
 
 /// Apply user-supplied metadata (category, tags, profile, etc.) onto a
 /// detail we just built from a librqbit handle.
-fn overlay_sidecar(
-    sidecar: &Arc<DashMap<String, MetaSidecar>>,
-    summary: &mut TorrentSummary,
-) {
+fn overlay_sidecar(sidecar: &Arc<DashMap<String, MetaSidecar>>, summary: &mut TorrentSummary) {
     if let Some(s) = sidecar.get(&summary.infohash) {
         summary.encryption_profile = s.encryption_profile.clone();
         if summary.added_at.is_empty() {
@@ -598,8 +596,7 @@ fn spawn_progress_pump(
         // Per-torrent state we track to fire one-shot transition events.
         let mut emitted_metadata: std::collections::HashSet<String> =
             std::collections::HashSet::new();
-        let mut emitted_done: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
+        let mut emitted_done: std::collections::HashSet<String> = std::collections::HashSet::new();
 
         let mut interval = tokio::time::interval(Duration::from_secs(2));
         // Drop the immediate tick — first emission should wait one period.
@@ -630,9 +627,7 @@ fn spawn_progress_pump(
                 publisher.progress_if_active(&detail);
 
                 // done: state == Done, emit once.
-                if detail.summary.status == TorrentStatus::Done
-                    && emitted_done.insert(ih.clone())
-                {
+                if detail.summary.status == TorrentStatus::Done && emitted_done.insert(ih.clone()) {
                     publisher.done(&ih);
                 }
             }
@@ -765,7 +760,11 @@ fn epoch_to_civil(secs: u64) -> (i32, u32, u32, u32, u32, u32) {
     let min = (rem % 3600) / 60;
     let sec = rem % 60;
     let z = days + 719468;
-    let era = if z >= 0 { z / 146097 } else { (z - 146096) / 146097 };
+    let era = if z >= 0 {
+        z / 146097
+    } else {
+        (z - 146096) / 146097
+    };
     let doe = (z - era * 146097) as u64;
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
     let y = yoe as i64 + era * 400;

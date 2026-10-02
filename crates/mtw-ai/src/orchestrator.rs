@@ -6,6 +6,9 @@ use std::sync::Arc;
 
 use crate::agent::{AgentChunk, AgentContext, AgentResponse, AgentTask, MtwAgent};
 
+/// Boxed stream of agent chunks returned by [`AgentOrchestrator::route_stream`].
+pub type AgentChunkStream = Pin<Box<dyn Stream<Item = Result<AgentChunk, MtwError>> + Send>>;
+
 /// Strategy for routing tasks to agents
 #[derive(Debug, Clone)]
 pub enum RoutingStrategy {
@@ -78,7 +81,7 @@ impl AgentOrchestrator {
         &self,
         task: AgentTask,
         ctx: &AgentContext,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<AgentChunk, MtwError>> + Send>>, MtwError> {
+    ) -> Result<AgentChunkStream, MtwError> {
         match &self.strategy {
             RoutingStrategy::ChannelBased => {
                 let agent = self.find_agent_for_channel(task.channel.as_deref())?;
@@ -88,11 +91,9 @@ impl AgentOrchestrator {
                 let agent = self.next_round_robin()?;
                 Ok(agent.handle_stream(task, ctx))
             }
-            RoutingStrategy::Pipeline(_) | RoutingStrategy::FanOut => {
-                Err(MtwError::Agent(
-                    "streaming not supported for pipeline/fan-out routing".into(),
-                ))
-            }
+            RoutingStrategy::Pipeline(_) | RoutingStrategy::FanOut => Err(MtwError::Agent(
+                "streaming not supported for pipeline/fan-out routing".into(),
+            )),
         }
     }
 
@@ -134,9 +135,10 @@ impl AgentOrchestrator {
         let mut last_response = None;
 
         for name in &agent_names {
-            let agent = self.agents.get(name).ok_or_else(|| {
-                MtwError::Agent(format!("pipeline agent not found: {}", name))
-            })?;
+            let agent = self
+                .agents
+                .get(name)
+                .ok_or_else(|| MtwError::Agent(format!("pipeline agent not found: {}", name)))?;
 
             let response = agent.handle(task.clone(), ctx).await?;
 

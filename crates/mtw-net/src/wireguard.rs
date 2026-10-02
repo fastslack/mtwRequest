@@ -102,9 +102,9 @@ impl WireGuardKeys {
         let preshared = preshared_key_b64
             .map(|s| decode_x25519_key(s, "preshared_key"))
             .transpose()?;
-        let endpoint: SocketAddr = endpoint
-            .parse()
-            .map_err(|e| MtwError::Config(format!("wireguard: invalid endpoint '{}': {}", endpoint, e)))?;
+        let endpoint: SocketAddr = endpoint.parse().map_err(|e| {
+            MtwError::Config(format!("wireguard: invalid endpoint '{}': {}", endpoint, e))
+        })?;
 
         Ok(Self {
             static_private: x25519::StaticSecret::from(private),
@@ -185,10 +185,12 @@ impl WireGuardTunnel {
         let socket = UdpSocket::bind(bind)
             .await
             .map_err(|e| MtwError::Transport(format!("wireguard: bind UDP socket: {}", e)))?;
-        socket
-            .connect(keys.endpoint)
-            .await
-            .map_err(|e| MtwError::Transport(format!("wireguard: UDP connect to {}: {}", keys.endpoint, e)))?;
+        socket.connect(keys.endpoint).await.map_err(|e| {
+            MtwError::Transport(format!(
+                "wireguard: UDP connect to {}: {}",
+                keys.endpoint, e
+            ))
+        })?;
 
         let (in_tx, in_rx) = mpsc::unbounded_channel();
         let (out_tx, out_rx) = mpsc::unbounded_channel();
@@ -286,11 +288,9 @@ impl WireGuardTunnel {
             ))),
             // The encap path never returns WriteToTunnelV4/V6 — those
             // are decap-only states.
-            TunnResult::WriteToTunnelV4(..) | TunnResult::WriteToTunnelV6(..) => {
-                Err(MtwError::Internal(
-                    "wireguard: unexpected WriteToTunnel from encapsulate".into(),
-                ))
-            }
+            TunnResult::WriteToTunnelV4(..) | TunnResult::WriteToTunnelV6(..) => Err(
+                MtwError::Internal("wireguard: unexpected WriteToTunnel from encapsulate".into()),
+            ),
         }
     }
 
@@ -509,13 +509,7 @@ mod tests {
     fn rejects_short_key() {
         // 30-byte key (encoded len 40), should fail length check.
         let bad = base64::engine::general_purpose::STANDARD.encode([0u8; 30]);
-        let r = WireGuardKeys::from_strings(
-            &bad,
-            &random_key_b64(),
-            None,
-            "1.2.3.4:51820",
-            None,
-        );
+        let r = WireGuardKeys::from_strings(&bad, &random_key_b64(), None, "1.2.3.4:51820", None);
         assert!(r.is_err());
         assert!(format!("{}", r.unwrap_err()).contains("32 bytes"));
     }
@@ -599,13 +593,10 @@ mod tests {
 
         // Listener should have received the 148-byte INIT.
         let mut buf = [0u8; MAX_WG_PACKET];
-        let recv = tokio::time::timeout(
-            Duration::from_millis(500),
-            listener.recv(&mut buf),
-        )
-        .await
-        .expect("handshake init not received within 500ms")
-        .unwrap();
+        let recv = tokio::time::timeout(Duration::from_millis(500), listener.recv(&mut buf))
+            .await
+            .expect("handshake init not received within 500ms")
+            .unwrap();
         assert_eq!(recv, 148, "WG handshake INIT must be 148 bytes");
         // Message type is the first u32 little-endian, value 1.
         assert_eq!(u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]), 1);

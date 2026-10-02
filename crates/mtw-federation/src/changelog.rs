@@ -113,8 +113,18 @@ mod tests {
     fn test_record_and_get() {
         let log = ChangeLog::new("instance-1");
 
-        log.record("tasks", "task-1", ChangeAction::Insert, serde_json::json!({"title": "Test"}));
-        log.record("tasks", "task-2", ChangeAction::Insert, serde_json::json!({"title": "Test 2"}));
+        log.record(
+            "tasks",
+            "task-1",
+            ChangeAction::Insert,
+            serde_json::json!({"title": "Test"}),
+        );
+        log.record(
+            "tasks",
+            "task-2",
+            ChangeAction::Insert,
+            serde_json::json!({"title": "Test 2"}),
+        );
 
         assert_eq!(log.get_latest_version(), 2);
         assert_eq!(log.get_changes_since(0, 100).len(), 2);
@@ -148,7 +158,12 @@ mod tests {
     fn test_limit() {
         let log = ChangeLog::new("instance-1");
         for i in 0..10 {
-            log.record("t", &i.to_string(), ChangeAction::Insert, serde_json::json!({}));
+            log.record(
+                "t",
+                i.to_string(),
+                ChangeAction::Insert,
+                serde_json::json!({}),
+            );
         }
         assert_eq!(log.get_changes_since(0, 5).len(), 5);
     }

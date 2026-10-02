@@ -5,17 +5,11 @@ use crate::pipeline::{PipelineAction, PipelineContext, PipelineStage};
 use crate::response::{MtwResponse, ResponseBody};
 
 /// Configuration for JSON parsing.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct JsonParseConfig {
     /// If true, error when Content-Type is application/json but body is invalid.
     /// If false, skip silently on parse failure.
     pub strict: bool,
-}
-
-impl Default for JsonParseConfig {
-    fn default() -> Self {
-        Self { strict: false }
-    }
 }
 
 /// Pipeline stage that auto-parses JSON response bodies.
@@ -83,9 +77,7 @@ impl PipelineStage for JsonParseStage {
         match serde_json::from_slice::<serde_json::Value>(&bytes) {
             Ok(value) => {
                 // Store parsed JSON in metadata and as body
-                response
-                    .metadata
-                    .insert("json_body".into(), value.clone());
+                response.metadata.insert("json_body".into(), value.clone());
                 response.body = ResponseBody::Json(value);
                 Ok(PipelineAction::Continue(response))
             }

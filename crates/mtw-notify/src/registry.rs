@@ -38,7 +38,8 @@ impl NotifyRegistry {
 
     /// Map a channel name to a provider ID
     pub fn route_channel(&self, channel: impl Into<String>, provider_id: impl Into<String>) {
-        self.channel_routes.insert(channel.into(), provider_id.into());
+        self.channel_routes
+            .insert(channel.into(), provider_id.into());
     }
 
     /// Send a notification, routing by channel if specified

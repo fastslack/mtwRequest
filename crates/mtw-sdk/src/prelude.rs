@@ -5,10 +5,10 @@
 //! ```
 
 // Core module system
+pub use mtw_core::error::MtwError;
 pub use mtw_core::module::{
     HealthStatus, ModuleContext, ModuleDep, ModuleManifest, ModuleType, MtwModule, Permission,
 };
-pub use mtw_core::error::MtwError;
 
 // Protocol types
 pub use mtw_protocol::message::{ConnId, MsgType, MtwMessage, Payload, TransportEvent};
@@ -20,7 +20,7 @@ pub use mtw_router::middleware::{MiddlewareAction, MiddlewareContext, MtwMiddlew
 pub use mtw_codec::MtwCodec;
 
 // Builder
-pub use crate::builder::{ModuleManifestBuilder, create_manifest, default_manifest};
+pub use crate::builder::{create_manifest, default_manifest, ModuleManifestBuilder};
 
 // Common external re-exports
 pub use async_trait::async_trait;

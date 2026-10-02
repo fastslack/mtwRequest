@@ -34,9 +34,7 @@ impl ExchangeModule {
                 description: "Exchange and broker connectivity".to_string(),
                 author: "fastslack".to_string(),
                 license: "MIT".to_string(),
-                repository: Some(
-                    "https://github.com/fastslack/mtwRequest".to_string(),
-                ),
+                repository: Some("https://github.com/fastslack/mtwRequest".to_string()),
                 dependencies: vec![],
                 config_schema: None,
                 permissions: vec![Permission::Network],
@@ -71,8 +69,7 @@ impl MtwModule for ExchangeModule {
     }
 
     async fn on_load(&mut self, ctx: &ModuleContext) -> Result<(), MtwError> {
-        let config: ExchangeConfig = serde_json::from_value(ctx.config.clone())
-            .unwrap_or_default();
+        let config: ExchangeConfig = serde_json::from_value(ctx.config.clone()).unwrap_or_default();
 
         let manager = ExchangeManager::new(config.clone());
 
@@ -87,18 +84,12 @@ impl MtwModule for ExchangeModule {
                         crate::rate_limit::from_config(rl_config)
                     } else {
                         // Bitvavo default: 1000 requests per minute (weight-based)
-                        Box::new(TokenBucket::new(
-                            10,
-                            std::time::Duration::from_secs(1),
-                        ))
+                        Box::new(TokenBucket::new(10, std::time::Duration::from_secs(1)))
                     };
 
-                    let provider =
-                        BitvavoProvider::new(credentials, Arc::from(rate_limiter));
-                    manager.register_provider(
-                        provider_config.exchange_id.clone(),
-                        Arc::new(provider),
-                    );
+                    let provider = BitvavoProvider::new(credentials, Arc::from(rate_limiter));
+                    manager
+                        .register_provider(provider_config.exchange_id.clone(), Arc::new(provider));
                 }
                 other => {
                     tracing::warn!(
@@ -216,8 +207,7 @@ fn exchange_event_to_message(event: ExchangeEvent) -> (String, MtwMessage) {
         }
         ExchangeEvent::Disconnected { exchange, reason } => {
             let channel = format!("exchange.{}.status", exchange).to_lowercase();
-            let msg =
-                MtwMessage::event(format!("disconnected: {}", reason)).with_channel(&channel);
+            let msg = MtwMessage::event(format!("disconnected: {}", reason)).with_channel(&channel);
             (channel, msg)
         }
         ExchangeEvent::Error { exchange, message } => {

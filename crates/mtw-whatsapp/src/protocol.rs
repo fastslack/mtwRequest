@@ -270,7 +270,13 @@ mod tests {
         let json = r#"{"type":"status","state":"linking","mode":"qr"}"#;
         let evt: Event = serde_json::from_str(json).unwrap();
         match evt {
-            Event::Status { state, mode, jid, lid, reason } => {
+            Event::Status {
+                state,
+                mode,
+                jid,
+                lid,
+                reason,
+            } => {
                 assert_eq!(state, "linking");
                 assert_eq!(mode.as_deref(), Some("qr"));
                 assert!(jid.is_none());
@@ -332,10 +338,13 @@ mod tests {
 
     #[test]
     fn event_parse_status_connected_with_lid() {
-        let json = r#"{"type":"status","state":"connected","jid":"549@s.whatsapp.net","lid":"123@lid"}"#;
+        let json =
+            r#"{"type":"status","state":"connected","jid":"549@s.whatsapp.net","lid":"123@lid"}"#;
         let evt: Event = serde_json::from_str(json).unwrap();
         match evt {
-            Event::Status { state, jid, lid, .. } => {
+            Event::Status {
+                state, jid, lid, ..
+            } => {
                 assert_eq!(state, "connected");
                 assert_eq!(jid.as_deref(), Some("549@s.whatsapp.net"));
                 assert_eq!(lid.as_deref(), Some("123@lid"));
@@ -350,7 +359,11 @@ mod tests {
             "author":"a","timestamp":0,"from_me":true,"sender_alt":"999@lid"}"#;
         let evt: Event = serde_json::from_str(json).unwrap();
         match evt {
-            Event::Message { from_me, sender_alt, .. } => {
+            Event::Message {
+                from_me,
+                sender_alt,
+                ..
+            } => {
                 assert!(from_me);
                 assert_eq!(sender_alt.as_deref(), Some("999@lid"));
             }
@@ -365,7 +378,11 @@ mod tests {
             "author":"a","timestamp":0}"#;
         let evt: Event = serde_json::from_str(json).unwrap();
         match evt {
-            Event::Message { from_me, sender_alt, .. } => {
+            Event::Message {
+                from_me,
+                sender_alt,
+                ..
+            } => {
                 assert!(!from_me);
                 assert_eq!(sender_alt, None);
             }

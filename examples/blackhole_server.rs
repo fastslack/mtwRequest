@@ -271,39 +271,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ── input event loop ────────────────────────────────────────────
     loop {
         tokio::select! {
-            Some(ev) = event_rx.recv() => match ev {
-                TransportEvent::Message(_conn_id, msg) => {
-                    msgs_in.fetch_add(1, Ordering::Relaxed);
-                    if let Payload::Json(v) = &msg.payload {
-                        match v.get("t").and_then(|t| t.as_str()) {
-                            Some("impulse") => {
-                                let x = v.get("x").and_then(|x| x.as_f64()).unwrap_or(0.0) as f32;
-                                let y = v.get("y").and_then(|x| x.as_f64()).unwrap_or(0.0) as f32;
-                                let strength = v.get("s").and_then(|x| x.as_f64()).unwrap_or(0.25) as f32;
-                                sim.lock().unwrap().impulse(x, y, 0.22, strength);
-                            }
-                            Some("spawn") => {
-                                let x = v.get("x").and_then(|x| x.as_f64()).unwrap_or(0.0) as f32;
-                                let y = v.get("y").and_then(|x| x.as_f64()).unwrap_or(0.0) as f32;
-                                let mut s = sim.lock().unwrap();
-                                // replace one particle near the click with a fresh one starting at the click position
-                                if let Some(idx) = (0..s.particles.len()).next() {
-                                    let speed = (BH_MASS / (x*x + y*y + 0.01).sqrt()).sqrt() * 0.9;
-                                    // perpendicular to radius for a tangential orbit
-                                    let r = (x*x + y*y).sqrt().max(0.01);
-                                    let vx = -y / r * speed;
-                                    let vy =  x / r * speed;
-                                    s.particles[idx] = Particle {
-                                        x, y, vx, vy,
-                                        hue: ((x.atan2(y) * 180.0 / std::f32::consts::PI + 180.0) as u16) % 360,
-                                    };
-                                }
-                            }
-                            _ => {}
+            Some(ev) = event_rx.recv() => if let TransportEvent::Message(_conn_id, msg) = ev {
+                msgs_in.fetch_add(1, Ordering::Relaxed);
+                if let Payload::Json(v) = &msg.payload {
+                    match v.get("t").and_then(|t| t.as_str()) {
+                        Some("impulse") => {
+                            let x = v.get("x").and_then(|x| x.as_f64()).unwrap_or(0.0) as f32;
+                            let y = v.get("y").and_then(|x| x.as_f64()).unwrap_or(0.0) as f32;
+                            let strength = v.get("s").and_then(|x| x.as_f64()).unwrap_or(0.25) as f32;
+                            sim.lock().unwrap().impulse(x, y, 0.22, strength);
                         }
+                        Some("spawn") => {
+                            let x = v.get("x").and_then(|x| x.as_f64()).unwrap_or(0.0) as f32;
+                            let y = v.get("y").and_then(|x| x.as_f64()).unwrap_or(0.0) as f32;
+                            let mut s = sim.lock().unwrap();
+                            // replace one particle near the click with a fresh one starting at the click position
+                            if let Some(idx) = (0..s.particles.len()).next() {
+                                let speed = (BH_MASS / (x*x + y*y + 0.01).sqrt()).sqrt() * 0.9;
+                                // perpendicular to radius for a tangential orbit
+                                let r = (x*x + y*y).sqrt().max(0.01);
+                                let vx = -y / r * speed;
+                                let vy =  x / r * speed;
+                                s.particles[idx] = Particle {
+                                    x, y, vx, vy,
+                                    hue: ((x.atan2(y) * 180.0 / std::f32::consts::PI + 180.0) as u16) % 360,
+                                };
+                            }
+                        }
+                        _ => {}
                     }
                 }
-                _ => {}
             },
             _ = tokio::signal::ctrl_c() => {
                 tracing::info!("shutting down");

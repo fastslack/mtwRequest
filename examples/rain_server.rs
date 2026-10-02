@@ -33,66 +33,153 @@ const N_AGENTS: usize = 80;
 // Three "moods" keep the visual interesting — prose, code, data — each with
 // its own vocabulary. Agents pick a mood at spawn and keep it for the run.
 const PROSE: &[&str] = &[
-    "the ", "model ", "predicts ", "that ", "with ", "high ", "confidence ",
-    "the ", "next ", "token ", "will ", "be ", "consistent ", "with ",
-    "previous ", "context\n", "meanwhile ", "attention ", "weights ",
-    "converge ", "toward ", "a ", "stable ", "distribution ",
-    "and ", "the ", "gradient ", "flow ", "appears ", "healthy\n",
-    "however ", "a ", "subtle ", "divergence ", "remains ", "visible ",
-    "between ", "layers ", "4 ", "and ", "7 ", "which ", "may ",
-    "indicate ", "a ", "dying ", "ReLU\n",
+    "the ",
+    "model ",
+    "predicts ",
+    "that ",
+    "with ",
+    "high ",
+    "confidence ",
+    "the ",
+    "next ",
+    "token ",
+    "will ",
+    "be ",
+    "consistent ",
+    "with ",
+    "previous ",
+    "context\n",
+    "meanwhile ",
+    "attention ",
+    "weights ",
+    "converge ",
+    "toward ",
+    "a ",
+    "stable ",
+    "distribution ",
+    "and ",
+    "the ",
+    "gradient ",
+    "flow ",
+    "appears ",
+    "healthy\n",
+    "however ",
+    "a ",
+    "subtle ",
+    "divergence ",
+    "remains ",
+    "visible ",
+    "between ",
+    "layers ",
+    "4 ",
+    "and ",
+    "7 ",
+    "which ",
+    "may ",
+    "indicate ",
+    "a ",
+    "dying ",
+    "ReLU\n",
 ];
 
 const CODE: &[&str] = &[
-    "fn ", "async ", "await ", "impl ", "pub ", "struct ", "trait ", "use ",
-    "Result", "<", "T", ",", " E", ">", " { ", "Ok(", "())", ";\n",
-    "match ", "value ", "{ ", "Some(", "v", ") => ", "v, ", "None => ",
-    "return ", "Err(", "\"empty\"", "), }\n",
-    "loop { ", "select!", "{ ", "msg = rx.recv() => ", "process(", "msg", "),",
-    " _ = shutdown.recv() => break, ", "} }\n",
-    "let mut ", "buf = Vec::with_capacity(", "256", ");\n",
-    "#[tokio::main]\n", "#[derive(Debug, Clone)]\n",
+    "fn ",
+    "async ",
+    "await ",
+    "impl ",
+    "pub ",
+    "struct ",
+    "trait ",
+    "use ",
+    "Result",
+    "<",
+    "T",
+    ",",
+    " E",
+    ">",
+    " { ",
+    "Ok(",
+    "())",
+    ";\n",
+    "match ",
+    "value ",
+    "{ ",
+    "Some(",
+    "v",
+    ") => ",
+    "v, ",
+    "None => ",
+    "return ",
+    "Err(",
+    "\"empty\"",
+    "), }\n",
+    "loop { ",
+    "select!",
+    "{ ",
+    "msg = rx.recv() => ",
+    "process(",
+    "msg",
+    "),",
+    " _ = shutdown.recv() => break, ",
+    "} }\n",
+    "let mut ",
+    "buf = Vec::with_capacity(",
+    "256",
+    ");\n",
+    "#[tokio::main]\n",
+    "#[derive(Debug, Clone)]\n",
 ];
 
 const DATA: &[&str] = &[
-    "0x", "3a", "4f", "9c", "e1", " ", "→ ", "[", "ok", "] ",
-    "tok=", "1e3 ", "lat=", "8µs ", "p50=", "12 ", "p99=", "47 ",
-    "batch=", "256 ", "chunks=", "41 ", "mem=", "7.2MB ", "rss=", "14M ",
-    "rt=", "0.91 ", "drop=", "0 ", "| ", "shard=", "[0..7] ", "\n",
-    "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█", " ",
-    "0.", "01 ", "0.", "94 ", "-0.", "15 ", "NaN ", "+inf ",
+    "0x", "3a", "4f", "9c", "e1", " ", "→ ", "[", "ok", "] ", "tok=", "1e3 ", "lat=", "8µs ",
+    "p50=", "12 ", "p99=", "47 ", "batch=", "256 ", "chunks=", "41 ", "mem=", "7.2MB ", "rss=",
+    "14M ", "rt=", "0.91 ", "drop=", "0 ", "| ", "shard=", "[0..7] ", "\n", "▁", "▂", "▃", "▄",
+    "▅", "▆", "▇", "█", " ", "0.", "01 ", "0.", "94 ", "-0.", "15 ", "NaN ", "+inf ",
 ];
 
 #[derive(Clone, Copy)]
-enum Mood { Prose, Code, Data }
+enum Mood {
+    Prose,
+    Code,
+    Data,
+}
 
 impl Mood {
     fn words(self) -> &'static [&'static str] {
         match self {
             Mood::Prose => PROSE,
-            Mood::Code  => CODE,
-            Mood::Data  => DATA,
+            Mood::Code => CODE,
+            Mood::Data => DATA,
         }
     }
     fn label(self) -> &'static str {
         match self {
             Mood::Prose => "prose",
-            Mood::Code  => "code",
-            Mood::Data  => "data",
+            Mood::Code => "code",
+            Mood::Data => "data",
         }
     }
 }
 
 struct Rng(u64);
 impl Rng {
-    fn seeded(s: u64) -> Self { Self(s | 1) }
+    fn seeded(s: u64) -> Self {
+        Self(s | 1)
+    }
     fn next(&mut self) -> u64 {
         let mut x = self.0;
-        x ^= x << 13; x ^= x >> 7; x ^= x << 17;
-        self.0 = x; x
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.0 = x;
+        x
     }
-    fn range(&mut self, lo: u64, hi: u64) -> u64 { lo + self.next() % (hi - lo) }
-    fn pick<'a, T>(&mut self, xs: &'a [T]) -> &'a T { &xs[(self.next() as usize) % xs.len()] }
+    fn range(&mut self, lo: u64, hi: u64) -> u64 {
+        lo + self.next() % (hi - lo)
+    }
+    fn pick<'a, T>(&mut self, xs: &'a [T]) -> &'a T {
+        &xs[(self.next() as usize) % xs.len()]
+    }
 }
 
 #[tokio::main]
@@ -170,7 +257,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "uptime_s": started.elapsed().as_secs(),
                     })),
                 );
-                last_toks = toks; last_starts = starts; last_msgs = msgs;
+                last_toks = toks;
+                last_starts = starts;
+                last_msgs = msgs;
                 let fanout = conns;
                 if transport.broadcast(m).await.is_ok() {
                     msgs_out.fetch_add(fanout, Ordering::Relaxed);
@@ -217,7 +306,11 @@ async fn run_agent(
     tokio::time::sleep(Duration::from_millis(rng.range(0, 2500))).await;
 
     let agent_name = format!("agent-{idx:03}");
-    let mood = match idx % 3 { 0 => Mood::Prose, 1 => Mood::Code, _ => Mood::Data };
+    let mood = match idx % 3 {
+        0 => Mood::Prose,
+        1 => Mood::Code,
+        _ => Mood::Data,
+    };
 
     loop {
         // ── start stream ────────────────────────────────────────────

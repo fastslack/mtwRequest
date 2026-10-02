@@ -114,7 +114,7 @@ mod tests {
         assert_eq!(canonicalize(&json!(true)), b"true");
         assert_eq!(canonicalize(&json!(false)), b"false");
         assert_eq!(canonicalize(&json!(42)), b"42");
-        assert_eq!(canonicalize(&json!(3.14)), b"3.14");
+        assert_eq!(canonicalize(&json!(0.1)), b"0.1");
         assert_eq!(canonicalize(&json!("hello")), b"\"hello\"");
     }
 

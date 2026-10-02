@@ -154,7 +154,8 @@ impl WhatsAppClient {
     /// broadcast channel until the socket closes.
     pub async fn connect(cfg: WhatsAppConfig) -> Result<Self, WhatsAppError> {
         let stream = Self::dial_with_backoff(&cfg).await?;
-        let (read_half, write_half): (ReadHalf<IpcStream>, WriteHalf<IpcStream>) = tokio::io::split(stream);
+        let (read_half, write_half): (ReadHalf<IpcStream>, WriteHalf<IpcStream>) =
+            tokio::io::split(stream);
 
         let (events_tx, _) = broadcast::channel(cfg.event_buffer);
         let events_bg = events_tx.clone();
@@ -412,7 +413,9 @@ mod fastrand {
         STATE.with(|s| {
             // xorshift64
             let mut x = s.get();
-            if x == 0 { x = 0xdead_beef; }
+            if x == 0 {
+                x = 0xdead_beef;
+            }
             x ^= x << 13;
             x ^= x >> 7;
             x ^= x << 17;
@@ -462,7 +465,9 @@ mod tests {
         }"#;
         let evt: Event = serde_json::from_str(json).unwrap();
         match evt {
-            Event::Message { text, attachments, .. } => {
+            Event::Message {
+                text, attachments, ..
+            } => {
                 assert_eq!(text, "hola");
                 assert!(attachments.is_empty());
             }
@@ -536,7 +541,10 @@ mod tests {
         };
         let started = std::time::Instant::now();
         let err = WhatsAppClient::connect(cfg).await.err().unwrap();
-        assert!(started.elapsed() < Duration::from_secs(2), "should fail fast, not retry for 30s");
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "should fail fast, not retry for 30s"
+        );
         match err {
             WhatsAppError::Io(io_err) => {
                 assert_eq!(io_err.kind(), std::io::ErrorKind::InvalidInput);
@@ -555,9 +563,14 @@ mod tests {
 
     #[test]
     fn log_summary_omits_qr_and_message_payload() {
-        assert_eq!(log_summary(r#"{"type":"qr","code":"2@abc123secret"}"#), "qr");
         assert_eq!(
-            log_summary(r#"{"type":"message","text":"private text","id":"1","from":"a","chat":"a","is_group":false,"author":"a","timestamp":1}"#),
+            log_summary(r#"{"type":"qr","code":"2@abc123secret"}"#),
+            "qr"
+        );
+        assert_eq!(
+            log_summary(
+                r#"{"type":"message","text":"private text","id":"1","from":"a","chat":"a","is_group":false,"author":"a","timestamp":1}"#
+            ),
             "message"
         );
         assert_eq!(log_summary("not json at all"), "unknown");
@@ -607,10 +620,7 @@ mod tests {
                 .unwrap();
         });
 
-        let items = client
-            .list_chats(50, Duration::from_secs(2))
-            .await
-            .unwrap();
+        let items = client.list_chats(50, Duration::from_secs(2)).await.unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].jid, "g@g.us");
         assert_eq!(items[0].name, "Familia");

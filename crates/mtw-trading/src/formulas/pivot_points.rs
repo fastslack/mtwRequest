@@ -1,28 +1,43 @@
-use std::collections::HashMap;
 use crate::formula::{FormulaContext, FormulaResult, SignalFormula};
 use crate::types::{Candle, OrderSide};
+use std::collections::HashMap;
 
 /// Classic + Fibonacci Pivot Points — daily levels used by institutional traders.
 pub struct PivotPointsFormula;
 
 impl SignalFormula for PivotPointsFormula {
-    fn id(&self) -> &str { "pivot_points" }
-    fn name(&self) -> &str { "Pivot Points" }
-    fn description(&self) -> &str { "Institutional daily levels: classic + Fibonacci pivots as S/R" }
-    fn min_candles(&self) -> usize { 15 }
+    fn id(&self) -> &str {
+        "pivot_points"
+    }
+    fn name(&self) -> &str {
+        "Pivot Points"
+    }
+    fn description(&self) -> &str {
+        "Institutional daily levels: classic + Fibonacci pivots as S/R"
+    }
+    fn min_candles(&self) -> usize {
+        15
+    }
 
     fn compute(&self, candles: &[Candle], context: Option<&FormulaContext>) -> FormulaResult {
         let n = candles.len();
         let i = n - 1;
-        let lookback = context.and_then(|c| c.params.get("lookback")).copied().unwrap_or(24.0) as usize;
+        let lookback = context
+            .and_then(|c| c.params.get("lookback"))
+            .copied()
+            .unwrap_or(24.0) as usize;
         let lookback = lookback.min(i);
 
         let close = candles[i - 1].close;
         let mut high = f64::NEG_INFINITY;
         let mut low = f64::INFINITY;
-        for j in (i - lookback)..i {
-            if candles[j].high > high { high = candles[j].high; }
-            if candles[j].low < low { low = candles[j].low; }
+        for c in &candles[(i - lookback)..i] {
+            if c.high > high {
+                high = c.high;
+            }
+            if c.low < low {
+                low = c.low;
+            }
         }
 
         let pp = (high + low + close) / 3.0;
@@ -38,8 +53,15 @@ impl SignalFormula for PivotPointsFormula {
 
         let price = candles[i].close;
         let mut levels = vec![
-            ("S2", s2), ("FS2", fs2), ("S1", s1), ("FS1", fs1), ("PP", pp),
-            ("FR1", fr1), ("R1", r1), ("FR2", fr2), ("R2", r2),
+            ("S2", s2),
+            ("FS2", fs2),
+            ("S1", s1),
+            ("FS1", fs1),
+            ("PP", pp),
+            ("FR1", fr1),
+            ("R1", r1),
+            ("FR2", fr2),
+            ("R2", r2),
         ];
         levels.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
 
@@ -53,16 +75,31 @@ impl SignalFormula for PivotPointsFormula {
             }
         }
 
-        let dist_below = if price > 0.0 { (price - below.1) / price * 100.0 } else { 0.0 };
-        let dist_above = if price > 0.0 { (above.1 - price) / price * 100.0 } else { 0.0 };
-
-        let (side, confidence) = if dist_below < 0.5 && (below.0.starts_with('S') || below.0.starts_with("FS")) {
-            (Some(OrderSide::Buy), (30.0 + (0.5 - dist_below) * 60.0).min(65.0))
-        } else if dist_above < 0.5 && (above.0.starts_with('R') || above.0.starts_with("FR")) {
-            (Some(OrderSide::Sell), (30.0 + (0.5 - dist_above) * 60.0).min(65.0))
+        let dist_below = if price > 0.0 {
+            (price - below.1) / price * 100.0
         } else {
-            (None, 0.0)
+            0.0
         };
+        let dist_above = if price > 0.0 {
+            (above.1 - price) / price * 100.0
+        } else {
+            0.0
+        };
+
+        let (side, confidence) =
+            if dist_below < 0.5 && (below.0.starts_with('S') || below.0.starts_with("FS")) {
+                (
+                    Some(OrderSide::Buy),
+                    (30.0 + (0.5 - dist_below) * 60.0).min(65.0),
+                )
+            } else if dist_above < 0.5 && (above.0.starts_with('R') || above.0.starts_with("FR")) {
+                (
+                    Some(OrderSide::Sell),
+                    (30.0 + (0.5 - dist_above) * 60.0).min(65.0),
+                )
+            } else {
+                (None, 0.0)
+            };
 
         let mut indicators = HashMap::new();
         indicators.insert("pp".into(), (pp * 100.0).round() / 100.0);
@@ -71,8 +108,14 @@ impl SignalFormula for PivotPointsFormula {
         indicators.insert("r2".into(), (r2 * 100.0).round() / 100.0);
         indicators.insert("s2".into(), (s2 * 100.0).round() / 100.0);
 
-        FormulaResult { side, confidence: confidence.round(), indicators,
-            reasoning: format!("Between {} ({:.2}) and {} ({:.2})", below.0, below.1, above.0, above.1),
+        FormulaResult {
+            side,
+            confidence: confidence.round(),
+            indicators,
+            reasoning: format!(
+                "Between {} ({:.2}) and {} ({:.2})",
+                below.0, below.1, above.0, above.1
+            ),
         }
     }
 }

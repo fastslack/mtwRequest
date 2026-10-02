@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 
 use crate::provider::{
-    CompletionRequest, CompletionResponse, FinishReason, ModelInfo,
-    MtwAIProvider, ProviderCapabilities, StreamChunk, ToolCall, Usage,
+    CompletionRequest, CompletionResponse, FinishReason, ModelInfo, MtwAIProvider,
+    ProviderCapabilities, StreamChunk, ToolCall, Usage,
 };
 
 // OpenAI model constants
@@ -421,10 +421,7 @@ mod tests {
     fn test_build_request() {
         let req = CompletionRequest {
             model: "gpt-4o".to_string(),
-            messages: vec![
-                Message::system("You are helpful"),
-                Message::user("Hello"),
-            ],
+            messages: vec![Message::system("You are helpful"), Message::user("Hello")],
             tools: None,
             temperature: Some(0.7),
             max_tokens: Some(1000),
@@ -451,7 +448,10 @@ mod tests {
     fn test_finish_reason_from_openai() {
         assert_eq!(FinishReason::from_openai("stop"), FinishReason::Stop);
         assert_eq!(FinishReason::from_openai("length"), FinishReason::Length);
-        assert_eq!(FinishReason::from_openai("tool_calls"), FinishReason::ToolUse);
+        assert_eq!(
+            FinishReason::from_openai("tool_calls"),
+            FinishReason::ToolUse
+        );
         assert_eq!(
             FinishReason::from_openai("content_filter"),
             FinishReason::ContentFilter

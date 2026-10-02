@@ -97,8 +97,7 @@ mod tests {
 
     #[test]
     fn test_assert_has_metadata() {
-        let msg = MtwMessage::event("test")
-            .with_metadata("key", serde_json::json!("value"));
+        let msg = MtwMessage::event("test").with_metadata("key", serde_json::json!("value"));
         assert_has_metadata!(msg, "key");
     }
 

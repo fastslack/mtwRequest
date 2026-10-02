@@ -179,11 +179,7 @@ pub trait MtwAgent: Send + Sync {
     fn description(&self) -> &AgentDescription;
 
     /// Handle an incoming task and produce a full response
-    async fn handle(
-        &self,
-        task: AgentTask,
-        ctx: &AgentContext,
-    ) -> Result<AgentResponse, MtwError>;
+    async fn handle(&self, task: AgentTask, ctx: &AgentContext) -> Result<AgentResponse, MtwError>;
 
     /// Handle an incoming task with streaming response
     fn handle_stream(
@@ -251,11 +247,7 @@ mod tests {
 
     #[test]
     fn test_agent_context() {
-        let ctx = AgentContext::new()
-            .with_metadata("key", serde_json::json!("value"));
-        assert_eq!(
-            ctx.metadata.get("key"),
-            Some(&serde_json::json!("value"))
-        );
+        let ctx = AgentContext::new().with_metadata("key", serde_json::json!("value"));
+        assert_eq!(ctx.metadata.get("key"), Some(&serde_json::json!("value")));
     }
 }

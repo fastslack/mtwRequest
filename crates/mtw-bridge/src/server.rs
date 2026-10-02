@@ -42,8 +42,8 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use mtw_core::MtwError;
-use serde_json::Value;
 use mtw_ipc::{IpcListener, IpcStream};
+use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::events::BridgeEventBus;
@@ -107,8 +107,9 @@ impl BridgeServer {
     /// Returns a `JoinHandle` for the accept loop. The server runs until
     /// [`shutdown`](Self::shutdown) is called or the handle is aborted.
     pub async fn start(&self) -> Result<tokio::task::JoinHandle<()>, MtwError> {
-        let mut listener = IpcListener::bind(&self.socket_path)
-            .map_err(|e| MtwError::Transport(format!("bridge server bind '{}': {}", self.socket_path, e)))?;
+        let mut listener = IpcListener::bind(&self.socket_path).map_err(|e| {
+            MtwError::Transport(format!("bridge server bind '{}': {}", self.socket_path, e))
+        })?;
 
         // Make the socket reachable from non-root callers (e.g. the
         // mtwKernel container running as uid 1000). Override via
@@ -120,12 +121,13 @@ impl BridgeServer {
             use std::os::unix::fs::PermissionsExt;
             let mode = std::env::var("MTW_BRIDGE_SOCKET_MODE")
                 .ok()
-                .and_then(|v| u32::from_str_radix(v.trim_start_matches("0o").trim_start_matches('0'), 8).ok())
+                .and_then(|v| {
+                    u32::from_str_radix(v.trim_start_matches("0o").trim_start_matches('0'), 8).ok()
+                })
                 .unwrap_or(0o666);
-            if let Err(e) = std::fs::set_permissions(
-                &self.socket_path,
-                std::fs::Permissions::from_mode(mode),
-            ) {
+            if let Err(e) =
+                std::fs::set_permissions(&self.socket_path, std::fs::Permissions::from_mode(mode))
+            {
                 tracing::warn!(
                     error = %e,
                     path = %self.socket_path,
@@ -308,7 +310,10 @@ async fn handle_connection(
 
         let payload_len = read_frame_length(&len_buf);
         if payload_len > 10 * 1024 * 1024 {
-            tracing::error!(len = payload_len, "bridge server: request too large, closing connection");
+            tracing::error!(
+                len = payload_len,
+                "bridge server: request too large, closing connection"
+            );
             let _ = out_tx.send(OutFrame::Response(BridgeResponse {
                 id: "unknown".into(),
                 result: None,
@@ -389,10 +394,7 @@ mod tests {
     }
 
     /// Helper: send a BridgeRequest over a stream and read the BridgeResponse
-    async fn send_request(
-        stream: &mut IpcStream,
-        req: &BridgeRequest,
-    ) -> BridgeResponse {
+    async fn send_request(stream: &mut IpcStream, req: &BridgeRequest) -> BridgeResponse {
         let frame = req.encode().unwrap();
         stream.write_all(&frame).await.unwrap();
 
@@ -411,10 +413,7 @@ mod tests {
         let (_dir, socket_path) = temp_socket();
         let server = BridgeServer::new(&socket_path);
 
-        server.register_tool(
-            "echo",
-            Arc::new(|args| Box::pin(async move { Ok(args) })),
-        );
+        server.register_tool("echo", Arc::new(|args| Box::pin(async move { Ok(args) })));
         assert_eq!(server.tool_count(), 1);
 
         let handle = server.start().await.unwrap();
@@ -534,9 +533,7 @@ mod tests {
         server.register_tool(
             "failing",
             Arc::new(|_args| {
-                Box::pin(async move {
-                    Err(MtwError::Internal("something went wrong".into()))
-                })
+                Box::pin(async move { Err(MtwError::Internal("something went wrong".into())) })
             }),
         );
 

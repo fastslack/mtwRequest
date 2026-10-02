@@ -279,7 +279,11 @@ impl Channel {
     ///
     /// Fallback path (no sink installed): the envelope is pushed into the
     /// central `message_tx` mpsc and a forwarder task relays it.
-    pub async fn publish(&self, msg: MtwMessage, exclude: Option<&ConnId>) -> Result<usize, MtwError> {
+    pub async fn publish(
+        &self,
+        msg: MtwMessage,
+        exclude: Option<&ConnId>,
+    ) -> Result<usize, MtwError> {
         // Store in history (history still wants the decoded MtwMessage).
         // Bounded by count and by approximate bytes; a message larger than
         // the whole byte cap is delivered but never retained.
@@ -350,7 +354,13 @@ impl Channel {
     pub async fn get_history(&self, limit: Option<usize>) -> Vec<MtwMessage> {
         let history = self.history.read().await;
         match limit {
-            Some(n) => history.entries.iter().rev().take(n).map(|(m, _)| m.clone()).collect(),
+            Some(n) => history
+                .entries
+                .iter()
+                .rev()
+                .take(n)
+                .map(|(m, _)| m.clone())
+                .collect(),
             None => history.entries.iter().map(|(m, _)| m.clone()).collect(),
         }
     }
@@ -609,8 +619,8 @@ mod tests {
         mgr.subscribe("test", &"conn1".to_string()).unwrap();
         mgr.subscribe("test", &"conn2".to_string()).unwrap();
 
-        let msg = MtwMessage::new(MsgType::Publish, Payload::Text("hello".into()))
-            .with_channel("test");
+        let msg =
+            MtwMessage::new(MsgType::Publish, Payload::Text("hello".into())).with_channel("test");
 
         let ch = mgr.get("test").unwrap();
         let sent = ch.publish(msg, None).await.unwrap();
@@ -640,7 +650,9 @@ mod tests {
         let mgr = make_manager();
         let ch = mgr.create_channel_with_history_bytes("test", false, None, 3, 1_000_000);
         for i in 0..5 {
-            ch.publish(text_msg(&format!("msg-{}", i)), None).await.unwrap();
+            ch.publish(text_msg(&format!("msg-{}", i)), None)
+                .await
+                .unwrap();
         }
         let history = ch.get_history(None).await;
         assert_eq!(history.len(), 3);
@@ -685,17 +697,25 @@ mod tests {
         let history = ch.get_history(None).await;
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].payload.as_text(), Some("small"));
-        assert_eq!(ch.history_bytes().await, estimate_message_bytes(&history[0]));
+        assert_eq!(
+            ch.history_bytes().await,
+            estimate_message_bytes(&history[0])
+        );
     }
 
     #[tokio::test]
     async fn test_history_default_byte_cap() {
         let mgr = make_manager();
         let ch = mgr.create_channel("test", false, None, 10);
-        assert_eq!(ch.history_max_bytes(), mtw_core::DEFAULT_CHANNEL_HISTORY_MAX_BYTES);
+        assert_eq!(
+            ch.history_max_bytes(),
+            mtw_core::DEFAULT_CHANNEL_HISTORY_MAX_BYTES
+        );
         assert_eq!(ch.history_max_bytes(), 2_097_152);
         // A 3 MiB message exceeds the default cap and is not retained.
-        ch.publish(text_msg(&"z".repeat(3 * 1024 * 1024)), None).await.unwrap();
+        ch.publish(text_msg(&"z".repeat(3 * 1024 * 1024)), None)
+            .await
+            .unwrap();
         assert!(ch.get_history(None).await.is_empty());
         assert_eq!(ch.history_bytes().await, 0);
     }
@@ -708,7 +728,10 @@ mod tests {
         // payload 5 + id + channel 4 + metadata key 1 + serialized value `"vv"` 4
         assert_eq!(estimate_message_bytes(&msg), 5 + msg.id.len() + 4 + 1 + 4);
         let json = MtwMessage::new(MsgType::Publish, Payload::Json(serde_json::json!({"a":1})));
-        assert_eq!(estimate_message_bytes(&json), r#"{"a":1}"#.len() + json.id.len());
+        assert_eq!(
+            estimate_message_bytes(&json),
+            r#"{"a":1}"#.len() + json.id.len()
+        );
     }
 
     #[test]

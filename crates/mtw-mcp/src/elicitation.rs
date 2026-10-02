@@ -74,11 +74,9 @@ impl ElicitationBus {
     /// possible: no client capability, or stdio transport).
     pub async fn request(&self, message: &str, schema: Value) -> Result<Value, String> {
         if !self.transport_supports_full_duplex {
-            return Err(
-                "elicitation requires a full-duplex transport (HTTP); \
+            return Err("elicitation requires a full-duplex transport (HTTP); \
                  stdio cannot deliver server→client requests"
-                    .to_string(),
-            );
+                .to_string());
         }
         if !self.session.read().await.client_caps.supports_elicitation() {
             return Err("client did not declare elicitation capability".to_string());
@@ -94,7 +92,8 @@ impl ElicitationBus {
             schema,
         });
 
-        rx.await.unwrap_or_else(|_| Err("elicitation cancelled".into()))
+        rx.await
+            .unwrap_or_else(|_| Err("elicitation cancelled".into()))
     }
 
     /// Called by the HTTP transport when it receives a client response

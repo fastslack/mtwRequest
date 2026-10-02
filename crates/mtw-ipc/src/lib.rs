@@ -24,7 +24,9 @@ fn check_platform(endpoint: &str) -> io::Result<()> {
     if !is_pipe(endpoint) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!("on Windows the endpoint must be a named pipe ({PIPE_PREFIX}...), got '{endpoint}'"),
+            format!(
+                "on Windows the endpoint must be a named pipe ({PIPE_PREFIX}...), got '{endpoint}'"
+            ),
         ));
     }
     #[cfg(not(windows))]
@@ -61,13 +63,21 @@ macro_rules! delegate {
 }
 
 impl AsyncRead for IpcStream {
-    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
         delegate!(self, s => Pin::new(s).poll_read(cx, buf))
     }
 }
 
 impl AsyncWrite for IpcStream {
-    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
         delegate!(self, s => Pin::new(s).poll_write(cx, buf))
     }
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -87,7 +97,9 @@ pub async fn connect(endpoint: &str) -> io::Result<IpcStream> {
     check_platform(endpoint)?;
     #[cfg(unix)]
     {
-        Ok(IpcStream::Unix(tokio::net::UnixStream::connect(endpoint).await?))
+        Ok(IpcStream::Unix(
+            tokio::net::UnixStream::connect(endpoint).await?,
+        ))
     }
     #[cfg(windows)]
     {
@@ -98,7 +110,10 @@ pub async fn connect(endpoint: &str) -> io::Result<IpcStream> {
         loop {
             match ClientOptions::new().open(endpoint) {
                 Ok(c) => return Ok(IpcStream::PipeClient(c)),
-                Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY) && tokio::time::Instant::now() < deadline => {
+                Err(e)
+                    if e.raw_os_error() == Some(ERROR_PIPE_BUSY)
+                        && tokio::time::Instant::now() < deadline =>
+                {
                     tokio::time::sleep(Duration::from_millis(50)).await;
                 }
                 Err(e) => return Err(e),
@@ -135,7 +150,10 @@ impl IpcListener {
             }
             let _ = std::fs::remove_file(endpoint);
             let inner = tokio::net::UnixListener::bind(endpoint)?;
-            Ok(Self { endpoint: endpoint.to_string(), inner })
+            Ok(Self {
+                endpoint: endpoint.to_string(),
+                inner,
+            })
         }
         #[cfg(windows)]
         {
@@ -144,7 +162,10 @@ impl IpcListener {
                 .first_pipe_instance(true)
                 .reject_remote_clients(true)
                 .create(endpoint)?;
-            Ok(Self { endpoint: endpoint.to_string(), next })
+            Ok(Self {
+                endpoint: endpoint.to_string(),
+                next,
+            })
         }
     }
 
@@ -159,7 +180,9 @@ impl IpcListener {
         {
             use tokio::net::windows::named_pipe::ServerOptions;
             self.next.connect().await?;
-            let fresh = ServerOptions::new().reject_remote_clients(true).create(&self.endpoint)?;
+            let fresh = ServerOptions::new()
+                .reject_remote_clients(true)
+                .create(&self.endpoint)?;
             let connected = std::mem::replace(&mut self.next, fresh);
             Ok(IpcStream::PipeServer(connected))
         }
@@ -176,13 +199,19 @@ impl IpcListener {
 pub fn unique_test_endpoint(dir: &std::path::Path, name: &str) -> String {
     #[cfg(unix)]
     {
-        dir.join(format!("{name}.sock")).to_string_lossy().to_string()
+        dir.join(format!("{name}.sock"))
+            .to_string_lossy()
+            .to_string()
     }
     #[cfg(windows)]
     {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static N: AtomicUsize = AtomicUsize::new(0);
         let _ = dir;
-        format!("{PIPE_PREFIX}mtw-test-{name}-{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed))
+        format!(
+            "{PIPE_PREFIX}mtw-test-{name}-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::Relaxed)
+        )
     }
 }

@@ -133,35 +133,33 @@ fn validate_semver(version: &str) -> Result<(), ManifestError> {
 /// Parse dependencies from the TOML value map
 fn parse_dependencies(deps: &HashMap<String, toml::Value>) -> Vec<ModuleDep> {
     deps.iter()
-        .map(|(name, value)| {
-            match value {
-                toml::Value::String(version) => ModuleDep {
+        .map(|(name, value)| match value {
+            toml::Value::String(version) => ModuleDep {
+                name: name.clone(),
+                version: version.clone(),
+                optional: false,
+            },
+            toml::Value::Table(table) => {
+                let version = table
+                    .get("version")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("*")
+                    .to_string();
+                let optional = table
+                    .get("optional")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                ModuleDep {
                     name: name.clone(),
-                    version: version.clone(),
-                    optional: false,
-                },
-                toml::Value::Table(table) => {
-                    let version = table
-                        .get("version")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("*")
-                        .to_string();
-                    let optional = table
-                        .get("optional")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
-                    ModuleDep {
-                        name: name.clone(),
-                        version,
-                        optional,
-                    }
+                    version,
+                    optional,
                 }
-                _ => ModuleDep {
-                    name: name.clone(),
-                    version: "*".to_string(),
-                    optional: false,
-                },
             }
+            _ => ModuleDep {
+                name: name.clone(),
+                version: "*".to_string(),
+                optional: false,
+            },
         })
         .collect()
 }
