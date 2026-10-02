@@ -1,16 +1,36 @@
 # whatsapp-bridge — socket protocol
 
-Unix domain socket: `/var/run/mtw-whatsapp/whatsapp.sock` (mounted via shared
-Docker volume). Framing: **newline-delimited JSON**. One JSON object per line,
-`\n`-terminated. Every object has a `"type"` discriminator.
+Transport: a Unix domain socket on Linux/macOS, a named pipe on Windows
+(there is no Unix socket there). Framing: **newline-delimited JSON**. One
+JSON object per line, `\n`-terminated. Every object has a `"type"`
+discriminator.
 
 Peers:
-- **Driver** (the Rust crate `mtw-whatsapp`) — client of the socket.
-- **Bridge** (this Go service, using `whatsmeow`) — server of the socket.
+- **Driver** (the Rust crate `mtw-whatsapp`) — client of the endpoint.
+- **Bridge** (this Go service, using `whatsmeow`) — server of the endpoint.
 
 The driver MAY issue commands at any time. The bridge emits events whenever
-something happens on the WhatsApp side. The socket is full-duplex: both sides
-read and write concurrently. A single driver is expected per socket.
+something happens on the WhatsApp side. The connection is full-duplex: both
+sides read and write concurrently. A single driver is expected per endpoint.
+
+## Transport endpoint
+
+`MTW_WHATSAPP_SOCKET` selects the endpoint:
+- On Linux/macOS: a filesystem path to a Unix socket. Default
+  `/var/run/mtw-whatsapp/whatsapp.sock`. A stale file at that path is
+  removed before listening; the socket is created with mode `0666`.
+- On Windows: a named pipe path, which **must** start with `\\.\pipe\`.
+  Default `\\.\pipe\mtw-whatsapp`. The pipe's security descriptor grants
+  full access to its owner and to SYSTEM only.
+
+## Clean shutdown on stdin EOF
+
+When the environment variable `MTW_EXIT_ON_STDIN_EOF=1` is set, the bridge
+also treats EOF on its stdin as a shutdown request, in addition to
+`SIGINT`/`SIGTERM`. The process supervising the bridge closes its stdin to
+stop it — this matters on Windows, which has no `SIGTERM`, and avoids a hard
+kill that could leave the session database half-written. The variable is
+unset (feature off) by default.
 
 ## Driver → Bridge (commands)
 

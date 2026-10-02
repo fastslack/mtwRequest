@@ -1,10 +1,12 @@
 // whatsapp-bridge is the Go sidecar that speaks the WhatsApp Multi-Device
 // protocol via whatsmeow and exposes a newline-delimited JSON protocol over a
-// Unix domain socket. The Rust crate `mtw-whatsapp` is its client.
+// Unix domain socket (named pipe on Windows). The Rust crate `mtw-whatsapp`
+// is its client.
 //
-// Socket path is configurable via MTW_WHATSAPP_SOCKET (default
-// /var/run/mtw-whatsapp/whatsapp.sock). Sessions persist in MTW_WHATSAPP_DB
-// (default /var/lib/mtw-whatsapp/session.db).
+// The endpoint is configurable via MTW_WHATSAPP_SOCKET (default a Unix
+// socket path on Linux/macOS, a named pipe on Windows — see protocol.md).
+// Sessions persist in MTW_WHATSAPP_DB (default
+// /var/lib/mtw-whatsapp/session.db).
 //
 // The protocol is specified in protocol.md in this directory.
 package main
@@ -14,7 +16,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log"
 	"net"
@@ -539,17 +540,9 @@ func (b *bridge) sendTyping(msg inMsg) {
 
 // serve accepts driver connections; listening is closed once the socket is up.
 func serve(socketPath string, drv *driver, handler func(inMsg), listening chan<- struct{}) error {
-	if err := os.MkdirAll(filepath.Dir(socketPath), 0o755); err != nil {
-		return fmt.Errorf("mkdir socket dir: %w", err)
-	}
-	_ = os.Remove(socketPath)
-
-	l, err := net.Listen("unix", socketPath)
+	l, err := listen(socketPath)
 	if err != nil {
-		return fmt.Errorf("listen: %w", err)
-	}
-	if err := os.Chmod(socketPath, 0o666); err != nil {
-		log.Printf("chmod socket: %v", err)
+		return err
 	}
 	log.Printf("listening on %s", socketPath)
 	close(listening)
@@ -584,7 +577,7 @@ func readLoop(conn net.Conn, handler func(inMsg)) {
 // ── whatsmeow bootstrap ──────────────────────────────────────────────
 
 func main() {
-	socketPath := getenv("MTW_WHATSAPP_SOCKET", "/var/run/mtw-whatsapp/whatsapp.sock")
+	socketPath := getenv("MTW_WHATSAPP_SOCKET", defaultSocket)
 	dbPath := getenv("MTW_WHATSAPP_DB", "/var/lib/mtw-whatsapp/session.db")
 
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
@@ -634,6 +627,10 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
+	if os.Getenv("MTW_EXIT_ON_STDIN_EOF") == "1" {
+		watchStdinEOF(os.Stdin, stop)
+	}
+
 	select {
 	case <-listening:
 		drv.send(outMsg{"type": "ready"})
@@ -648,7 +645,26 @@ func main() {
 	case err := <-listenErr:
 		log.Printf("socket server exited: %v", err)
 	}
-	client.Disconnect()
+	shutdown(client, container)
+}
+
+// waClient and sessionStore are the slivers of *whatsmeow.Client and
+// *sqlstore.Container that shutdown needs — narrow enough to fake in a test
+// without a live WhatsApp connection or a real SQLite file.
+type waClient interface{ Disconnect() }
+type sessionStore interface{ Close() error }
+
+// shutdown runs on every exit path (Ctrl+C, SIGTERM, or stdin EOF — see
+// watchStdinEOF): it disconnects the WhatsApp client first, then closes the
+// session store so the on-disk SQLite file isn't left open mid-write. The
+// close error (if any) is logged without any session data — sqlstore.Close
+// never returns anything derived from message content, phone numbers, or
+// pairing material.
+func shutdown(c waClient, store sessionStore) {
+	c.Disconnect()
+	if err := store.Close(); err != nil {
+		log.Printf("close session store: %v", err)
+	}
 }
 
 func getenv(key, def string) string {

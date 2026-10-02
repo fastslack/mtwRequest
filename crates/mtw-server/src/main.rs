@@ -205,6 +205,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("ready — waiting for connections (Ctrl+C to stop)");
 
     // ── Main event loop ─────────────────────────────────────
+    let stdin_eof = stdin_shutdown();
+    tokio::pin!(stdin_eof);
     loop {
         tokio::select! {
             Some(event) = event_rx.recv() => {
@@ -215,11 +217,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 transport.shutdown().await?;
                 break;
             }
+            _ = &mut stdin_eof => {
+                tracing::info!("stdin closed — shutting down");
+                transport.shutdown().await?;
+                break;
+            }
         }
     }
 
     tracing::info!("server stopped");
     Ok(())
+}
+
+/// Resolves when `r` reaches EOF (or fails). The kernel closes our stdin to
+/// stop us — Windows has no SIGTERM.
+async fn wait_eof<R: tokio::io::AsyncRead + Unpin>(mut r: R) {
+    use tokio::io::AsyncReadExt;
+    let mut buf = [0u8; 256];
+    while let Ok(n) = r.read(&mut buf).await {
+        if n == 0 {
+            break;
+        }
+    }
+}
+
+/// Stdin EOF as a shutdown signal, only when the supervisor asked for it.
+async fn stdin_shutdown() {
+    if std::env::var("MTW_EXIT_ON_STDIN_EOF").as_deref() == Ok("1") {
+        wait_eof(tokio::io::stdin()).await
+    } else {
+        std::future::pending::<()>().await
+    }
 }
 
 /// Where the kernel tool bridge listens when RUST_BRIDGE_SOCKET is unset.
@@ -538,5 +566,22 @@ async fn init_torrent_module(
             tracing::warn!(error = %e, "torrent module init failed — kernel will fall back to legacy");
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod stdin_eof_tests {
+    use super::wait_eof;
+    use tokio::io::AsyncWriteExt;
+
+    #[tokio::test]
+    async fn returns_once_the_writer_closes() {
+        let (mut w, r) = tokio::io::duplex(64);
+        let waiter = tokio::spawn(wait_eof(r));
+        w.write_all(b"noise").await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        assert!(!waiter.is_finished(), "returned before EOF");
+        drop(w);
+        tokio::time::timeout(std::time::Duration::from_secs(2), waiter).await.unwrap().unwrap();
     }
 }
