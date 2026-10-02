@@ -157,11 +157,7 @@ impl IpcListener {
         }
         #[cfg(windows)]
         {
-            use tokio::net::windows::named_pipe::ServerOptions;
-            let next = ServerOptions::new()
-                .first_pipe_instance(true)
-                .reject_remote_clients(true)
-                .create(endpoint)?;
+            let next = pipe_security::create_instance(endpoint, true)?;
             Ok(Self {
                 endpoint: endpoint.to_string(),
                 next,
@@ -178,11 +174,16 @@ impl IpcListener {
         }
         #[cfg(windows)]
         {
-            use tokio::net::windows::named_pipe::ServerOptions;
-            self.next.connect().await?;
-            let fresh = ServerOptions::new()
-                .reject_remote_clients(true)
-                .create(&self.endpoint)?;
+            if let Err(e) = self.next.connect().await {
+                // A client that connects and closes before ConnectNamedPipe
+                // completes leaves this instance unusable (ERROR_NO_DATA on
+                // every later call). Replace it so the next accept can work.
+                if let Ok(fresh) = pipe_security::create_instance(&self.endpoint, false) {
+                    self.next = fresh;
+                }
+                return Err(e);
+            }
+            let fresh = pipe_security::create_instance(&self.endpoint, false)?;
             let connected = std::mem::replace(&mut self.next, fresh);
             Ok(IpcStream::PipeServer(connected))
         }
@@ -191,6 +192,71 @@ impl IpcListener {
     /// The endpoint this listener was bound to.
     pub fn endpoint(&self) -> &str {
         &self.endpoint
+    }
+}
+
+/// Pipe instances restricted to the current user and SYSTEM.
+///
+/// Windows' default pipe DACL lets Everyone (and Anonymous) open the pipe for
+/// reading, so every instance -- the first and each fresh one -- is created
+/// with an explicit security descriptor. Same SDDL as the WhatsApp bridge's
+/// `pipeSDDL` (Go side).
+#[cfg(windows)]
+mod pipe_security {
+    use std::ffi::c_void;
+    use std::io;
+    use std::ptr::null_mut;
+
+    use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Authorization::{
+        ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+    };
+    use windows_sys::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
+
+    /// Protected DACL: generic-all for the owner and for SYSTEM, nobody else.
+    const PIPE_SDDL: &str = "D:P(A;;GA;;;OW)(A;;GA;;;SY)";
+
+    /// Create one server instance of `endpoint`, refusing remote clients.
+    /// `first` also refuses a name some other process already owns.
+    pub(crate) fn create_instance(endpoint: &str, first: bool) -> io::Result<NamedPipeServer> {
+        let sddl: Vec<u16> = PIPE_SDDL.encode_utf16().chain(Some(0)).collect();
+        let mut sd: PSECURITY_DESCRIPTOR = null_mut();
+        // SAFETY: `sddl` is NUL-terminated and outlives the call; `sd` is a
+        // valid out-pointer. On success the descriptor is LocalAlloc'ed and
+        // freed below.
+        let ok = unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                sddl.as_ptr(),
+                SDDL_REVISION_1,
+                &mut sd,
+                null_mut(),
+            )
+        };
+        if ok == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut attrs = SECURITY_ATTRIBUTES {
+            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: sd,
+            bInheritHandle: 0,
+        };
+        let mut opts = ServerOptions::new();
+        opts.reject_remote_clients(true);
+        if first {
+            opts.first_pipe_instance(true);
+        }
+        // SAFETY: `attrs` is a valid SECURITY_ATTRIBUTES whose descriptor
+        // stays alive until after the call; CreateNamedPipeW copies it.
+        let created = unsafe {
+            opts.create_with_security_attributes_raw(
+                endpoint,
+                &mut attrs as *mut SECURITY_ATTRIBUTES as *mut c_void,
+            )
+        };
+        // SAFETY: `sd` came from the conversion above and is freed once.
+        unsafe { LocalFree(sd as _) };
+        created
     }
 }
 

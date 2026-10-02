@@ -472,6 +472,9 @@ fn ensure_channels(router: &MtwRouter) {
 /// Dial the bridge forever: on success publish the client and pump its
 /// events until the connection drops, then clear it and redial. Failed
 /// dials back off from [`BACKOFF_START`] doubling up to [`BACKOFF_MAX`].
+/// The one exception is an endpoint of the wrong kind for this OS
+/// (`InvalidInput`): that is a configuration error, logged once at error
+/// level, and the loop returns instead of retrying it forever.
 async fn connection_loop(
     socket_path: std::path::PathBuf,
     slot: Arc<RwLock<Option<WhatsAppClient>>>,
@@ -521,6 +524,18 @@ async fn connection_loop(
                 tokio::time::sleep(BACKOFF_START).await;
                 delay = (BACKOFF_START * 2).min(BACKOFF_MAX);
                 attempts = 0;
+            }
+            // A pipe endpoint on Unix (or a socket path on Windows) can never
+            // succeed: retrying would only hide the mistake behind debug logs.
+            Err(WhatsAppError::Io(err)) if err.kind() == std::io::ErrorKind::InvalidInput => {
+                tracing::error!(
+                    socket = %socket_path.display(),
+                    error = %err,
+                    "whatsapp: [whatsapp] socket is the wrong endpoint kind for this OS \
+                     (Windows needs \\\\.\\pipe\\<name>, Unix a socket path); \
+                     not connecting until the configuration is fixed and the server restarted",
+                );
+                return;
             }
             Err(err) => {
                 attempts += 1;
@@ -1419,5 +1434,29 @@ mod tests {
         assert_eq!(next_line(&mut lines).await, r#"{"type":"link_cancel"}"#);
 
         drop(dir);
+    }
+
+    /// M2: an endpoint of the wrong kind for this OS is a configuration
+    /// error. The loop must give up at once instead of backing off (the
+    /// first retry would wait BACKOFF_START = 2 s) and retrying forever.
+    #[tokio::test]
+    async fn wrong_kind_endpoint_stops_the_loop() {
+        #[cfg(unix)]
+        let endpoint = format!("{}mtw-test-wrong-kind", mtw_ipc::PIPE_PREFIX);
+        #[cfg(windows)]
+        let endpoint = String::from("/tmp/mtw-test-wrong-kind.sock");
+        let router = Arc::new(MtwRouter::new(
+            ChannelManager::new(),
+            MiddlewareChain::new(),
+        ));
+        let slot = Arc::new(RwLock::new(None));
+        let state: SharedState = Arc::new(RwLock::new(WaState::default()));
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            connection_loop(endpoint.into(), slot.clone(), state, router),
+        )
+        .await
+        .expect("a wrong-kind endpoint must stop the loop, not retry it");
+        assert!(slot.read().unwrap().is_none());
     }
 }

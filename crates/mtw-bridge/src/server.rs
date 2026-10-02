@@ -175,6 +175,8 @@ impl BridgeServer {
                             break;
                         }
                         tracing::error!(error = %e, "bridge server accept error");
+                        // Never spin at full CPU on a listener that keeps failing.
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                     }
                     None => continue,
                 }

@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - 'v*'
+  # Rehearsal on a branch: builds every binary and image, publishes nothing
+  # (the release and manifest jobs and the image push are tag-only).
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -37,6 +40,11 @@ jobs:
             goarch: amd64
             exe: ''
             server_features: --features torrent
+            # Kernl's .deb/.rpm declare glibc >= 2.34 (RHEL 9). A plain build
+            # on ubuntu-latest links glibc 2.38+ symbols (__isoc23_strtol from
+            # the bundled C code), so mtw-server is built with cargo-zigbuild
+            # against this glibc instead, and a guard step checks the result.
+            glibc_floor: '2.34'
           - target: aarch64-apple-darwin
             os: macos-latest
             artifact: mtw-request-macos-arm64
@@ -88,7 +96,56 @@ jobs:
       # Same feature set as the Docker image (Dockerfile: -p mtw-server
       # --features torrent), so a binary install gets the same server.
       - name: Build mtw-server
+        if: '!matrix.glibc_floor'
         run: cargo build --release --target ${{ matrix.target }} -p mtw-server ${{ matrix.server_features }}
+
+      - uses: actions/setup-python@v5
+        if: matrix.glibc_floor
+        with:
+          python-version: '3.12'
+
+      # Versions proven together: a local zigbuild of mtw-server --features
+      # torrent with these pins needs at most GLIBC_2.34 and runs on Rocky 9.
+      - name: Install cargo-zigbuild
+        if: matrix.glibc_floor
+        run: pip install cargo-zigbuild==0.23.4 ziglang==0.16.0
+
+      # Own target dir so no object compiled by the system gcc (glibc 2.39
+      # headers) can be reused; the binary is then copied to the path the
+      # packaging step reads. zig's cc does not search Debian/Ubuntu's
+      # multiarch include dir, where opensslconf.h lives, so openssl-sys gets
+      # one include dir holding both halves of the OpenSSL headers.
+      - name: Build mtw-server (glibc ${{ matrix.glibc_floor }})
+        if: matrix.glibc_floor
+        shell: bash
+        run: |
+          set -euo pipefail
+          inc="$RUNNER_TEMP/openssl-include"
+          mkdir -p "$inc/openssl"
+          cp -r /usr/include/openssl/. "$inc/openssl/"
+          cp -r /usr/include/x86_64-linux-gnu/openssl/. "$inc/openssl/"
+          export OPENSSL_INCLUDE_DIR="$inc" OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
+          CARGO_TARGET_DIR=target/zig cargo zigbuild --release \
+            --target "${{ matrix.target }}.${{ matrix.glibc_floor }}" \
+            -p mtw-server ${{ matrix.server_features }}
+          mkdir -p "target/${{ matrix.target }}/release"
+          cp "target/zig/${{ matrix.target }}/release/mtw-server" "target/${{ matrix.target }}/release/mtw-server"
+
+      - name: Check mtw-server glibc floor
+        if: matrix.glibc_floor
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="target/${{ matrix.target }}/release/mtw-server"
+          floor="GLIBC_${{ matrix.glibc_floor }}"
+          max=$(objdump -T "$bin" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)
+          echo "highest glibc symbol in mtw-server: ${max:-none}"
+          if [ -z "$max" ]; then
+            echo "::error::no GLIBC_ symbols found in $bin (objdump failed or wrong file)"; exit 1
+          fi
+          if [ "$(printf '%s\n' "$max" "$floor" | sort -V | tail -1)" != "$floor" ]; then
+            echo "::error::mtw-server needs $max, above Kernl's $floor floor"; exit 1
+          fi
 
       # Pure Go (modernc sqlite), so CGO off cross-compiles cleanly — same
       # flags as services/whatsapp-bridge/Dockerfile.
@@ -147,6 +204,7 @@ jobs:
   release:
     name: Create Release
     needs: build
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -185,18 +243,26 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      # A dispatch run (not a tag) only rehearses the build: it gets a
+      # placeholder version and pushes nothing.
       - id: v
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dev" >> "$GITHUB_OUTPUT"
+          fi
       - uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
           platforms: linux/${{ matrix.arch }}
-          push: true
+          push: ${{ startsWith(github.ref, 'refs/tags/') }}
           tags: fastslack/${{ matrix.image }}:${{ steps.v.outputs.version }}-${{ matrix.arch }}
 
   image-manifest:
     name: Image manifests
     needs: image
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: docker/setup-buildx-action@v3
