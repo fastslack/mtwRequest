@@ -5,9 +5,15 @@
 //!
 //! * Publishes every event the sidecar emits onto pub/sub channels:
 //!   - `whatsapp:qr` — QR code strings the user must scan to pair a device
-//!   - `whatsapp:status` — connection / auth lifecycle
+//!   - `whatsapp:status` — session state only (`idle`|`linking`|`connected`|
+//!     `disconnected`|`logged_out`|`unknown`); always carries
+//!     `bridge_connected`. Safe to retain (`history = 1`): replaying the
+//!     last message to a late subscriber is always a valid session state.
 //!   - `whatsapp:pairing` — phone-pairing codes (`{"code","expires_at"}`)
 //!   - `whatsapp:inbound` — incoming WhatsApp messages (text + attachments)
+//!   - `whatsapp:events` — one-shot events (`ready`, `paired`, `ack`,
+//!     `error`) that are not session states. `history = 0`: replaying an
+//!     `ack`/`error` to a late subscriber would misrepresent it as current.
 //! * Handles outbound Request messages whose `action` starts with
 //!   `whatsapp.` (`whatsapp.send_text`, `.send_media`, `.react`, `.delete`,
 //!   `.typing`, `.request_qr`, `.logout`, `.link_qr`, `.link_phone`,
@@ -41,8 +47,13 @@ use std::time::Duration;
 pub mod channels {
     pub const INBOUND: &str = "whatsapp:inbound";
     pub const QR: &str = "whatsapp:qr";
+    /// Session states only: `idle`|`linking`|`connected`|`disconnected`|
+    /// `logged_out`|`unknown`. Always carries `bridge_connected`.
     pub const STATUS: &str = "whatsapp:status";
     pub const PAIRING: &str = "whatsapp:pairing";
+    /// One-shot events that are not session states: `ready`, `paired`
+    /// (`PairingSuccess`), `ack`, `error`. `history = 0` — never retained.
+    pub const EVENTS: &str = "whatsapp:events";
 }
 
 /// Timeout for the correlated `list_chats` round-trip.
@@ -58,6 +69,9 @@ struct WaState {
     state: String,
     mode: Option<String>,
     jid: Option<String>,
+    /// The user's own LID, present once `state == "connected"`. See
+    /// [`mtw_whatsapp::Event::Status`].
+    lid: Option<String>,
     reason: Option<String>,
     qr: Option<String>,
     code: Option<String>,
@@ -70,6 +84,7 @@ impl Default for WaState {
             state: "unknown".to_string(),
             mode: None,
             jid: None,
+            lid: None,
             reason: None,
             qr: None,
             code: None,
@@ -235,6 +250,7 @@ impl WhatsAppIntegration {
             "state": st.state,
             "mode": st.mode,
             "jid": st.jid,
+            "lid": st.lid,
             "reason": st.reason,
             "qr": st.qr,
             "pairing_code": st.code,
@@ -364,6 +380,11 @@ fn ensure_channels(router: &MtwRouter) {
             router.channels().create_channel(name, false, None, 1);
         }
     }
+    // whatsapp:events is never retained: an ack/error replayed to a late
+    // subscriber would misrepresent it as current (C2.3).
+    if router.channels().get(channels::EVENTS).is_none() {
+        router.channels().create_channel(channels::EVENTS, false, None, 0);
+    }
 }
 
 /// Dial the bridge forever: on success publish the client and pump its
@@ -404,6 +425,10 @@ async fn connection_loop(
                 // Without the bridge the session state is unknown again; a
                 // stale QR / pairing code must not outlive the connection.
                 *write_state(&state) = WaState::default();
+                // Push it too (M2): without this, a card already open keeps
+                // showing the last state it saw (e.g. "Vinculado") until it
+                // reloads and re-reads the cache.
+                publish_status_unknown(&router).await;
                 tracing::info!(
                     socket = %socket_path.display(),
                     retry_in = ?BACKOFF_START,
@@ -479,23 +504,28 @@ async fn pump_events(
 /// cache lock is taken and released synchronously, never across an await.
 async fn publish_event(router: &MtwRouter, state: &SharedState, evt: Event) {
     let (channel, payload) = match evt {
+        // Not a session state: moved off whatsapp:status so the card never
+        // mistakes a one-shot boot notice for the current session (C2.3).
         Event::Ready => (
-            channels::STATUS,
+            channels::EVENTS,
             serde_json::json!({ "state": "ready" }),
         ),
-        Event::Status { state: st, mode, jid, reason } => {
+        Event::Status { state: st, mode, jid, lid, reason } => {
             {
                 let mut cache = write_state(state);
                 cache.state = st.clone();
                 cache.mode = mode.clone();
                 cache.jid = jid.clone();
+                cache.lid = lid.clone();
                 cache.reason = reason.clone();
                 if st != "linking" {
                     cache.clear_linking();
                 }
             }
-            let mut payload = serde_json::json!({ "state": st });
-            for (key, value) in [("mode", mode), ("jid", jid), ("reason", reason)] {
+            // bridge_connected is always true here: this event only reaches
+            // the pump while the socket to the bridge is up (M2).
+            let mut payload = serde_json::json!({ "state": st, "bridge_connected": true });
+            for (key, value) in [("mode", mode), ("jid", jid), ("lid", lid), ("reason", reason)] {
                 if let Some(v) = value {
                     payload[key] = serde_json::Value::String(v);
                 }
@@ -519,28 +549,37 @@ async fn publish_event(router: &MtwRouter, state: &SharedState, evt: Event) {
         }
         // Consumed by `WhatsAppClient::list_chats`; nothing to publish.
         Event::Chats { .. } => return,
+        // Not a session state: moved off whatsapp:status (C2.3). Legacy
+        // wire type; the current bridge reports pairing via `Event::Status`
+        // instead (see protocol.rs docs).
         Event::PairingSuccess { jid } => {
             if jid.is_some() {
                 write_state(state).jid = jid.clone();
             }
             (
-                channels::STATUS,
+                channels::EVENTS,
                 serde_json::json!({ "state": "paired", "jid": jid }),
             )
         }
-        Event::Connected { jid } => {
+        // Legacy wire type; the current bridge reports this via
+        // `Event::Status { state: "connected", .. }` instead.
+        Event::Connected { jid, lid } => {
             {
                 let mut cache = write_state(state);
                 cache.state = "connected".to_string();
                 cache.jid = jid.clone();
+                cache.lid = lid.clone();
                 cache.reason = None;
                 cache.clear_linking();
             }
-            (
-                channels::STATUS,
-                serde_json::json!({ "state": "connected", "jid": jid }),
-            )
+            let mut payload = serde_json::json!({ "state": "connected", "jid": jid, "bridge_connected": true });
+            if let Some(l) = lid {
+                payload["lid"] = serde_json::Value::String(l);
+            }
+            (channels::STATUS, payload)
         }
+        // Legacy wire type; the current bridge reports this via
+        // `Event::Status { state: "disconnected", .. }` instead.
         Event::Disconnected { reason } => {
             {
                 let mut cache = write_state(state);
@@ -550,12 +589,12 @@ async fn publish_event(router: &MtwRouter, state: &SharedState, evt: Event) {
             }
             (
                 channels::STATUS,
-                serde_json::json!({ "state": "disconnected", "reason": reason }),
+                serde_json::json!({ "state": "disconnected", "reason": reason, "bridge_connected": true }),
             )
         }
         Event::Message {
             id, from, chat, is_group, group_name, author, push_name,
-            timestamp, text, reply_to, attachments,
+            timestamp, text, reply_to, attachments, from_me, sender_alt,
         } => (
             channels::INBOUND,
             serde_json::json!({
@@ -569,6 +608,8 @@ async fn publish_event(router: &MtwRouter, state: &SharedState, evt: Event) {
                 "timestamp": timestamp,
                 "text": text,
                 "reply_to": reply_to,
+                "from_me": from_me,
+                "sender_alt": sender_alt,
                 "attachments": attachments
                     .into_iter()
                     .map(|a| serde_json::json!({
@@ -581,16 +622,34 @@ async fn publish_event(router: &MtwRouter, state: &SharedState, evt: Event) {
                     .collect::<Vec<_>>(),
             }),
         ),
+        // Not a session state: moved off whatsapp:status (C2.3).
         Event::Ack { id, message_id } => (
-            channels::STATUS,
+            channels::EVENTS,
             serde_json::json!({ "state": "ack", "id": id, "message_id": message_id }),
         ),
+        // Not a session state: moved off whatsapp:status (C2.3).
         Event::Error { id, code, message } => (
-            channels::STATUS,
+            channels::EVENTS,
             serde_json::json!({ "state": "error", "id": id, "code": code, "message": message }),
         ),
     };
 
+    publish_to_channel(router, channel, payload).await;
+}
+
+/// Publish `{"state":"unknown","bridge_connected":false}` on whatsapp:status
+/// when the bridge connection drops (M2), so a card already open updates
+/// immediately instead of showing a stale state until it reloads.
+async fn publish_status_unknown(router: &MtwRouter) {
+    publish_to_channel(
+        router,
+        channels::STATUS,
+        serde_json::json!({ "state": "unknown", "bridge_connected": false }),
+    )
+    .await;
+}
+
+async fn publish_to_channel(router: &MtwRouter, channel: &'static str, payload: serde_json::Value) {
     match router.channels().get(channel) {
         Some(ch) => {
             let msg = MtwMessage::new(MsgType::Event, Payload::Json(payload))
@@ -790,25 +849,47 @@ mod tests {
             .unwrap();
         wait_connected(&wa).await;
 
-        // A burst of events followed by a final status, then an immediate
-        // hang-up: the final status must not be lost when the drop is seen.
+        // A burst of events followed by a disconnected status and then a
+        // final QR line, then an immediate hang-up: none of the burst may
+        // be lost when the drop is seen — including the very last line,
+        // which is the one most exposed to an off-by-one in drain_events.
         let mut burst = Vec::new();
         for i in 0..100 {
             burst.extend_from_slice(format!("{{\"type\":\"qr\",\"code\":\"c{i}\"}}\n").as_bytes());
         }
         burst.extend_from_slice(b"{\"type\":\"disconnected\",\"reason\":\"final\"}\n");
+        burst.extend_from_slice(b"{\"type\":\"qr\",\"code\":\"final\"}\n");
         stream.write_all(&burst).await.unwrap();
         stream.flush().await.unwrap();
         drop(stream);
 
+        // The burst's very last line must have been drained, not dropped,
+        // by the race between the pump noticing EOF and the events still
+        // queued ahead of it.
+        let qr = router.channels().get(channels::QR).unwrap();
+        let got = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let hist = qr.get_history(None).await;
+                if hist.last().and_then(|m| m.payload.as_json().cloned()) == Some(serde_json::json!({"code": "final"})) {
+                    return true;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        assert!(got.is_ok(), "the burst's last queued event was dropped");
+
+        // Once the drop itself is noticed, whatsapp:status must read
+        // "unknown"/bridge_connected:false (M2) — overriding whatever
+        // session state (here "final") was last cached, since the bridge
+        // really is gone.
         let status = router.channels().get(channels::STATUS).unwrap();
         let got = tokio::time::timeout(Duration::from_secs(3), async {
             loop {
                 let hist = status.get_history(None).await;
                 if let Some(last) = hist.last() {
-                    if last.payload.as_json().and_then(|p| p.get("reason"))
-                        == Some(&serde_json::json!("final"))
-                    {
+                    let p = last.payload.as_json().unwrap();
+                    if p["state"] == "unknown" && p["bridge_connected"] == false {
                         return true;
                     }
                 }
@@ -816,7 +897,7 @@ mod tests {
             }
         })
         .await;
-        assert!(got.is_ok(), "final status before hang-up was dropped");
+        assert!(got.is_ok(), "bridge drop was never pushed as the final status");
 
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -904,11 +985,12 @@ mod tests {
         w.write_all(b"{\"type\":\"qr\",\"code\":\"2@xyz\"}\n").await.unwrap();
         wait_status(&wa, |b| b["qr"] == "2@xyz").await;
 
-        w.write_all(b"{\"type\":\"status\",\"state\":\"connected\",\"jid\":\"5491100000000@s.whatsapp.net\"}\n")
+        w.write_all(b"{\"type\":\"status\",\"state\":\"connected\",\"jid\":\"5491100000000@s.whatsapp.net\",\"lid\":\"123456@lid\"}\n")
             .await
             .unwrap();
         let body = wait_status(&wa, |b| b["state"] == "connected").await;
         assert_eq!(body["jid"], "5491100000000@s.whatsapp.net");
+        assert_eq!(body["lid"], "123456@lid");
         assert!(body.get("qr").is_none_or(|v| v.is_null()), "qr not cleared: {body}");
         assert!(body.get("pairing_code").is_none_or(|v| v.is_null()), "code not cleared: {body}");
         assert!(body.get("pairing_expires_at").is_none_or(|v| v.is_null()));
@@ -917,7 +999,118 @@ mod tests {
         let status = router.channels().get(channels::STATUS).unwrap();
         let hist = status.get_history(None).await;
         let last = hist.last().unwrap().payload.as_json().unwrap().clone();
-        assert_eq!(last, serde_json::json!({"state":"connected","jid":"5491100000000@s.whatsapp.net"}));
+        assert_eq!(
+            last,
+            serde_json::json!({
+                "state": "connected",
+                "jid": "5491100000000@s.whatsapp.net",
+                "lid": "123456@lid",
+                "bridge_connected": true,
+            })
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn status_channel_never_carries_ack_ready_or_error() {
+        // C2.3: ack/ready/error must land on whatsapp:events, never on
+        // whatsapp:status — otherwise pressing "Mandar prueba" on a linked
+        // card would flip it to "Sin vincular" the moment the bridge acks
+        // the send (final-review.md C2, failure (a)).
+        let (dir, router, wa, mut lines, mut w) = connected_fake().await;
+
+        w.write_all(b"{\"type\":\"status\",\"state\":\"connected\",\"jid\":\"549@s.whatsapp.net\"}\n")
+            .await
+            .unwrap();
+        wait_status(&wa, |b| b["state"] == "connected").await;
+
+        w.write_all(b"{\"type\":\"ready\"}\n").await.unwrap();
+        w.write_all(b"{\"type\":\"error\",\"message\":\"boom\"}\n").await.unwrap();
+
+        let fake = tokio::spawn(async move {
+            let line = next_line(&mut lines).await;
+            let req: serde_json::Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(req["type"], "send_text");
+            let reply = serde_json::json!({"type": "ack", "id": req["id"], "message_id": "wamid-1"});
+            w.write_all(format!("{reply}\n").as_bytes()).await.unwrap();
+            w
+        });
+        let send = request_with(
+            "whatsapp.send_text",
+            serde_json::json!({"to": "5491123456789", "text": "hola"}),
+        );
+        let resp = wa.handle_action("whatsapp.send_text", &send).await;
+        assert_eq!(resp.msg_type, MsgType::Response, "unexpected: {resp:?}");
+        let _w = fake.await.unwrap();
+
+        // Give the pump a moment to process the three events above, then
+        // check nothing clobbered the session state: whatsapp.status (the
+        // cache) and whatsapp:status's retained history must still read
+        // "connected", never "ack"/"ready"/"error".
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let body = wa.handle_action("whatsapp.status", &request("whatsapp.status")).await;
+        assert_eq!(json_of(&body)["state"], "connected", "ack/ready/error leaked into the cache");
+
+        let status = router.channels().get(channels::STATUS).unwrap();
+        let hist = status.get_history(None).await;
+        let last = hist.last().unwrap().payload.as_json().unwrap().clone();
+        assert_eq!(last["state"], "connected", "whatsapp:status was clobbered by a non-session event");
+
+        // history=0 on whatsapp:events: the channel exists but never retains.
+        let events = router.channels().get(channels::EVENTS).expect("events channel exists");
+        assert!(events.get_history(None).await.is_empty());
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn bridge_drop_pushes_unknown_status() {
+        // M2: an open card must not be left showing a stale state (e.g.
+        // "Vinculado") until it reloads — the drop itself must be pushed.
+        let (dir, sock) = temp_socket();
+        let router = Arc::new(MtwRouter::new(ChannelManager::new(), MiddlewareChain::new()));
+        let listener = UnixListener::bind(&sock).unwrap();
+        let wa = WhatsAppIntegration::start(&section(&sock), router.clone())
+            .await
+            .unwrap()
+            .unwrap();
+
+        let (stream, _) = tokio::time::timeout(Duration::from_secs(8), listener.accept())
+            .await
+            .unwrap()
+            .unwrap();
+        wait_connected(&wa).await;
+
+        // Reach "connected" first so there is a stale state to correct.
+        let mut write_half = stream;
+        write_half
+            .write_all(b"{\"type\":\"status\",\"state\":\"connected\",\"jid\":\"549@s.whatsapp.net\"}\n")
+            .await
+            .unwrap();
+        wait_status(&wa, |b| b["state"] == "connected").await;
+
+        drop(write_half);
+
+        let status = router.channels().get(channels::STATUS).unwrap();
+        let got = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let hist = status.get_history(None).await;
+                if let Some(last) = hist.last() {
+                    let p = last.payload.as_json().unwrap();
+                    if p["state"] == "unknown" && p["bridge_connected"] == false {
+                        return;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        assert!(got.is_ok(), "bridge drop was never pushed on whatsapp:status");
+
+        // The cached whatsapp.status answer agrees.
+        let body = wait_status(&wa, |b| b["state"] == "unknown").await;
+        assert_eq!(body["bridge_connected"], false);
 
         let _ = std::fs::remove_dir_all(dir);
     }

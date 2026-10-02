@@ -136,6 +136,11 @@ pub enum Event {
         mode: Option<String>,
         #[serde(default)]
         jid: Option<String>,
+        /// The user's own LID (`<lid>@lid`), present when `state ==
+        /// "connected"`. Needed because a self-chat message can arrive
+        /// addressed by LID rather than by phone JID.
+        #[serde(default)]
+        lid: Option<String>,
         #[serde(default)]
         reason: Option<String>,
     },
@@ -159,6 +164,8 @@ pub enum Event {
     Connected {
         #[serde(default)]
         jid: Option<String>,
+        #[serde(default)]
+        lid: Option<String>,
     },
 
     /// Socket dropped. Auto-reconnect is internal.
@@ -182,11 +189,29 @@ pub enum Event {
         reply_to: Option<String>,
         #[serde(default, deserialize_with = "null_as_empty_vec")]
         attachments: Vec<InboundAttachment>,
+        /// True when the user's own device sent this message (to anyone,
+        /// not just themselves). Lets the kernel drop its own outgoing
+        /// traffic instead of replying to it (C3).
+        #[serde(default)]
+        from_me: bool,
+        /// The sender's OTHER address: its LID when `author`/`from` is a
+        /// phone JID, or its phone JID when `author`/`from` is a LID. May
+        /// be absent if whatsmeow has no mapping for it.
+        #[serde(default)]
+        sender_alt: Option<String>,
     },
 
     /// Reply to `list_chats`: every contact plus every joined group,
-    /// capped at the requested `limit`, correlated by `id`.
-    Chats { id: String, items: Vec<ChatItem> },
+    /// capped at the requested `limit`, correlated by `id`. Accepts
+    /// `"items":null` as empty (I6.1): a bridge with no contacts yet and no
+    /// groups can still emit a nil slice as JSON `null` despite the Go side
+    /// defending against it, and a malformed reply would otherwise strand
+    /// `list_chats` for the full 10s timeout.
+    Chats {
+        id: String,
+        #[serde(default, deserialize_with = "null_as_empty_vec")]
+        items: Vec<ChatItem>,
+    },
 
     /// A command completed successfully.
     Ack {
@@ -245,10 +270,11 @@ mod tests {
         let json = r#"{"type":"status","state":"linking","mode":"qr"}"#;
         let evt: Event = serde_json::from_str(json).unwrap();
         match evt {
-            Event::Status { state, mode, jid, reason } => {
+            Event::Status { state, mode, jid, lid, reason } => {
                 assert_eq!(state, "linking");
                 assert_eq!(mode.as_deref(), Some("qr"));
                 assert!(jid.is_none());
+                assert!(lid.is_none());
                 assert!(reason.is_none());
             }
             _ => panic!("wrong variant"),
@@ -285,6 +311,63 @@ mod tests {
                         last_ts: 0,
                     }
                 );
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn event_parse_chats_null_items_as_empty() {
+        // I6.1: a bridge with no contacts/groups yet can emit `"items":null`.
+        let json = r#"{"type":"chats","id":"r1","items":null}"#;
+        let evt: Event = serde_json::from_str(json).unwrap();
+        match evt {
+            Event::Chats { id, items } => {
+                assert_eq!(id, "r1");
+                assert_eq!(items, Vec::<ChatItem>::new());
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn event_parse_status_connected_with_lid() {
+        let json = r#"{"type":"status","state":"connected","jid":"549@s.whatsapp.net","lid":"123@lid"}"#;
+        let evt: Event = serde_json::from_str(json).unwrap();
+        match evt {
+            Event::Status { state, jid, lid, .. } => {
+                assert_eq!(state, "connected");
+                assert_eq!(jid.as_deref(), Some("549@s.whatsapp.net"));
+                assert_eq!(lid.as_deref(), Some("123@lid"));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn event_parse_message_from_me_and_sender_alt() {
+        let json = r#"{"type":"message","id":"1","from":"a","chat":"b","is_group":false,
+            "author":"a","timestamp":0,"from_me":true,"sender_alt":"999@lid"}"#;
+        let evt: Event = serde_json::from_str(json).unwrap();
+        match evt {
+            Event::Message { from_me, sender_alt, .. } => {
+                assert!(from_me);
+                assert_eq!(sender_alt.as_deref(), Some("999@lid"));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn event_parse_message_from_me_and_sender_alt_default_when_absent() {
+        // Omitted on the wire (Go's `omitempty`): must default, not fail.
+        let json = r#"{"type":"message","id":"1","from":"a","chat":"b","is_group":false,
+            "author":"a","timestamp":0}"#;
+        let evt: Event = serde_json::from_str(json).unwrap();
+        match evt {
+            Event::Message { from_me, sender_alt, .. } => {
+                assert!(!from_me);
+                assert_eq!(sender_alt, None);
             }
             _ => panic!("wrong variant"),
         }

@@ -112,7 +112,7 @@ through `status`.
 {"type":"status", "state":"idle"}
 {"type":"status", "state":"linking", "mode":"qr"}
 {"type":"status", "state":"linking", "mode":"phone"}
-{"type":"status", "state":"connected", "jid":"5491123456789:1@s.whatsapp.net"}
+{"type":"status", "state":"connected", "jid":"5491123456789:1@s.whatsapp.net", "lid":"123456789@lid"}
 {"type":"status", "state":"disconnected", "reason":"stream_replaced"}
 {"type":"status", "state":"logged_out"}
 ```
@@ -121,9 +121,13 @@ through `status`.
 |---|---|---|
 | `idle` | no stored session, nothing linking | `reason` (see below), only on a transition out of `linking` |
 | `linking` | a `link_qr`/`link_phone` attempt is in progress | `mode` ∈ `"qr"` \| `"phone"` |
-| `connected` | authenticated; outbound sends are safe | `jid` |
+| `connected` | authenticated; outbound sends are safe | `jid`, `lid` (own LID; omitted if none is stored yet) |
 | `disconnected` | socket dropped unexpectedly after being `connected` | `reason` |
 | `logged_out` | credentials were revoked (remote logout, or a successful `logout` command) | — |
+
+`lid` is the user's own LID (`<lid>@lid`). The self-chat ("Mensajes a mí
+mismo") can arrive addressed by LID instead of phone JID (see `message`'s
+`sender_alt` below); the driver needs `lid` to recognise it.
 
 `disconnected` also covers a failed `Connect()` on boot with a stored
 session (`reason: "connect_failed"`) — the one case where `disconnected` can
@@ -182,11 +186,24 @@ Inbound message from any chat. Attachments are decoded and base64'd inline.
   "timestamp":1713634800,
   "text":"hola",
   "reply_to":null,
+  "from_me":false,
+  "sender_alt":null,
   "attachments":[
     {"kind":"image","mime":"image/jpeg","filename":null,"data_b64":"...","caption":null}
   ]
 }
 ```
+- `from_me`: true when the user's own device sent this message, to anyone
+  (not just themselves) — every chat the user types into on their phone is
+  forwarded here, `IsFromMe` included. The driver needs this to avoid
+  treating its own outgoing traffic as inbound to auto-reply to.
+- `sender_alt`: the sender's **other** address — its LID when `author`/`from`
+  is a phone JID, or its phone JID when `author`/`from` is a `@lid` address.
+  May be absent/empty if whatsmeow has no mapping for it. In particular, the
+  self-chat can be addressed by LID, in which case `author` is
+  `<own-lid>@lid` and `sender_alt` carries the phone JID back — compare
+  `author`/`sender_alt` against `status`'s `jid` and `lid` (either can match)
+  to recognise it.
 
 ### `chats`
 Reply to `list_chats`: every contact plus every joined group, capped at

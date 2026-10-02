@@ -215,20 +215,38 @@ func (b *bridge) forwardMessage(e *events.Message) {
 		}
 	}
 
-	b.emit(outMsg{
+	b.emit(messageEvent(e.Info, text, replyTo, groupName, attachments))
+}
+
+// messageEvent builds the `message` wire event. Split out from
+// forwardMessage so the field mapping — in particular from_me/sender_alt
+// (C3) — is unit-testable without a live whatsmeow client.
+func messageEvent(info types.MessageInfo, text string, replyTo, groupName any, attachments []attachment) outMsg {
+	// sender_alt: the sender's OTHER address — its LID when `author`/`from`
+	// is a phone JID, or its phone JID when `author`/`from` is a LID. May be
+	// absent (empty) if whatsmeow has no mapping for it. Omitted when zero,
+	// never logged (C3).
+	var senderAlt any
+	if alt := info.SenderAlt.String(); alt != "" {
+		senderAlt = alt
+	}
+
+	return outMsg{
 		"type":        "message",
-		"id":          e.Info.ID,
-		"from":        e.Info.Sender.String(),
-		"chat":        e.Info.Chat.String(),
-		"is_group":    e.Info.IsGroup,
+		"id":          info.ID,
+		"from":        info.Sender.String(),
+		"chat":        info.Chat.String(),
+		"is_group":    info.IsGroup,
 		"group_name":  groupName,
-		"author":      e.Info.Sender.String(),
-		"push_name":   e.Info.PushName,
-		"timestamp":   e.Info.Timestamp.Unix(),
+		"author":      info.Sender.String(),
+		"push_name":   info.PushName,
+		"timestamp":   info.Timestamp.Unix(),
 		"text":        text,
 		"reply_to":    replyTo,
+		"from_me":     info.IsFromMe,
+		"sender_alt":  senderAlt,
 		"attachments": attachments,
-	})
+	}
 }
 
 func (b *bridge) collectAttachments(msg *waProto.Message, caption string) []attachment {
@@ -283,6 +301,21 @@ func (b *bridge) collectAttachments(msg *waProto.Message, caption string) []atta
 
 // ── outbound handlers ────────────────────────────────────────────────
 
+// startLinkPhone runs session.linkPhone off the socket's read loop (M7):
+// it blocks up to the first-QR wait (30s, see qrFirstEventTimeout) plus the
+// PairPhone round-trip, and send_text/link_cancel/etc. on the same
+// connection must not queue behind it. id/phone are passed by value, so
+// this is race-safe regardless of what readLoop's shared `msg` variable
+// does on its next iteration — each call to handle (and so to this
+// function) already has its own copy.
+func (b *bridge) startLinkPhone(id, phone string) {
+	go func() {
+		if err := b.sess.linkPhone(phone); err != nil {
+			b.emitErr(id, codeFor(err), err.Error())
+		}
+	}()
+}
+
 func (b *bridge) handle(msg inMsg) {
 	if b.client == nil {
 		b.emitErr(msg.ID, "not_ready", "client not initialised")
@@ -296,9 +329,7 @@ func (b *bridge) handle(msg inMsg) {
 			b.emitErr(msg.ID, codeFor(err), err.Error())
 		}
 	case "link_phone":
-		if err := b.sess.linkPhone(msg.Phone); err != nil {
-			b.emitErr(msg.ID, codeFor(err), err.Error())
-		}
+		b.startLinkPhone(msg.ID, msg.Phone)
 	case "link_cancel":
 		b.sess.linkCancel()
 	case "send_text":

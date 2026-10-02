@@ -40,8 +40,11 @@ pub struct MtwConfig {
     /// the server connects to the `whatsapp-bridge` Go sidecar over a
     /// Unix socket and exposes the following:
     ///
-    /// - `whatsapp:inbound`, `whatsapp:qr`, `whatsapp:status` channels
-    ///   (server publishes to them as events arrive from WhatsApp)
+    /// - `whatsapp:inbound`, `whatsapp:qr`, `whatsapp:status`,
+    ///   `whatsapp:events` channels (server publishes to them as events
+    ///   arrive from WhatsApp). `whatsapp:status` carries only session
+    ///   states; one-shot events (`ready`/`paired`/`ack`/`error`) go on
+    ///   `whatsapp:events` instead.
     /// - `whatsapp.send_text` / `whatsapp.send_media` / `whatsapp.react` /
     ///   `whatsapp.delete` / `whatsapp.typing` / `whatsapp.request_qr` /
     ///   `whatsapp.logout` request actions

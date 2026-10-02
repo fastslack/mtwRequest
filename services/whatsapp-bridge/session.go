@@ -75,7 +75,13 @@ func (s *session) onConnected() {
 		s.cancel = nil
 	}
 	s.mode = ""
-	s.setLocked("connected", outMsg{"jid": s.lk.OwnJID()})
+	extra := outMsg{"jid": s.lk.OwnJID()}
+	// The self-chat can arrive addressed by LID instead of phone JID; the
+	// kernel needs this to recognise it. Omitted when none is stored yet.
+	if lid := s.lk.OwnLID(); lid != "" {
+		extra["lid"] = lid
+	}
+	s.setLocked("connected", extra)
 }
 
 func (s *session) onDisconnected(reason string) {
@@ -145,16 +151,16 @@ func (s *session) startLocked(mode string) (context.Context, <-chan qrItem, erro
 	ch, err := s.lk.QRChannel(ctx)
 	if err != nil {
 		cancel()
-		if wasLinking {
-			s.setLocked("idle", outMsg{"reason": "error"})
-		}
+		// Always report it (I6.2), not just when replacing an attempt: the
+		// normal first click (no attempt running yet, no internet) must not
+		// leave the driver waiting forever for a `status` that never comes
+		// — Rust already answered `ok` to the request.
+		s.setLocked("idle", outMsg{"reason": "error"})
 		return nil, nil, err
 	}
 	if err := s.lk.Connect(); err != nil {
 		cancel()
-		if wasLinking {
-			s.setLocked("idle", outMsg{"reason": "error"})
-		}
+		s.setLocked("idle", outMsg{"reason": "error"})
 		return nil, nil, err
 	}
 	s.cancel = cancel

@@ -25,6 +25,7 @@ type fakeLinker struct {
 	cancelFn     func() // test-only hook pairHook can call (e.g. s.linkCancel)
 	onQRChannel  func() // if set, called once (then cleared) right after the next QRChannel call sets curOut
 	own          string
+	ownLID       string
 	chats        []chatInfo
 }
 
@@ -124,6 +125,7 @@ func (f *fakeLinker) PairPhone(ctx context.Context, phone string) (string, error
 }
 func (f *fakeLinker) Logout(ctx context.Context) error              { return nil }
 func (f *fakeLinker) OwnJID() string                                { return f.own }
+func (f *fakeLinker) OwnLID() string                                { return f.ownLID }
 func (f *fakeLinker) Chats(ctx context.Context) ([]chatInfo, error) { return f.chats, nil }
 
 type recorder struct {
@@ -177,6 +179,25 @@ func TestBootWithSessionConnects(t *testing.T) {
 	m := r.waitFor(t, "status", "state", "connected")
 	if m["jid"] != f.own {
 		t.Fatalf("jid=%v", m["jid"])
+	}
+	if _, present := m["lid"]; present {
+		t.Fatalf("lid must be omitted when none is stored yet, got %v", m["lid"])
+	}
+}
+
+// TestConnectedCarriesOwnLID: the self-chat can arrive addressed by LID
+// instead of phone JID, so the kernel needs the LID alongside the JID on
+// `connected` to recognise it (coordinator addendum to C3).
+func TestConnectedCarriesOwnLID(t *testing.T) {
+	f, r := newFake(), &recorder{}
+	f.session = true
+	f.ownLID = "123456789@lid"
+	s := newSession(f, r.emit)
+	s.boot()
+	s.onConnected()
+	m := r.waitFor(t, "status", "state", "connected")
+	if m["lid"] != "123456789@lid" {
+		t.Fatalf("lid=%v", m["lid"])
 	}
 }
 
@@ -304,6 +325,40 @@ func TestStartLockedConnectFailureAfterReplacingAttemptGoesIdle(t *testing.T) {
 	}
 	r.waitFor(t, "status", "mode", "qr")
 	f.connectErr = errors.New("boom")
+	if err := s.linkQR(); err == nil {
+		t.Fatal("expected an error")
+	}
+	m := r.waitFor(t, "status", "state", "idle")
+	if m["reason"] != "error" {
+		t.Fatalf("reason=%v", m["reason"])
+	}
+}
+
+// TestStartLockedFirstAttemptConnectFailureGoesIdle: I6.2. The normal first
+// click (nothing was linking before, e.g. no internet) must still report
+// `status` `idle`/`reason:"error"` — Rust already answered the request `ok`,
+// so silence here would leave the card at "Sin vincular" with no error box.
+func TestStartLockedFirstAttemptConnectFailureGoesIdle(t *testing.T) {
+	f, r := newFake(), &recorder{}
+	f.connectErr = errors.New("boom")
+	s := newSession(f, r.emit)
+	s.boot() // no stored session: boot leaves it at idle, does not call Connect
+	if err := s.linkQR(); err == nil {
+		t.Fatal("expected an error")
+	}
+	m := r.waitFor(t, "status", "state", "idle")
+	if m["reason"] != "error" {
+		t.Fatalf("reason=%v", m["reason"])
+	}
+}
+
+// TestStartLockedFirstAttemptQRChannelFailureGoesIdle: same as above, for the
+// QRChannel() failure path.
+func TestStartLockedFirstAttemptQRChannelFailureGoesIdle(t *testing.T) {
+	f, r := newFake(), &recorder{}
+	f.qrChanErr = errors.New("boom")
+	s := newSession(f, r.emit)
+	s.boot()
 	if err := s.linkQR(); err == nil {
 		t.Fatal("expected an error")
 	}

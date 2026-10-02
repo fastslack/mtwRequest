@@ -39,6 +39,10 @@ type linker interface {
 	PairPhone(ctx context.Context, phone string) (string, error)
 	Logout(ctx context.Context) error
 	OwnJID() string
+	// OwnLID returns the user's own LID ("" when none is stored yet). The
+	// self-chat can be addressed by LID instead of phone JID, so the kernel
+	// needs this to recognise it.
+	OwnLID() string
 	Chats(ctx context.Context) ([]chatInfo, error)
 }
 
@@ -86,6 +90,7 @@ func (w *waLinker) OwnJID() string {
 	}
 	return w.c.Store.ID.String()
 }
+func (w *waLinker) OwnLID() string                   { return w.c.Store.GetLID().String() }
 func (w *waLinker) Logout(ctx context.Context) error { return w.c.Logout(ctx) }
 
 // QRChannel starts a new linking attempt and returns its item channel,
@@ -233,7 +238,11 @@ func (w *waLinker) PairPhone(ctx context.Context, phone string) (string, error) 
 }
 
 func (w *waLinker) Chats(ctx context.Context) ([]chatInfo, error) {
-	var out []chatInfo
+	// Never nil: with no contacts yet (right after pairing, before app-state
+	// sync) and no groups, a nil slice marshals to JSON `null`, which the
+	// Rust side's `Vec<ChatItem>` rejects as malformed — `list_chats` would
+	// then wait out the full 10s timeout and return 504 (I6.1).
+	out := []chatInfo{}
 	contacts, err := w.c.Store.Contacts.GetAllContacts(ctx)
 	if err != nil {
 		return nil, err
