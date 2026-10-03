@@ -220,8 +220,11 @@ jobs:
             artifacts/**/*.tar.gz
             artifacts/**/*.zip
 
+  # Images are pushed manually until DOCKERHUB_USERNAME/DOCKERHUB_TOKEN secrets exist.
+  # Set the repo variable PUBLISH_IMAGES=true to enable this job.
   image:
     name: Image ${{ matrix.image }} (${{ matrix.arch }})
+    if: vars.PUBLISH_IMAGES == 'true'
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
@@ -262,7 +265,7 @@ jobs:
   image-manifest:
     name: Image manifests
     needs: image
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') && vars.PUBLISH_IMAGES == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: docker/setup-buildx-action@v3
