@@ -38,4 +38,6 @@ thiserror = { workspace = true, optional = true }
 [dev-dependencies]
 mtw-identity = { workspace = true }
 iroh = "0.29"
+# netwatch (via iroh) uses socket2 items gated behind "all" on macOS/BSD; unify the feature on.
+socket2 = { version = "0.5", features = ["all"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
