@@ -43,7 +43,9 @@ jobs:
             # Kernl's .deb/.rpm declare glibc >= 2.34 (RHEL 9). A plain build
             # on ubuntu-latest links glibc 2.38+ symbols (__isoc23_strtol from
             # the bundled C code), so mtw-server is built with cargo-zigbuild
-            # against this glibc instead, and a guard step checks the result.
+            # against this glibc instead, with OpenSSL vendored (the runner's
+            # libcrypto itself needs GLIBC_2.38), and a guard step checks the
+            # result.
             glibc_floor: '2.34'
           - target: aarch64-apple-darwin
             os: macos-latest
@@ -112,22 +114,18 @@ jobs:
 
       # Own target dir so no object compiled by the system gcc (glibc 2.39
       # headers) can be reused; the binary is then copied to the path the
-      # packaging step reads. zig's cc does not search Debian/Ubuntu's
-      # multiarch include dir, where opensslconf.h lives, so openssl-sys gets
-      # one include dir holding both halves of the OpenSSL headers.
+      # packaging step reads. OpenSSL is compiled from source by zig and
+      # linked statically (mtw-server's vendored-openssl feature): linking
+      # the runner's libcrypto.so fails, since that library needs
+      # __isoc23_strtol@GLIBC_2.38. The binary then needs no libssl.so.3.
       - name: Build mtw-server (glibc ${{ matrix.glibc_floor }})
         if: matrix.glibc_floor
         shell: bash
         run: |
           set -euo pipefail
-          inc="$RUNNER_TEMP/openssl-include"
-          mkdir -p "$inc/openssl"
-          cp -r /usr/include/openssl/. "$inc/openssl/"
-          cp -r /usr/include/x86_64-linux-gnu/openssl/. "$inc/openssl/"
-          export OPENSSL_INCLUDE_DIR="$inc" OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
           CARGO_TARGET_DIR=target/zig cargo zigbuild --release \
             --target "${{ matrix.target }}.${{ matrix.glibc_floor }}" \
-            -p mtw-server ${{ matrix.server_features }}
+            -p mtw-server ${{ matrix.server_features }} --features vendored-openssl
           mkdir -p "target/${{ matrix.target }}/release"
           cp "target/zig/${{ matrix.target }}/release/mtw-server" "target/${{ matrix.target }}/release/mtw-server"
 

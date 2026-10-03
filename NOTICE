@@ -33,3 +33,6 @@ Third-party components and their licenses:
 - reqwest (MIT/Apache-2.0) - https://github.com/seanmonstar/reqwest
 - jsonwebtoken (MIT) - https://github.com/Keats/jsonwebtoken
 - dashmap (MIT) - https://github.com/xacrimon/dashmap
+- OpenSSL (Apache-2.0) - https://www.openssl.org
+  Copyright The OpenSSL Project Authors. Bundled (statically linked) in
+  the Linux mtw-server release binary.

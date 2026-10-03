@@ -21,6 +21,11 @@ path = "src/main.rs"
 #   cargo build -p mtw-server --features torrent
 default = []
 torrent = ["dep:mtw-torrent", "mtw-torrent/librqbit-engine"]
+# Compile OpenSSL from source and link it statically instead of using the
+# system libssl/libcrypto. Only the linux-x64 release build turns it on:
+# the build host's libcrypto is newer than the glibc floor the binary has to
+# run on, and a static copy also drops the runtime libssl.so.3 dependency.
+vendored-openssl = ["dep:openssl", "openssl/vendored"]
 
 [dependencies]
 mtw-core = { workspace = true }
@@ -46,6 +51,7 @@ sha2 = { workspace = true }
 dashmap = { workspace = true }
 ulid = { workspace = true }
 mimalloc = "0.1"
+openssl = { version = "0.10", optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
