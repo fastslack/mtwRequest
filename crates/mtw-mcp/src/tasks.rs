@@ -117,7 +117,7 @@ impl TaskProvider for TaskRegistry {
             config.max_errors = v as u32;
         }
 
-        let task_id = ulid::Ulid::new().to_string();
+        let task_id = ulid::Ulid::generate().to_string();
         let record = Arc::new(Mutex::new(TaskRecord {
             task_id: task_id.clone(),
             kind,

@@ -483,13 +483,13 @@ async fn run_driver(
 mod tests {
     use super::*;
     use base64::Engine;
-    use rand::RngCore;
+    use rand::Rng;
 
     /// Generate a random base64-encoded 32-byte key. Used to build
     /// pairs of test keys without needing a real WG endpoint.
     fn random_key_b64() -> String {
         let mut k = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut k);
+        rand::rng().fill_bytes(&mut k);
         base64::engine::general_purpose::STANDARD.encode(k)
     }
 

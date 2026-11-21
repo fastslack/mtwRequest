@@ -1,9 +1,10 @@
 //! Channel publish fan-out benchmark. Measures how quickly a single published
 //! message is dispatched to N subscribers via `Channel::publish`.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use mtw_benches::sample_message;
 use mtw_router::ChannelManager;
+use std::hint::black_box;
 use tokio::runtime::Runtime;
 
 fn bench_publish(c: &mut Criterion) {

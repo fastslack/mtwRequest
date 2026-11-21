@@ -45,7 +45,7 @@ async-trait = { workspace = true }
 dashmap = { workspace = true }
 
 # Optional: HTTP transport
-axum = { version = "0.7", features = ["macros"], optional = true }
+axum = { version = "0.8", features = ["macros"], optional = true }
 tower = { version = "0.5", optional = true }
 futures = { workspace = true, optional = true }
 

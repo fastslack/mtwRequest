@@ -87,7 +87,7 @@ impl CampaignManager {
                 .as_secs()
         );
         let c = EmailCampaign {
-            id: ulid::Ulid::new().to_string(),
+            id: ulid::Ulid::generate().to_string(),
             name: name.into(),
             template_id: None,
             account_id: None,

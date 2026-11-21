@@ -2,11 +2,12 @@
 //! metadata key.
 
 use async_trait::async_trait;
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use mtw_benches::sample_message;
 use mtw_core::MtwError;
 use mtw_protocol::MtwMessage;
 use mtw_router::{MiddlewareAction, MiddlewareChain, MiddlewareContext, MtwMiddleware};
+use std::hint::black_box;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 

@@ -184,7 +184,7 @@ impl TorrentEngine for MockEngine {
             .items
             .iter()
             .map(|e| e.value().summary.clone())
-            .filter(|s| filter.status.map_or(true, |st| st == s.status))
+            .filter(|s| filter.status.is_none_or(|st| st == s.status))
             .collect();
         all.sort_by(|a, b| a.added_at.cmp(&b.added_at));
         let total = all.len();

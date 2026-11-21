@@ -186,7 +186,9 @@ impl MtwAIProvider for LMStudioProvider {
             .unwrap_or(FinishReason::Stop);
 
         Ok(CompletionResponse {
-            id: body.id.unwrap_or_else(|| ulid::Ulid::new().to_string()),
+            id: body
+                .id
+                .unwrap_or_else(|| ulid::Ulid::generate().to_string()),
             model: body.model.unwrap_or(model),
             content,
             tool_calls: vec![],

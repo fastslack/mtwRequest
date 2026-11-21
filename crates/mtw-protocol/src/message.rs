@@ -37,7 +37,7 @@ pub struct MtwMessage {
 impl MtwMessage {
     pub fn new(msg_type: MsgType, payload: Payload) -> Self {
         Self {
-            id: ulid::Ulid::new().to_string(),
+            id: ulid::Ulid::generate().to_string(),
             msg_type,
             channel: None,
             payload,

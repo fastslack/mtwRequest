@@ -76,7 +76,7 @@ impl BridgeEventFrame {
 impl BridgeRequest {
     pub fn new(tool: impl Into<String>, args: serde_json::Value) -> Self {
         Self {
-            id: ulid::Ulid::new().to_string(),
+            id: ulid::Ulid::generate().to_string(),
             tool: tool.into(),
             args,
         }

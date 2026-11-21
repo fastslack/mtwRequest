@@ -142,7 +142,7 @@ impl ApprovalManager {
     ) -> PendingApproval {
         let now = Instant::now();
         let approval = PendingApproval {
-            id: ulid::Ulid::new().to_string(),
+            id: ulid::Ulid::generate().to_string(),
             tool_name: tool_name.into(),
             args,
             user_id: user_id.into(),

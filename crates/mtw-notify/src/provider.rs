@@ -90,7 +90,7 @@ pub struct Notification {
 impl Notification {
     pub fn new(title: impl Into<String>) -> Self {
         Self {
-            id: ulid::Ulid::new().to_string(),
+            id: ulid::Ulid::generate().to_string(),
             title: title.into(),
             body: None,
             channel: None,

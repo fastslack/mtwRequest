@@ -48,7 +48,7 @@ impl PairingManager {
         user_id: impl Into<String>,
         chat_id: impl Into<String>,
     ) -> PairingCode {
-        let code_num = ulid::Ulid::new().0 % 1_000_000;
+        let code_num = ulid::Ulid::generate().0 % 1_000_000;
         let code = format!("{:06}", code_num);
 
         let pairing = PairingCode {

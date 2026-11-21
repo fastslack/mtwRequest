@@ -39,7 +39,7 @@ impl ChangeLog {
         );
 
         let entry = ChangeLogEntry {
-            id: ulid::Ulid::new().to_string(),
+            id: ulid::Ulid::generate().to_string(),
             version: v,
             instance_id: self.instance_id.clone(),
             table_name: table.into(),

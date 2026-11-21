@@ -122,7 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "timestamp": 0
                 })
                 .to_string();
-                if tx.send(Message::Text(msg)).await.is_err() {
+                if tx.send(Message::Text(msg.into())).await.is_err() {
                     break;
                 }
                 published.fetch_add(1, Ordering::Relaxed);

@@ -82,7 +82,7 @@ impl ElicitationBus {
             return Err("client did not declare elicitation capability".to_string());
         }
 
-        let request_id = ulid::Ulid::new().to_string();
+        let request_id = ulid::Ulid::generate().to_string();
         let (tx, rx) = oneshot::channel();
         self.pending.insert(request_id.clone(), tx);
 

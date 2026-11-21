@@ -1,9 +1,10 @@
 //! JSON codec encode/decode throughput benchmarks.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use mtw_benches::sample_message;
 use mtw_codec::json::JsonCodec;
 use mtw_codec::MtwCodec;
+use std::hint::black_box;
 
 fn bench_encode(c: &mut Criterion) {
     let codec = JsonCodec;

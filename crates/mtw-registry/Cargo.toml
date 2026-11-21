@@ -21,7 +21,7 @@ tracing = { workspace = true }
 reqwest = { workspace = true, features = ["multipart"] }
 mtw-net = { workspace = true }
 tokio = { workspace = true }
-wasmtime = { version = "24", default-features = false, features = ["cranelift", "runtime"] }
+wasmtime = { version = "47", default-features = false, features = ["cranelift", "runtime"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

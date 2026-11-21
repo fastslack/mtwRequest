@@ -9,7 +9,8 @@
 
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use mtw_protocol::MtwMessage;
-use rand::rngs::OsRng;
+use rand::rand_core::UnwrapErr;
+use rand::rngs::SysRng;
 use std::path::Path;
 use thiserror::Error;
 
@@ -48,7 +49,7 @@ impl MtwIdentity {
     /// Generate a fresh random identity using the OS RNG.
     pub fn generate() -> Self {
         Self {
-            signing_key: SigningKey::generate(&mut OsRng),
+            signing_key: SigningKey::generate(&mut UnwrapErr(SysRng)),
         }
     }
 
