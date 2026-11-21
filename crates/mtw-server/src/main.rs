@@ -21,6 +21,8 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use tokio::sync::Semaphore;
+
 use mtw_core::MtwConfig;
 use mtw_protocol::{MsgType, MtwMessage, Payload, TransportEvent};
 use mtw_router::{ChannelManager, MiddlewareChain, MtwRouter};
@@ -206,12 +208,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("ready — waiting for connections (Ctrl+C to stop)");
 
     // ── Main event loop ─────────────────────────────────────
+    // Requests (store reads, kernel tool calls over the bridge) run in their
+    // own tasks so a slow one does not hold up every other connection; the
+    // semaphore caps how many run at once.
+    let request_slots = Arc::new(Semaphore::new(max_inflight_requests()));
     let stdin_eof = stdin_shutdown();
     tokio::pin!(stdin_eof);
     loop {
         tokio::select! {
             Some(event) = event_rx.recv() => {
-                handle_event(event, &transport, &router, &store, &bridge, &whatsapp_integration).await;
+                handle_event(
+                    event,
+                    &transport,
+                    &router,
+                    &store,
+                    &bridge,
+                    &whatsapp_integration,
+                    &request_slots,
+                )
+                .await;
             }
             _ = tokio::signal::ctrl_c() => {
                 tracing::info!("shutdown signal received");
@@ -357,6 +372,20 @@ fn load_config() -> Result<(MtwConfig, Option<String>), Box<dyn std::error::Erro
 }
 
 /// Handle a single transport event
+/// Default cap on requests running at once; `MTW_MAX_INFLIGHT_REQUESTS`
+/// overrides it. When every slot is taken the event loop waits for one,
+/// which pushes back on clients instead of queueing without bound.
+const DEFAULT_MAX_INFLIGHT_REQUESTS: usize = 256;
+
+fn max_inflight_requests() -> usize {
+    std::env::var("MTW_MAX_INFLIGHT_REQUESTS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(DEFAULT_MAX_INFLIGHT_REQUESTS)
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn handle_event(
     event: TransportEvent,
     transport: &Arc<WebSocketTransport>,
@@ -364,6 +393,7 @@ async fn handle_event(
     store: &Option<Arc<dyn MtwStore>>,
     bridge: &Option<Arc<dyn mtw_bridge::MtwBridge>>,
     whatsapp: &Option<whatsapp::WhatsAppIntegration>,
+    request_slots: &Arc<Semaphore>,
 ) {
     match event {
         TransportEvent::Connected(ref conn_id, ref meta) => {
@@ -379,13 +409,29 @@ async fn handle_event(
             router.channels().remove_connection(conn_id);
         }
 
-        TransportEvent::Message(ref conn_id, ref msg) => {
-            if let Err(e) =
-                handle_message(conn_id, msg, transport, router, store, bridge, whatsapp).await
-            {
-                tracing::error!(conn_id = %conn_id, error = %e, "message handling error");
-                let err_msg = MtwMessage::error(500, e.to_string());
-                let _ = transport.send(conn_id, err_msg).await;
+        TransportEvent::Message(conn_id, msg) => {
+            // Requests can wait on SQLite or on a kernel tool for seconds;
+            // run them off the loop. Clients match responses by `ref_id`, so
+            // their order does not matter. Everything else (subscribe,
+            // publish, ping…) is quick and stays in order on the loop.
+            if matches!(msg.msg_type, MsgType::Request) {
+                let Ok(permit) = request_slots.clone().acquire_owned().await else {
+                    return;
+                };
+                let transport = transport.clone();
+                let router = router.clone();
+                let store = store.clone();
+                let bridge = bridge.clone();
+                let whatsapp = whatsapp.clone();
+                tokio::spawn(async move {
+                    let _permit = permit;
+                    dispatch_message(
+                        &conn_id, &msg, &transport, &router, &store, &bridge, &whatsapp,
+                    )
+                    .await;
+                });
+            } else {
+                dispatch_message(&conn_id, &msg, transport, router, store, bridge, whatsapp).await;
             }
         }
 
@@ -396,6 +442,23 @@ async fn handle_event(
         TransportEvent::Error(ref conn_id, ref error) => {
             tracing::error!(conn_id = %conn_id, error = %error, "transport error");
         }
+    }
+}
+
+/// Handle one message and report a failure back to the client.
+async fn dispatch_message(
+    conn_id: &String,
+    msg: &MtwMessage,
+    transport: &Arc<WebSocketTransport>,
+    router: &Arc<MtwRouter>,
+    store: &Option<Arc<dyn MtwStore>>,
+    bridge: &Option<Arc<dyn mtw_bridge::MtwBridge>>,
+    whatsapp: &Option<whatsapp::WhatsAppIntegration>,
+) {
+    if let Err(e) = handle_message(conn_id, msg, transport, router, store, bridge, whatsapp).await {
+        tracing::error!(conn_id = %conn_id, error = %e, "message handling error");
+        let err_msg = MtwMessage::error(500, e.to_string());
+        let _ = transport.send(conn_id, err_msg).await;
     }
 }
 
