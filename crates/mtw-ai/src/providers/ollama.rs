@@ -223,7 +223,7 @@ impl MtwAIProvider for OllamaProvider {
         let completion_tokens = body.eval_count.unwrap_or(0);
 
         Ok(CompletionResponse {
-            id: ulid::Ulid::new().to_string(),
+            id: ulid::Ulid::generate().to_string(),
             model: body.model.unwrap_or(model),
             content,
             tool_calls: vec![],

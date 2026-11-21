@@ -216,7 +216,7 @@ fn execute_sql(
     let refs: Vec<&dyn rusqlite::types::ToSql> =
         rusqlite_params.iter().map(|b| b.as_ref()).collect();
 
-    let column_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+    let column_names: Vec<String> = stmt.column_names().map(|s| s.to_string()).collect();
 
     let rows = stmt
         .query_map(refs.as_slice(), |row| {

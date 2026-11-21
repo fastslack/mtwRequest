@@ -43,7 +43,7 @@ pub struct AgentTask {
 impl AgentTask {
     pub fn new(from: impl Into<String>, content: AgentContent) -> Self {
         Self {
-            id: ulid::Ulid::new().to_string(),
+            id: ulid::Ulid::generate().to_string(),
             from: from.into(),
             channel: None,
             content,

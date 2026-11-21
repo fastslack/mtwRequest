@@ -19,8 +19,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use iroh::key::SecretKey;
-use iroh::{Endpoint, NodeAddr, NodeId};
+use iroh::endpoint::presets;
+use iroh::{Endpoint, EndpointId, RelayMode, SecretKey};
 use mtw_core::MtwError;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
@@ -75,7 +75,10 @@ impl IrohSyncTransport {
     /// [`Self::new`] when you already have an [`mtw_identity::MtwIdentity`].
     pub async fn from_seed(secret_seed: [u8; 32]) -> Result<Self, MtwError> {
         let secret_key = SecretKey::from_bytes(&secret_seed);
-        let endpoint = Endpoint::builder()
+        // `Minimal` + default relays matches what iroh 0.29's default builder
+        // did: n0 relay servers, no address publishing to n0's DNS.
+        let endpoint = Endpoint::builder(presets::Minimal)
+            .relay_mode(RelayMode::Default)
             .secret_key(secret_key)
             .alpns(vec![ALPN.to_vec()])
             .bind()
@@ -101,7 +104,7 @@ impl IrohSyncTransport {
     /// Hex-encoded `NodeId` of this transport — share with peers so they can
     /// dial in.
     pub fn node_id_hex(&self) -> String {
-        self.endpoint.node_id().to_string()
+        self.endpoint.id().to_string()
     }
 
     /// Reference to the underlying endpoint (for direct iroh interop).
@@ -125,12 +128,11 @@ impl IrohSyncTransport {
             .node_id
             .as_ref()
             .ok_or_else(|| MtwError::Transport(format!("peer {} has no node_id", peer.id)))?;
-        let node_id: NodeId = node_id_hex
+        let node_id: EndpointId = node_id_hex
             .parse()
             .map_err(|e| MtwError::Transport(format!("invalid node_id: {}", e)))?;
-        let addr = NodeAddr::new(node_id);
 
-        tokio::time::timeout(self.connect_timeout, self.endpoint.connect(addr, ALPN))
+        tokio::time::timeout(self.connect_timeout, self.endpoint.connect(node_id, ALPN))
             .await
             .map_err(|_| MtwError::Transport("iroh connect timeout".into()))?
             .map_err(|e| MtwError::Transport(format!("iroh connect: {}", e)))
@@ -211,7 +213,7 @@ impl MtwSyncTransport for IrohSyncTransport {
 /// Run the server-side accept loop. Each incoming connection is handled in its
 /// own task; each bidirectional stream within a connection is one request.
 pub async fn serve(endpoint: Endpoint, changelog: Arc<ChangeLog>, max_request_bytes: usize) {
-    info!(node_id = %endpoint.node_id(), "iroh federation server listening");
+    info!(node_id = %endpoint.id(), "iroh federation server listening");
     while let Some(incoming) = endpoint.accept().await {
         let changelog = changelog.clone();
         tokio::spawn(async move {
@@ -374,9 +376,19 @@ mod tests {
         );
         let _server_a = transport_a.spawn_server(changelog_a.clone());
 
-        // Capture peer A's full NodeAddr (with bound socket addresses) so
+        // Build peer A's address from its bound sockets (on loopback) so
         // that peer B can dial without external discovery.
-        let addr_a = transport_a.endpoint().node_addr().await.unwrap();
+        let endpoint_a = transport_a.endpoint();
+        let addr_a = endpoint_a.bound_sockets().into_iter().fold(
+            iroh::EndpointAddr::new(endpoint_a.id()),
+            |addr, sock| {
+                let ip = match sock.ip() {
+                    std::net::IpAddr::V4(_) => std::net::Ipv4Addr::LOCALHOST.into(),
+                    std::net::IpAddr::V6(_) => std::net::Ipv6Addr::LOCALHOST.into(),
+                };
+                addr.with_ip_addr(std::net::SocketAddr::new(ip, sock.port()))
+            },
+        );
         let node_id_a = transport_a.node_id_hex();
 
         // --- peer B (client) ---
@@ -386,7 +398,9 @@ mod tests {
 
         // Inject A's addressing info into B's endpoint (bypass DHT discovery
         // for the local test).
-        transport_b.endpoint().add_node_addr(addr_a).unwrap();
+        let lookup = iroh::address_lookup::MemoryLookup::new();
+        lookup.add_endpoint_info(addr_a);
+        transport_b.endpoint().address_lookup().unwrap().add(lookup);
 
         let peer_a = make_peer("a", node_id_a);
 

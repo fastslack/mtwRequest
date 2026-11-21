@@ -18,4 +18,4 @@ rmp-serde = { workspace = true }
 thiserror = { workspace = true }
 ulid = { workspace = true }
 bytes = { workspace = true }
-base64 = "0.22"
+base64 = "0.23"

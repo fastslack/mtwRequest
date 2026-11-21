@@ -441,7 +441,7 @@ fn parse_media_kind(s: &str) -> MediaKind {
 }
 
 fn generate_id() -> String {
-    format!("wa-{}", ulid::Ulid::new())
+    format!("wa-{}", ulid::Ulid::generate())
 }
 
 fn ensure_channels(router: &MtwRouter) {

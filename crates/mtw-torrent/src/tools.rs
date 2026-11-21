@@ -225,8 +225,10 @@ mod tests {
         Arc<dyn TorrentEngine>,
         Arc<std::sync::RwLock<TorrentConfig>>,
     ) {
-        let server =
-            BridgeServer::new(format!("/tmp/mtw-torrent-tools-{}.sock", ulid::Ulid::new()));
+        let server = BridgeServer::new(format!(
+            "/tmp/mtw-torrent-tools-{}.sock",
+            ulid::Ulid::generate()
+        ));
         let engine: Arc<dyn TorrentEngine> = Arc::new(MockEngine::new("/tmp/mock"));
         let config = Arc::new(std::sync::RwLock::new(TorrentConfig::default()));
         register_tools(&server, engine.clone(), config.clone());

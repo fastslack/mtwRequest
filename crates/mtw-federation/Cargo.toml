@@ -31,13 +31,13 @@ reqwest = { workspace = true }
 mtw-net = { workspace = true }
 
 # Optional: iroh-based P2P transport (gated by the `iroh` feature)
-iroh = { version = "0.29", optional = true }
+iroh = { version = "1.5", optional = true }
 mtw-identity = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
 
 [dev-dependencies]
 mtw-identity = { workspace = true }
-iroh = "0.29"
+iroh = "1.5"
 # netwatch (via iroh) uses socket2 items gated behind "all" on macOS/BSD; unify the feature on.
-socket2 = { version = "0.5", features = ["all"] }
+socket2 = { version = "0.6", features = ["all"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

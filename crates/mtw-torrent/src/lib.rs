@@ -164,7 +164,7 @@ mod tests {
 
     #[tokio::test]
     async fn init_registers_all_tools_with_mock_fallback() {
-        let socket = format!("/tmp/mtw-torrent-init-{}.sock", ulid::Ulid::new());
+        let socket = format!("/tmp/mtw-torrent-init-{}.sock", ulid::Ulid::generate());
         let server = mtw_bridge::BridgeServer::new(&socket);
 
         let dir = tempfile::tempdir().unwrap();

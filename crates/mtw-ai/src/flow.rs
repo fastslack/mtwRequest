@@ -33,7 +33,7 @@ impl FlowManager {
                 .as_secs()
         );
         let flow = AgentFlow {
-            id: ulid::Ulid::new().to_string(),
+            id: ulid::Ulid::generate().to_string(),
             name: name.into(),
             description: description.into(),
             color: "#6366f1".into(),

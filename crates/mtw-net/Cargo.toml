@@ -34,13 +34,13 @@ dashmap = { workspace = true }
 # `wireguard` feature deps. Optional so default builds (and the
 # torrent module's `clear` profile) don't pull in 30+ extra crates.
 boringtun = { version = "0.7", optional = true, default-features = false }
-base64 = { version = "0.22", optional = true }
+base64 = { version = "0.23", optional = true }
 tokio = { workspace = true, optional = true }
-rand = { version = "0.8", optional = true }
+rand = { version = "0.10", optional = true }
 # Userspace TCP/IP stack — runs above the WG tunnel. We pick the
 # feature set explicitly because smoltcp's defaults pull a few
 # things (DHCPv4, DNS) we don't want in this layer.
-smoltcp = { version = "0.13", optional = true, default-features = false, features = [
+smoltcp = { version = "0.14", optional = true, default-features = false, features = [
     "std",
     "log",
     "medium-ip",
@@ -53,5 +53,5 @@ smoltcp = { version = "0.13", optional = true, default-features = false, feature
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
-rand = "0.8"
-base64 = "0.22"
+rand = "0.10"
+base64 = "0.23"

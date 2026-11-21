@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Subscribe to chat.general
     tracing::info!("\n--- subscribing to chat.general ---");
     let sub_msg = MtwMessage::new(MsgType::Subscribe, Payload::None).with_channel("chat.general");
-    sink.send(WsMessage::Text(serde_json::to_string(&sub_msg)?))
+    sink.send(WsMessage::Text(serde_json::to_string(&sub_msg)?.into()))
         .await?;
 
     if let Some(Ok(WsMessage::Text(text))) = stream.next().await {
@@ -47,7 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })),
     )
     .with_channel("chat.general");
-    sink.send(WsMessage::Text(serde_json::to_string(&pub_msg)?))
+    sink.send(WsMessage::Text(serde_json::to_string(&pub_msg)?.into()))
         .await?;
 
     if let Some(Ok(WsMessage::Text(text))) = stream.next().await {
@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "action": "echo",
         "data": {"hello": "world", "number": 42}
     })));
-    sink.send(WsMessage::Text(serde_json::to_string(&req_msg)?))
+    sink.send(WsMessage::Text(serde_json::to_string(&req_msg)?.into()))
         .await?;
 
     if let Some(Ok(WsMessage::Text(text))) = stream.next().await {
@@ -73,7 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("\n--- subscribing to notifications ---");
     let sub_notif =
         MtwMessage::new(MsgType::Subscribe, Payload::None).with_channel("notifications");
-    sink.send(WsMessage::Text(serde_json::to_string(&sub_notif)?))
+    sink.send(WsMessage::Text(serde_json::to_string(&sub_notif)?.into()))
         .await?;
 
     if let Some(Ok(WsMessage::Text(text))) = stream.next().await {
@@ -93,7 +93,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })),
     )
     .with_channel("notifications");
-    sink.send(WsMessage::Text(serde_json::to_string(&notif_msg)?))
+    sink.send(WsMessage::Text(serde_json::to_string(&notif_msg)?.into()))
         .await?;
 
     if let Some(Ok(WsMessage::Text(text))) = stream.next().await {
@@ -105,7 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("\n--- testing error: publish to non-existent channel ---");
     let bad_msg = MtwMessage::new(MsgType::Publish, Payload::Text("this should fail".into()))
         .with_channel("does.not.exist");
-    sink.send(WsMessage::Text(serde_json::to_string(&bad_msg)?))
+    sink.send(WsMessage::Text(serde_json::to_string(&bad_msg)?.into()))
         .await?;
 
     if let Some(Ok(WsMessage::Text(text))) = stream.next().await {
@@ -117,7 +117,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("\n--- unsubscribing from chat.general ---");
     let unsub_msg =
         MtwMessage::new(MsgType::Unsubscribe, Payload::None).with_channel("chat.general");
-    sink.send(WsMessage::Text(serde_json::to_string(&unsub_msg)?))
+    sink.send(WsMessage::Text(serde_json::to_string(&unsub_msg)?.into()))
         .await?;
 
     if let Some(Ok(WsMessage::Text(text))) = stream.next().await {

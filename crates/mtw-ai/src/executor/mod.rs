@@ -204,7 +204,7 @@ impl ExecutorEngine {
         tokens: u32,
     ) -> AgentStep {
         AgentStep {
-            id: ulid::Ulid::new().to_string(),
+            id: ulid::Ulid::generate().to_string(),
             run_id: run_id.to_string(),
             step_number,
             step_type,
@@ -720,7 +720,7 @@ impl MtwAgentExecutor for ExecutorEngine {
             .await?
             .ok_or_else(|| MtwError::Agent(format!("agent config not found: {}", agent_id)))?;
 
-        let run_id = ulid::Ulid::new().to_string();
+        let run_id = ulid::Ulid::generate().to_string();
         let created_at = Self::now_timestamp();
 
         tracing::info!(
@@ -753,7 +753,7 @@ impl MtwAgentExecutor for ExecutorEngine {
                 tracing::warn!(run_id = %run_id, error = %e, "create_run failed");
             }
             let memory = AgentMemoryRecord {
-                id: ulid::Ulid::new().to_string(),
+                id: ulid::Ulid::generate().to_string(),
                 agent_id: agent_id.to_string(),
                 role: MemoryRole::User,
                 content: goal.to_string(),
@@ -801,7 +801,7 @@ impl MtwAgentExecutor for ExecutorEngine {
             };
             if !content.is_empty() {
                 let memory = AgentMemoryRecord {
-                    id: ulid::Ulid::new().to_string(),
+                    id: ulid::Ulid::generate().to_string(),
                     agent_id: agent_id.to_string(),
                     role: MemoryRole::Assistant,
                     content,
@@ -874,7 +874,7 @@ mod tests {
 
         fn simple_response(content: &str) -> CompletionResponse {
             CompletionResponse {
-                id: ulid::Ulid::new().to_string(),
+                id: ulid::Ulid::generate().to_string(),
                 model: "mock".to_string(),
                 content: content.to_string(),
                 tool_calls: vec![],
@@ -889,7 +889,7 @@ mod tests {
 
         fn tool_call_response(tool_name: &str, args: Value) -> CompletionResponse {
             CompletionResponse {
-                id: ulid::Ulid::new().to_string(),
+                id: ulid::Ulid::generate().to_string(),
                 model: "mock".to_string(),
                 content: String::new(),
                 tool_calls: vec![ToolCall {
@@ -912,7 +912,7 @@ mod tests {
             args: Value,
         ) -> CompletionResponse {
             CompletionResponse {
-                id: ulid::Ulid::new().to_string(),
+                id: ulid::Ulid::generate().to_string(),
                 model: "mock".to_string(),
                 content: thought.to_string(),
                 tool_calls: vec![ToolCall {

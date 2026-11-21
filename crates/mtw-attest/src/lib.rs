@@ -58,7 +58,8 @@
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
-use rand::rngs::OsRng;
+use rand::rand_core::UnwrapErr;
+use rand::rngs::SysRng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt;
@@ -106,7 +107,7 @@ pub struct Identity {
 impl Identity {
     /// Generate a fresh identity. Use only for tests / first-boot.
     pub fn generate() -> Self {
-        let mut rng = OsRng;
+        let mut rng = UnwrapErr(SysRng);
         Self {
             signing: SigningKey::generate(&mut rng),
         }

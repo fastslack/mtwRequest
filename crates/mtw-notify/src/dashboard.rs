@@ -18,7 +18,7 @@ pub struct DashboardNotification {
 impl DashboardNotification {
     pub fn new(title: impl Into<String>) -> Self {
         Self {
-            id: ulid::Ulid::new().to_string(),
+            id: ulid::Ulid::generate().to_string(),
             title: title.into(),
             body: None,
             source: None,

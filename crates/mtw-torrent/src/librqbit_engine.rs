@@ -98,21 +98,26 @@ impl LibrqbitEngine {
             .await
             .map_err(|e| MtwError::module("torrent", format!("librqbit session: {:#}", e)))?;
 
-        let listener = tokio::net::TcpListener::bind(&config.http_listen)
+        let bind_err = |e: &dyn std::fmt::Display| {
+            MtwError::module(
+                "torrent",
+                format!(
+                    "torrent: bind data-plane http_listen '{}': {}",
+                    config.http_listen, e
+                ),
+            )
+        };
+        let addr = tokio::net::lookup_host(&config.http_listen)
             .await
-            .map_err(|e| {
-                MtwError::module(
-                    "torrent",
-                    format!(
-                        "torrent: bind data-plane http_listen '{}': {}",
-                        config.http_listen, e
-                    ),
-                )
-            })?;
-        let actual = listener
-            .local_addr()
-            .map(|a| a.to_string())
-            .unwrap_or_else(|_| config.http_listen.clone());
+            .map_err(|e| bind_err(&e))?
+            .next()
+            .ok_or_else(|| bind_err(&"no address resolved"))?;
+        let listener = librqbit_dualstack_sockets::TcpListener::bind_tcp(
+            addr,
+            librqbit_dualstack_sockets::BindOpts::default(),
+        )
+        .map_err(|e| bind_err(&e))?;
+        let actual = listener.bind_addr().to_string();
 
         let api = Api::new(session.clone(), None, None);
         let http = HttpApi::new(api, Some(HttpApiOptions::default()));
@@ -167,13 +172,9 @@ impl LibrqbitEngine {
                 let info = &meta.info;
                 let mut files = Vec::new();
                 let mut total: u64 = 0;
-                if let Ok(iter) = info.iter_file_details() {
-                    for f in iter {
-                        let path = f
-                            .filename
-                            .to_string()
-                            .unwrap_or_else(|_| String::from("<unreadable>"))
-                            .replace(std::path::MAIN_SEPARATOR, "/");
+                {
+                    for f in info.iter_file_details() {
+                        let path = f.filename.to_vec().join("/");
                         let basename = path
                             .rsplit_once('/')
                             .map(|(_, b)| b.to_string())
@@ -212,7 +213,7 @@ impl LibrqbitEngine {
         let peers = stats
             .live
             .as_ref()
-            .map(|l| l.snapshot.peer_stats.live as u32)
+            .map(|l| l.snapshot.peer_stats.live)
             .unwrap_or(0);
 
         let mut summary = TorrentSummary {
@@ -525,7 +526,7 @@ impl TorrentEngine for LibrqbitEngine {
             engine: "librqbit".into(),
             version: librqbit::version().to_string(),
             active_torrents: active,
-            total_peers: stats.peers.live as u32,
+            total_peers: stats.peers.live,
             download_speed_bps: mbps_to_bps(stats.download_speed.mbps),
             upload_speed_bps: mbps_to_bps(stats.upload_speed.mbps),
             storage_used_bytes: storage_used,
@@ -650,13 +651,9 @@ fn build_detail_for_pump(
             let info = &meta.info;
             let mut files = Vec::new();
             let mut total: u64 = 0;
-            if let Ok(iter) = info.iter_file_details() {
-                for f in iter {
-                    let path = f
-                        .filename
-                        .to_string()
-                        .unwrap_or_else(|_| String::from("<unreadable>"))
-                        .replace(std::path::MAIN_SEPARATOR, "/");
+            {
+                for f in info.iter_file_details() {
+                    let path = f.filename.to_vec().join("/");
                     let basename = path
                         .rsplit_once('/')
                         .map(|(_, b)| b.to_string())
@@ -695,7 +692,7 @@ fn build_detail_for_pump(
     let peers = stats
         .live
         .as_ref()
-        .map(|l| l.snapshot.peer_stats.live as u32)
+        .map(|l| l.snapshot.peer_stats.live)
         .unwrap_or(0);
 
     let mut summary = TorrentSummary {
@@ -734,7 +731,7 @@ fn map_status(stats: &TorrentStats) -> TorrentStatus {
         return TorrentStatus::Done;
     }
     match stats.state {
-        TorrentStatsState::Initializing => TorrentStatus::Metadata,
+        TorrentStatsState::Initializing { .. } => TorrentStatus::Metadata,
         TorrentStatsState::Live => TorrentStatus::Downloading,
         TorrentStatsState::Paused => TorrentStatus::Paused,
         TorrentStatsState::Error => TorrentStatus::Error,

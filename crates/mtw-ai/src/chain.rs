@@ -82,7 +82,7 @@ mod tests {
     use super::*;
     fn make_chain(src: &str, tgt: &str) -> AgentChain {
         AgentChain {
-            id: ulid::Ulid::new().to_string(),
+            id: ulid::Ulid::generate().to_string(),
             source_agent_id: src.into(),
             target_agent_id: tgt.into(),
             label: "test".into(),

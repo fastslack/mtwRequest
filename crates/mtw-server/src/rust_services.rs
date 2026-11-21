@@ -700,7 +700,7 @@ impl RustServices {
                         .get("id")
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string())
-                        .unwrap_or_else(|| ulid::Ulid::new().to_string());
+                        .unwrap_or_else(|| ulid::Ulid::generate().to_string());
                     let name = args
                         .get("name")
                         .and_then(|v| v.as_str())

@@ -110,7 +110,7 @@ impl MtwAIProvider for MockProvider {
     async fn complete(&self, req: CompletionRequest) -> Result<CompletionResponse, MtwError> {
         let content = self.pick_response(&req);
         Ok(CompletionResponse {
-            id: ulid::Ulid::new().to_string(),
+            id: ulid::Ulid::generate().to_string(),
             model: if req.model.is_empty() {
                 "mock-1".into()
             } else {

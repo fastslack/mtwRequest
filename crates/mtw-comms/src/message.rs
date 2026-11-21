@@ -40,7 +40,7 @@ impl Communication {
                 .as_secs()
         );
         Self {
-            id: ulid::Ulid::new().to_string(),
+            id: ulid::Ulid::generate().to_string(),
             channel,
             direction,
             status: CommStatus::Draft,

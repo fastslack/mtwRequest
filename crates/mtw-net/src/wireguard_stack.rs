@@ -353,11 +353,11 @@ mod tests {
     use super::*;
     use crate::wireguard::{WireGuardKeys, WireGuardTunnel};
     use base64::Engine;
-    use rand::RngCore;
+    use rand::Rng;
 
     fn random_key_b64() -> String {
         let mut k = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut k);
+        rand::rng().fill_bytes(&mut k);
         base64::engine::general_purpose::STANDARD.encode(k)
     }
 

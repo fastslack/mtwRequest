@@ -28,8 +28,8 @@ tokio-tungstenite = { workspace = true }
 ulid = { workspace = true }
 
 # Crypto auth
-hmac = "0.12"
-sha2 = "0.10"
+hmac = { workspace = true }
+sha2 = { workspace = true }
 hex = "0.4"
 
 [dev-dependencies]

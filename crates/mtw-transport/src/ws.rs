@@ -219,7 +219,7 @@ impl WebSocketTransport {
 
         let negotiated_msgpack = msgpack_flag.load(Ordering::Relaxed);
 
-        let conn_id = ulid::Ulid::new().to_string();
+        let conn_id = ulid::Ulid::generate().to_string();
         let (mut ws_sink, mut ws_stream_rx) = ws_stream.split();
 
         // Create a channel to send messages to this connection

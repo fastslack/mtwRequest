@@ -103,15 +103,20 @@ struct JwtPayload {
 /// JWT authentication implementation
 pub struct JwtAuth {
     config: JwtConfig,
-    /// Cached decoding key — avoids rebuilding from secret bytes on every validate.
-    decoding_key: DecodingKey,
+    /// Cached signing/verification keys, built once from the secret.
+    /// jsonwebtoken rejects an empty HMAC secret; that error is kept here
+    /// and surfaces as an auth error on every create/validate call.
+    keys: Result<(EncodingKey, DecodingKey), String>,
     /// Cached validation rules — avoids allocating sets/vecs on every validate.
     validation: Validation,
 }
 
 impl JwtAuth {
     pub fn new(config: JwtConfig) -> Self {
-        let decoding_key = DecodingKey::from_secret(config.secret.as_bytes());
+        let secret = config.secret.as_bytes();
+        let keys = EncodingKey::from_secret(secret)
+            .and_then(|enc| Ok((enc, DecodingKey::from_secret(secret)?)))
+            .map_err(|e| format!("invalid JWT secret: {}", e));
         let mut validation = Validation::new(config.algorithm.to_jsonwebtoken());
         if let Some(ref issuer) = config.issuer {
             validation.set_issuer(&[issuer]);
@@ -121,7 +126,7 @@ impl JwtAuth {
         }
         Self {
             config,
-            decoding_key,
+            keys,
             validation,
         }
     }
@@ -147,13 +152,10 @@ impl JwtAuth {
             is_refresh: false,
         };
 
+        let encoding_key = self.encoding_key()?;
         let header = Header::new(self.config.algorithm.to_jsonwebtoken());
-        let token = encode(
-            &header,
-            &payload,
-            &EncodingKey::from_secret(self.config.secret.as_bytes()),
-        )
-        .map_err(|e| MtwError::Auth(format!("failed to create token: {}", e)))?;
+        let token = encode(&header, &payload, encoding_key)
+            .map_err(|e| MtwError::Auth(format!("failed to create token: {}", e)))?;
 
         // Create refresh token
         let refresh_payload = JwtPayload {
@@ -167,12 +169,8 @@ impl JwtAuth {
             is_refresh: true,
         };
 
-        let refresh_token = encode(
-            &header,
-            &refresh_payload,
-            &EncodingKey::from_secret(self.config.secret.as_bytes()),
-        )
-        .map_err(|e| MtwError::Auth(format!("failed to create refresh token: {}", e)))?;
+        let refresh_token = encode(&header, &refresh_payload, encoding_key)
+            .map_err(|e| MtwError::Auth(format!("failed to create refresh token: {}", e)))?;
 
         Ok(AuthToken {
             token,
@@ -182,9 +180,23 @@ impl JwtAuth {
         })
     }
 
+    fn encoding_key(&self) -> Result<&EncodingKey, MtwError> {
+        self.keys
+            .as_ref()
+            .map(|(enc, _)| enc)
+            .map_err(|e| MtwError::Auth(e.clone()))
+    }
+
+    fn decoding_key(&self) -> Result<&DecodingKey, MtwError> {
+        self.keys
+            .as_ref()
+            .map(|(_, dec)| dec)
+            .map_err(|e| MtwError::Auth(e.clone()))
+    }
+
     /// Decode and validate a JWT token using cached key and validation rules.
     fn decode_token(&self, token: &str) -> Result<JwtPayload, MtwError> {
-        let token_data = decode::<JwtPayload>(token, &self.decoding_key, &self.validation)
+        let token_data = decode::<JwtPayload>(token, self.decoding_key()?, &self.validation)
             .map_err(|e| MtwError::Auth(format!("invalid token: {}", e)))?;
         Ok(token_data.claims)
     }

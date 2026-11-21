@@ -190,7 +190,7 @@ fn generate_random_string(len: usize) -> String {
     use std::hash::{Hash, Hasher};
 
     // Use ULID for uniqueness combined with timestamp hashing for randomness
-    let ulid = ulid::Ulid::new().to_string();
+    let ulid = ulid::Ulid::generate().to_string();
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()

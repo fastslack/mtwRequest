@@ -101,7 +101,7 @@ fn register_agent_tools(server: &mut McpServer, ctx: &AgentsCtx) {
             async move {
                 let id = args.get("id").and_then(|v| v.as_str())
                     .map(|s| s.to_string())
-                    .unwrap_or_else(|| ulid::Ulid::new().to_string());
+                    .unwrap_or_else(|| ulid::Ulid::generate().to_string());
                 let name = args.get("name").and_then(|v| v.as_str())
                     .ok_or("missing 'name'")?.to_string();
                 let provider = args.get("provider").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -253,7 +253,7 @@ fn register_agent_tools(server: &mut McpServer, ctx: &AgentsCtx) {
                 let agent_id = args.get("agent_id").and_then(|v| v.as_str())
                     .ok_or("missing 'agent_id'")?.to_string();
                 let schedule = AgentSchedule {
-                    id: ulid::Ulid::new().to_string(),
+                    id: ulid::Ulid::generate().to_string(),
                     agent_id,
                     interval_ms: args.get("interval_ms").and_then(|v| v.as_u64()).unwrap_or(0),
                     cron_expression: args.get("cron").and_then(|v| v.as_str()).unwrap_or("").to_string(),
@@ -301,7 +301,7 @@ fn register_agent_tools(server: &mut McpServer, ctx: &AgentsCtx) {
                     .and_then(|s| serde_json::from_value(json!(s)).ok())
                     .unwrap_or(ChainCondition::OnSuccess);
                 let chain = AgentChain {
-                    id: ulid::Ulid::new().to_string(),
+                    id: ulid::Ulid::generate().to_string(),
                     source_agent_id: source,
                     target_agent_id: target,
                     label: args.get("label").and_then(|v| v.as_str()).unwrap_or("").to_string(),
@@ -390,7 +390,7 @@ fn register_agent_tools(server: &mut McpServer, ctx: &AgentsCtx) {
                         let event_name = args.get("event_name").and_then(|v| v.as_str())
                             .ok_or("missing 'event_name'")?.to_string();
                         let trigger = EventTrigger {
-                            id: ulid::Ulid::new().to_string(),
+                            id: ulid::Ulid::generate().to_string(),
                             agent_id,
                             event_name,
                             filter: args.get("filter").cloned().unwrap_or(json!({})),
