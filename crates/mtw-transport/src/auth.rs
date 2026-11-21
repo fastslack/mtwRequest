@@ -111,10 +111,15 @@ impl KernelBrokerAuth {
         if self.cache_ttl.is_zero() {
             return false;
         }
-        match self.cache.get(token) {
+        // Copy the timestamp out first: holding the `get` guard while calling
+        // `remove` on the same shard deadlocks DashMap, which blocks a runtime
+        // worker and, after a few such calls, every handshake on the broker.
+        let validated_at = self.cache.get(token).map(|at| *at);
+        match validated_at {
             Some(at) if at.elapsed() < self.cache_ttl => true,
             Some(_) => {
-                drop(self.cache.remove(token));
+                self.cache
+                    .remove_if(token, |_, at| at.elapsed() >= self.cache_ttl);
                 false
             }
             None => false,
