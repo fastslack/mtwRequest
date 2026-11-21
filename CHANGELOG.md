@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The Docker image builds again from a clean checkout. The builder was still
+  on `rust:1.88` while the workspace needs 1.94, it now stays on bookworm like
+  the runtime stage (a trixie-built binary asked for `GLIBC_2.38`), and the
+  default config comes from `mtw.toml.example`, since `mtw.toml` is gitignored.
+
 ## [0.6.1] - 2026-11-21
 
 ### Added
