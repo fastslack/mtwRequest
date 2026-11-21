@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-21
+
+### Breaking
+
+- The WebSocket broker now authenticates every handshake. A client must send
+  a token, either as `?token=` or as `Authorization: Bearer`. The broker
+  checks it against the kernel's `GET /api/auth/broker`, where only the super
+  admin passes:
+  - 401 for a missing or invalid token
+  - 403 for a user token
+  - 503 when the kernel is down or `MTW_AUTH_KERNEL_URL` is unset
+
+  Verdicts are cached for `MTW_AUTH_CACHE_SECS` (default 10).
+  `MTW_AUTH_DISABLED=true` opens the broker, for isolated dev setups only.
+- Minimum supported Rust version is now 1.94.
+
+### Changed
+
+- `mtw-server` runs each `Request` message in its own task instead of on the
+  main event loop. At most 256 run at once (`MTW_MAX_INFLIGHT_REQUESTS`).
+  Responses to requests from one connection can now arrive out of order;
+  clients match them by `ref_id`. Under load with 32 connections and a 5 ms
+  kernel tool, throughput went from 180 to about 4,500 req/s.
+- The kernel bridge multiplexes calls over its socket. Many calls can be in
+  flight at once instead of one at a time behind a mutex.
+- Rust dependencies moved to their latest major versions, the Go WhatsApp
+  bridge's dependencies were updated, and so were the TypeScript client's dev
+  dependencies.
+
+### Fixed
+
+- A bridge response that arrived after its call timed out was read as the
+  answer to the next call, leaving every later call one response behind. Late
+  responses are now dropped.
+- Event frames that the kernel pushes on the bridge socket no longer break the
+  next call.
+- When the bridge socket closes, waiting calls fail at once instead of waiting
+  for the timeout.
+
 ## [0.4.0] - 2026-05-04
 
 ### Added

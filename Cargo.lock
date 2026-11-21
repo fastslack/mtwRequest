@@ -3538,7 +3538,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-ai"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3564,7 +3564,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-attest"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
@@ -3578,7 +3578,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-auth"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -3596,7 +3596,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-benches"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "criterion",
@@ -3613,7 +3613,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-bridge"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -3632,7 +3632,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-cli"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "clap",
  "mimalloc",
@@ -3646,7 +3646,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-codec"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3659,7 +3659,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-comms"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -3675,7 +3675,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-core"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -3710,7 +3710,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-exchange"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -3735,7 +3735,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-federation"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -3756,7 +3756,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-graph"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -3769,7 +3769,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-http"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3788,7 +3788,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-identity"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "ed25519-dalek",
  "hex",
@@ -3802,7 +3802,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-integrations"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3818,7 +3818,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-ipc"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "tempfile",
  "tokio",
@@ -3827,7 +3827,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-iris"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -3870,7 +3870,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-net"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "base64 0.23.1",
  "boringtun",
@@ -3889,7 +3889,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-notify"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -3904,7 +3904,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-protocol"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "base64 0.23.1",
  "bytes",
@@ -3917,7 +3917,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-registry"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "mtw-core",
  "mtw-net",
@@ -3934,7 +3934,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-router"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -3952,7 +3952,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-sdk"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "mtw-codec",
@@ -3966,7 +3966,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-security"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -3981,7 +3981,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-server"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -4013,7 +4013,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-skills"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -4028,7 +4028,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-social"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "mtw-identity",
  "mtw-protocol",
@@ -4040,7 +4040,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-state"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -4054,7 +4054,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-store"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -4075,7 +4075,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-test"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -4095,7 +4095,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-torrent"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -4119,7 +4119,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-trading"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "dashmap",
@@ -4134,7 +4134,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-transport"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -4157,7 +4157,7 @@ dependencies = [
 
 [[package]]
 name = "mtw-whatsapp"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
