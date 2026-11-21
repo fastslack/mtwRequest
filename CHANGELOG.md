@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Users on the broker. The broker tells the kernel it can hold users to
+  their permissions (`X-Mtw-Broker-Features: principals`); a kernel that
+  answers `200 {"kind":"user","id":"…"}` admits that user with role `user`.
+  A user may only subscribe to `changes` and `user:<id>`, and publish RPC
+  requests on `rpc`. Anything else gets a 403 error frame.
+- Every RPC request on `rpc` carries `metadata.principal` and
+  `metadata.reply_to`, written by the broker over whatever the client sent.
+  A response from the owner that names `reply_to` goes to that connection
+  only.
+- `broker.info` request action: the broker's version and features.
+
 ## [0.5.1] - 2026-11-21
 
 ### Fixed
