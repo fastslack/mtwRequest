@@ -52,6 +52,7 @@ dashmap = { workspace = true }
 ulid = { workspace = true }
 mimalloc = "0.1"
 openssl = { version = "0.10", optional = true }
+async-trait = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

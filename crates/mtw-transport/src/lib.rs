@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod ws;
 
 use async_trait::async_trait;

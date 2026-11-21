@@ -123,7 +123,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
     // ── WebSocket Transport ─────────────────────────────────
-    let mut transport = WebSocketTransport::new(ws_path, ping_interval);
+    let mut transport =
+        WebSocketTransport::new(ws_path, ping_interval).with_auth(broker_auth_from_env()?);
     let mut event_rx = transport
         .take_event_receiver()
         .expect("event receiver already taken");
@@ -260,6 +261,70 @@ fn default_bridge_socket() -> &'static str {
     {
         "/tmp/mtw-rust.sock"
     }
+}
+
+/// Build the WebSocket handshake authorizer from the environment.
+///
+/// - `MTW_AUTH_KERNEL_URL` (e.g. `http://kernel:3087`): every connection's
+///   token is validated against the kernel's `GET /api/auth/broker`; only
+///   the super-admin token passes. Kernel unreachable ⇒ rejected.
+/// - `MTW_AUTH_CACHE_SECS` (default 10): how long a valid token is reused
+///   without asking the kernel again (0 disables the cache).
+/// - `MTW_AUTH_DISABLED=true`: explicit opt-out — accept every connection.
+///   Only for isolated development setups.
+///
+/// With none of these set the broker rejects every connection (fail
+/// closed): it exposes the database and every tool, so it must never be
+/// open by accident.
+fn broker_auth_from_env(
+) -> Result<Arc<dyn mtw_transport::auth::MtwHandshakeAuth>, Box<dyn std::error::Error>> {
+    use mtw_transport::auth::{DenyAll, KernelBrokerAuth, MtwHandshakeAuth};
+
+    struct AllowAll;
+    #[async_trait::async_trait]
+    impl MtwHandshakeAuth for AllowAll {
+        async fn authorize(&self, _token: Option<&str>) -> mtw_transport::auth::AuthDecision {
+            mtw_transport::auth::AuthDecision::Allow
+        }
+    }
+
+    let kernel_url = std::env::var("MTW_AUTH_KERNEL_URL")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let disabled = matches!(
+        std::env::var("MTW_AUTH_DISABLED")
+            .ok()
+            .as_deref()
+            .map(str::trim),
+        Some("1") | Some("true") | Some("yes")
+    );
+
+    if let Some(url) = kernel_url {
+        let ttl_secs: u64 = std::env::var("MTW_AUTH_CACHE_SECS")
+            .ok()
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(10);
+        let auth = KernelBrokerAuth::new(&url, std::time::Duration::from_secs(ttl_secs))?;
+        tracing::info!(
+            endpoint = %auth.endpoint(),
+            cache_secs = ttl_secs,
+            "broker auth: validating every WebSocket handshake against the kernel"
+        );
+        return Ok(Arc::new(auth));
+    }
+    if disabled {
+        tracing::warn!(
+            "broker auth DISABLED (MTW_AUTH_DISABLED) — anyone who reaches this port \
+             can read the database and call every tool"
+        );
+        return Ok(Arc::new(AllowAll));
+    }
+    tracing::error!(
+        "broker auth: MTW_AUTH_KERNEL_URL is not set — rejecting every WebSocket \
+         connection. Set it (e.g. http://kernel:3087) or MTW_AUTH_DISABLED=true"
+    );
+    Ok(Arc::new(DenyAll))
 }
 
 /// Load config from file or create default. Also returns the raw TOML

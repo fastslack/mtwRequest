@@ -4068,6 +4068,7 @@ dependencies = [
 name = "mtw-server"
 version = "0.4.0"
 dependencies = [
+ "async-trait",
  "dashmap",
  "mimalloc",
  "mtw-ai",
@@ -4223,9 +4224,11 @@ dependencies = [
  "bytes",
  "dashmap",
  "futures",
+ "httparse",
  "mtw-codec",
  "mtw-core",
  "mtw-protocol",
+ "reqwest",
  "rmp-serde",
  "serde",
  "serde_json",

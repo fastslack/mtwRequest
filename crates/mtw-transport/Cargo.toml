@@ -27,3 +27,5 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 dashmap = { workspace = true }
 ulid = { workspace = true }
+reqwest = { workspace = true }
+httparse = "1"

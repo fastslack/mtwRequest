@@ -40,6 +40,14 @@ services:
       # Path is shared with mtwKernel — change here AND in the kernel's
       # docker-compose if you move it.
       - RUST_BRIDGE_SOCKET=/tmp/mtw-rust.sock
+      # WebSocket broker auth. Every handshake must carry a token
+      # (`?token=` or `Authorization: Bearer`) that the kernel's
+      # GET /api/auth/broker accepts (only the super admin passes).
+      # Unset ⇒ every connection is rejected. MTW_AUTH_DISABLED=true
+      # opens the broker to anyone — isolated dev setups only.
+      - MTW_AUTH_KERNEL_URL=${MTW_AUTH_KERNEL_URL:-}
+      - MTW_AUTH_CACHE_SECS=${MTW_AUTH_CACHE_SECS:-10}
+      - MTW_AUTH_DISABLED=${MTW_AUTH_DISABLED:-}
     volumes:
       - ./mtw.toml:/app/mtw.toml:ro
       - mtw-whatsapp-sock:/var/run/mtw-whatsapp

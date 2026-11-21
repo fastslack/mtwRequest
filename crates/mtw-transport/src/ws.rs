@@ -11,15 +11,25 @@ use mtw_protocol::{
     SharedEnvelope, TransportEvent,
 };
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::task::{Context, Poll};
+use std::time::Duration;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tokio_tungstenite::tungstenite::protocol::frame::Utf8Bytes;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
+use crate::auth::{extract_token, AuthDecision, MtwHandshakeAuth};
 use crate::MtwTransport;
+
+/// Largest HTTP upgrade request head accepted before the handshake.
+const MAX_HANDSHAKE_HEAD: usize = 16 * 1024;
+/// Time a client has to send its upgrade request and get authorized.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// WebSocket subprotocol advertised by MsgPack-capable clients.
 const SUBPROTOCOL_MSGPACK: &str = "mtw.msgpack.v1";
@@ -58,6 +68,9 @@ pub struct WebSocketTransport {
     codec: Arc<dyn MtwCodec>,
     /// Shutdown signal
     shutdown_tx: Option<tokio::sync::broadcast::Sender<()>>,
+    /// Handshake authorizer. `None` accepts every connection (library
+    /// default); the server binary always installs one.
+    auth: Option<Arc<dyn MtwHandshakeAuth>>,
 }
 
 impl WebSocketTransport {
@@ -73,7 +86,64 @@ impl WebSocketTransport {
             event_rx: Some(event_rx),
             codec: Arc::new(JsonCodec),
             shutdown_tx: None,
+            auth: None,
         }
+    }
+
+    /// Require every connection to pass `auth` before the WebSocket
+    /// upgrade completes. Rejected handshakes get a plain HTTP 401/403/503
+    /// and the socket is closed.
+    pub fn with_auth(mut self, auth: Arc<dyn MtwHandshakeAuth>) -> Self {
+        self.auth = Some(auth);
+        self
+    }
+
+    /// Run the pre-upgrade auth check. Returns the stream (with the bytes
+    /// already read replayed in front of it) when the connection may
+    /// proceed, plus the request's `User-Agent`.
+    async fn authorize_handshake(
+        mut stream: TcpStream,
+        addr: SocketAddr,
+        auth: &dyn MtwHandshakeAuth,
+    ) -> Option<(PrefixedStream<TcpStream>, Option<String>)> {
+        let head =
+            match tokio::time::timeout(HANDSHAKE_TIMEOUT, read_request_head(&mut stream)).await {
+                Ok(Ok(head)) => head,
+                Ok(Err(e)) => {
+                    tracing::debug!(addr = %addr, error = %e, "handshake: bad request head");
+                    reject(&mut stream, "400 Bad Request").await;
+                    return None;
+                }
+                Err(_) => {
+                    tracing::debug!(addr = %addr, "handshake: timed out reading request");
+                    return None;
+                }
+            };
+        let Some((target, headers)) = parse_request_head(&head) else {
+            reject(&mut stream, "400 Bad Request").await;
+            return None;
+        };
+        let token = extract_token(&target, &headers);
+        let decision =
+            match tokio::time::timeout(HANDSHAKE_TIMEOUT, auth.authorize(token.as_deref())).await {
+                Ok(d) => d,
+                Err(_) => AuthDecision::Unavailable,
+            };
+        if decision != AuthDecision::Allow {
+            tracing::warn!(
+                addr = %addr,
+                decision = ?decision,
+                had_token = token.is_some(),
+                "websocket handshake rejected"
+            );
+            reject(&mut stream, decision.status_line()).await;
+            return None;
+        }
+        let user_agent = headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("user-agent"))
+            .map(|(_, v)| v.clone());
+        Some((PrefixedStream::new(head, stream), user_agent))
     }
 
     /// Handle a single WebSocket connection
@@ -88,7 +158,26 @@ impl WebSocketTransport {
         codec: Arc<dyn MtwCodec>,
         ping_interval: u64,
         mut shutdown_rx: tokio::sync::broadcast::Receiver<()>,
+        auth: Option<Arc<dyn MtwHandshakeAuth>>,
     ) {
+        // ── Authorization, before any `101 Switching Protocols` ──
+        let (stream, user_agent, auth_info) = match auth {
+            Some(auth) => match Self::authorize_handshake(stream, addr, auth.as_ref()).await {
+                Some((s, ua)) => (
+                    s,
+                    ua,
+                    Some(mtw_protocol::AuthInfo {
+                        user_id: None,
+                        token: None,
+                        roles: vec!["super_admin".to_string()],
+                        claims: Default::default(),
+                    }),
+                ),
+                None => return,
+            },
+            None => (PrefixedStream::new(Vec::new(), stream), None, None),
+        };
+
         // Shared flag the subprotocol callback toggles on if the client
         // advertised `Sec-WebSocket-Protocol: mtw.msgpack.v1`. After the
         // handshake we read it back to route this conn through the
@@ -144,8 +233,8 @@ impl WebSocketTransport {
         let meta = ConnMetadata {
             conn_id: conn_id.clone(),
             remote_addr: Some(addr.to_string()),
-            user_agent: None,
-            auth: None,
+            user_agent,
+            auth: auth_info,
             connected_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -343,17 +432,10 @@ impl WebSocketTransport {
     }
 }
 
-#[async_trait]
-impl MtwTransport for WebSocketTransport {
-    fn name(&self) -> &str {
-        "websocket"
-    }
-
-    async fn listen(&mut self, addr: SocketAddr) -> Result<(), MtwError> {
-        let listener = TcpListener::bind(addr)
-            .await
-            .map_err(|e| MtwError::Transport(format!("failed to bind {}: {}", addr, e)))?;
-
+impl WebSocketTransport {
+    /// Accept connections from an already-bound listener. `listen` binds
+    /// and calls this; tests use it to listen on an ephemeral port.
+    pub async fn serve(&mut self, listener: TcpListener) -> Result<(), MtwError> {
         let (shutdown_tx, _) = tokio::sync::broadcast::channel::<()>(1);
         self.shutdown_tx = Some(shutdown_tx.clone());
 
@@ -364,7 +446,18 @@ impl MtwTransport for WebSocketTransport {
         let codec = self.codec.clone();
         let ping_interval = self.ping_interval;
 
-        tracing::info!(addr = %addr, path = %self.path, "WebSocket transport listening");
+        let auth = self.auth.clone();
+        let local = listener
+            .local_addr()
+            .map(|a| a.to_string())
+            .unwrap_or_default();
+
+        tracing::info!(
+            addr = %local,
+            path = %self.path,
+            auth = auth.is_some(),
+            "WebSocket transport listening"
+        );
 
         tokio::spawn(async move {
             loop {
@@ -382,6 +475,7 @@ impl MtwTransport for WebSocketTransport {
                             codec.clone(),
                             ping_interval,
                             shutdown_rx,
+                            auth.clone(),
                         ));
                     }
                     Err(e) => {
@@ -392,6 +486,21 @@ impl MtwTransport for WebSocketTransport {
         });
 
         Ok(())
+    }
+}
+
+#[async_trait]
+impl MtwTransport for WebSocketTransport {
+    fn name(&self) -> &str {
+        "websocket"
+    }
+
+    async fn listen(&mut self, addr: SocketAddr) -> Result<(), MtwError> {
+        let listener = TcpListener::bind(addr)
+            .await
+            .map_err(|e| MtwError::Transport(format!("failed to bind {}: {}", addr, e)))?;
+
+        self.serve(listener).await
     }
 
     async fn send(&self, conn_id: &ConnId, msg: MtwMessage) -> Result<(), MtwError> {
@@ -516,6 +625,131 @@ impl MtwTransport for WebSocketTransport {
     }
 }
 
+/// Read the HTTP upgrade request head (through the blank line). WebSocket
+/// clients send nothing else until they get `101`, but any extra bytes
+/// read are kept and replayed by [`PrefixedStream`].
+async fn read_request_head(stream: &mut TcpStream) -> std::io::Result<Vec<u8>> {
+    let mut buf = Vec::with_capacity(1024);
+    let mut chunk = [0u8; 2048];
+    loop {
+        let n = stream.read(&mut chunk).await?;
+        if n == 0 {
+            return Err(std::io::ErrorKind::UnexpectedEof.into());
+        }
+        let scan_from = buf.len().saturating_sub(3);
+        buf.extend_from_slice(&chunk[..n]);
+        if buf[scan_from..].windows(4).any(|w| w == b"\r\n\r\n") {
+            return Ok(buf);
+        }
+        if buf.len() > MAX_HANDSHAKE_HEAD {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "request head too large",
+            ));
+        }
+    }
+}
+
+/// Parse the request target and headers out of a complete request head.
+fn parse_request_head(head: &[u8]) -> Option<(String, Vec<(String, String)>)> {
+    let mut headers = [httparse::EMPTY_HEADER; 64];
+    let mut req = httparse::Request::new(&mut headers);
+    match req.parse(head) {
+        Ok(httparse::Status::Complete(_)) => {}
+        _ => return None,
+    }
+    let target = req.path?.to_string();
+    let headers = req
+        .headers
+        .iter()
+        .map(|h| {
+            (
+                h.name.to_string(),
+                String::from_utf8_lossy(h.value).into_owned(),
+            )
+        })
+        .collect();
+    Some((target, headers))
+}
+
+/// Answer a refused handshake with a bare HTTP status and close.
+async fn reject(stream: &mut TcpStream, status_line: &str) {
+    let resp = format!(
+        "HTTP/1.1 {status_line}\r\nContent-Length: 0\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n"
+    );
+    let _ = stream.write_all(resp.as_bytes()).await;
+    let _ = stream.shutdown().await;
+}
+
+/// A stream that first yields bytes already read from `inner` (the
+/// request head consumed by the auth check), then reads from `inner`.
+pub(crate) struct PrefixedStream<S> {
+    prefix: Vec<u8>,
+    pos: usize,
+    inner: S,
+}
+
+impl<S> PrefixedStream<S> {
+    fn new(prefix: Vec<u8>, inner: S) -> Self {
+        Self {
+            prefix,
+            pos: 0,
+            inner,
+        }
+    }
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for PrefixedStream<S> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let this = &mut *self;
+        if this.pos < this.prefix.len() {
+            let n = buf.remaining().min(this.prefix.len() - this.pos);
+            buf.put_slice(&this.prefix[this.pos..this.pos + n]);
+            this.pos += n;
+            if this.pos == this.prefix.len() {
+                this.prefix = Vec::new();
+                this.pos = 0;
+            }
+            return Poll::Ready(Ok(()));
+        }
+        Pin::new(&mut this.inner).poll_read(cx, buf)
+    }
+}
+
+impl<S: AsyncWrite + Unpin> AsyncWrite for PrefixedStream<S> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    fn poll_write_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[std::io::IoSlice<'_>],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write_vectored(cx, bufs)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
 /// Pre-bound delivery handle resolved at subscribe time. The writer mpsc
 /// and the wire-format flag are captured once, so every broadcast avoids
 /// any conn-id lookup.
@@ -589,5 +823,178 @@ mod tests {
         let transport = WebSocketTransport::new("/ws", 30);
         assert_eq!(transport.name(), "websocket");
         assert_eq!(transport.connection_count(), 0);
+    }
+
+    // ── Handshake auth ──────────────────────────────────────
+
+    use crate::auth::KernelBrokerAuth;
+    use std::sync::atomic::AtomicUsize;
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    use tokio_tungstenite::tungstenite::Error as WsError;
+
+    const ADMIN: &str = "super-admin-token";
+    const USER: &str = "kul_user_token";
+
+    /// Minimal stand-in for Kernl's `GET /api/auth/broker`: 204 for the
+    /// super-admin bearer, 403 for a `kul_` user token, 401 otherwise.
+    /// Returns its base URL and a hit counter.
+    async fn fake_kernel() -> (String, Arc<AtomicUsize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let hits_srv = hits.clone();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut s, _)) = listener.accept().await else {
+                    break;
+                };
+                let hits = hits_srv.clone();
+                tokio::spawn(async move {
+                    let Ok(head) = read_request_head(&mut s).await else {
+                        return;
+                    };
+                    let (target, headers) = parse_request_head(&head).unwrap();
+                    assert!(target.starts_with("/api/auth/broker"));
+                    hits.fetch_add(1, Ordering::SeqCst);
+                    let bearer = headers
+                        .iter()
+                        .find(|(k, _)| k.eq_ignore_ascii_case("authorization"))
+                        .map(|(_, v)| v.trim_start_matches("Bearer ").to_string());
+                    let status = match bearer.as_deref() {
+                        Some(ADMIN) => "204 No Content",
+                        Some(t) if t.starts_with("kul_") => "403 Forbidden",
+                        _ => "401 Unauthorized",
+                    };
+                    let resp = format!(
+                        "HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    );
+                    let _ = s.write_all(resp.as_bytes()).await;
+                    let _ = s.shutdown().await;
+                });
+            }
+        });
+        (format!("http://{addr}"), hits)
+    }
+
+    /// Start a broker guarded by `KernelBrokerAuth(kernel_url)`; returns
+    /// the broker's `ws://` URL. The transport is leaked for the test.
+    async fn broker(kernel_url: &str, ttl: Duration) -> String {
+        let auth = KernelBrokerAuth::new(kernel_url, ttl).unwrap();
+        let mut t = WebSocketTransport::new("/ws", 30).with_auth(Arc::new(auth));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        t.serve(listener).await.unwrap();
+        // Keep the transport (and its connection map) alive.
+        Box::leak(Box::new(t));
+        format!("ws://{addr}/ws")
+    }
+
+    fn http_status(err: WsError) -> u16 {
+        match err {
+            WsError::Http(resp) => resp.status().as_u16(),
+            other => panic!("expected HTTP rejection, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn handshake_without_token_is_rejected() {
+        let (kernel, hits) = fake_kernel().await;
+        let url = broker(&kernel, Duration::ZERO).await;
+        let err = tokio_tungstenite::connect_async(url).await.unwrap_err();
+        assert_eq!(http_status(err), 401);
+        // The kernel decides, even for a missing token.
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn handshake_with_user_token_is_rejected() {
+        let (kernel, _) = fake_kernel().await;
+        let url = broker(&kernel, Duration::ZERO).await;
+        let err = tokio_tungstenite::connect_async(format!("{url}?token={USER}"))
+            .await
+            .unwrap_err();
+        assert_eq!(http_status(err), 403);
+    }
+
+    #[tokio::test]
+    async fn handshake_with_unknown_token_is_rejected() {
+        let (kernel, _) = fake_kernel().await;
+        let url = broker(&kernel, Duration::ZERO).await;
+        let err = tokio_tungstenite::connect_async(format!("{url}?token=nope"))
+            .await
+            .unwrap_err();
+        assert_eq!(http_status(err), 401);
+    }
+
+    #[tokio::test]
+    async fn handshake_with_valid_query_token_passes() {
+        let (kernel, _) = fake_kernel().await;
+        let url = broker(&kernel, Duration::ZERO).await;
+        let (mut ws, resp) = tokio_tungstenite::connect_async(format!("{url}?token={ADMIN}"))
+            .await
+            .expect("super admin must connect");
+        assert_eq!(resp.status().as_u16(), 101);
+        // The connection is live: the server sends its connect ack.
+        let first = tokio::time::timeout(Duration::from_secs(2), ws.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(first.to_text().unwrap().contains("conn_id"));
+    }
+
+    #[tokio::test]
+    async fn handshake_with_valid_bearer_header_passes() {
+        let (kernel, _) = fake_kernel().await;
+        let url = broker(&kernel, Duration::ZERO).await;
+        let mut req = url.into_client_request().unwrap();
+        req.headers_mut()
+            .insert("Authorization", format!("Bearer {ADMIN}").parse().unwrap());
+        let (_ws, resp) = tokio_tungstenite::connect_async(req).await.unwrap();
+        assert_eq!(resp.status().as_u16(), 101);
+    }
+
+    #[tokio::test]
+    async fn handshake_rejected_when_kernel_is_down() {
+        // Bind then drop to get a port nothing listens on.
+        let dead = {
+            let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            l.local_addr().unwrap()
+        };
+        let url = broker(&format!("http://{dead}"), Duration::from_secs(30)).await;
+        let err = tokio_tungstenite::connect_async(format!("{url}?token={ADMIN}"))
+            .await
+            .unwrap_err();
+        assert_eq!(http_status(err), 503);
+    }
+
+    #[tokio::test]
+    async fn valid_token_is_cached() {
+        let (kernel, hits) = fake_kernel().await;
+        let url = broker(&kernel, Duration::from_secs(30)).await;
+        for _ in 0..3 {
+            tokio_tungstenite::connect_async(format!("{url}?token={ADMIN}"))
+                .await
+                .unwrap();
+        }
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+        // Rejections are never cached.
+        for _ in 0..2 {
+            let _ = tokio_tungstenite::connect_async(format!("{url}?token={USER}")).await;
+        }
+        assert_eq!(hits.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn without_auth_configured_transport_stays_open() {
+        let mut t = WebSocketTransport::new("/ws", 30);
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        t.serve(listener).await.unwrap();
+        let (_ws, resp) = tokio_tungstenite::connect_async(format!("ws://{addr}/ws"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status().as_u16(), 101);
+        drop(t);
     }
 }
