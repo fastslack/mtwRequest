@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `llm.complete` bridge tool and `mtw_ai::gateway`: one LLM call to one
+  provider endpoint (OpenAI-compatible or Anthropic) for a caller that keeps
+  its own routing, retries and accounting. Endpoint, key and model come with
+  every call and are never stored. The outcome is data: text, model and every
+  token count (cache reads and writes included), or the failure kind (HTTP
+  status with body and rate-limit headers, timeout, network, invalid
+  response). Cloud calls go through the broker's egress profile; local
+  endpoints skip it.
+
 ## [0.6.0] - 2026-11-21
 
 ### Added

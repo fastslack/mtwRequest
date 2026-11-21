@@ -406,6 +406,38 @@ impl RustServices {
             }),
         );
 
+        // llm.complete — one call to one provider endpoint, for a caller that
+        // keeps its own routing (Kernl's llm() driver: fallback, health,
+        // limiter, retries, call log and usage stay there). Endpoint, key and
+        // model come with every call; the outcome is data, errors included,
+        // so the caller can tell a 429 (and its Retry-After) from a 401.
+        server.register_tool(
+            "llm.complete",
+            Arc::new(move |args| {
+                Box::pin(async move {
+                    let req: mtw_ai::gateway::GatewayRequest = serde_json::from_value(args)
+                        .map_err(|e| {
+                            mtw_core::MtwError::Internal(format!("llm.complete: bad request: {e}"))
+                        })?;
+                    let t0 = std::time::Instant::now();
+                    let outcome = mtw_ai::gateway::complete(&req).await;
+                    let host = req
+                        .url
+                        .split_once("://")
+                        .map(|(_, r)| r.split('/').next().unwrap_or(""))
+                        .unwrap_or("");
+                    tracing::debug!(
+                        host,
+                        model = %req.model,
+                        ms = t0.elapsed().as_millis() as u64,
+                        ok = matches!(outcome, mtw_ai::gateway::GatewayOutcome::Success { .. }),
+                        "llm.complete"
+                    );
+                    Ok(outcome.to_json())
+                })
+            }),
+        );
+
         // llm.chat — unified LLM completion with per-provider queue.
         // Local models (lmstudio) get serial access (1 at a time).
         // Cloud providers get 5 concurrent requests.

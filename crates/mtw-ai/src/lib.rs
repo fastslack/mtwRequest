@@ -3,6 +3,7 @@ pub mod chain;
 pub mod executor;
 pub mod feedback;
 pub mod flow;
+pub mod gateway;
 pub mod memory;
 pub mod orchestrator;
 pub mod provider;
