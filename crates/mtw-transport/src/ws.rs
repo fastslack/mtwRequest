@@ -985,6 +985,34 @@ mod tests {
         assert_eq!(hits.load(Ordering::SeqCst), 3);
     }
 
+    /// An expired cache entry used to deadlock DashMap (a `get` guard held
+    /// across `remove` on the same shard): the owner's first reconnect after
+    /// the TTL hung, and with it every later handshake on the broker.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn expired_cache_entry_is_revalidated_not_deadlocked() {
+        let (kernel, hits) = fake_kernel().await;
+        let url = broker(&kernel, Duration::from_millis(100)).await;
+        let connect = |q: String| {
+            let url = url.clone();
+            async move {
+                tokio::time::timeout(
+                    Duration::from_secs(3),
+                    tokio_tungstenite::connect_async(format!("{url}{q}")),
+                )
+                .await
+                .expect("broker hung on the handshake")
+            }
+        };
+        connect(format!("?token={ADMIN}")).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        connect(format!("?token={ADMIN}")).await.unwrap();
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+        // The broker still answers everyone afterwards.
+        let err = connect(String::new()).await.unwrap_err();
+        assert_eq!(http_status(err), 401);
+        connect(format!("?token={ADMIN}")).await.unwrap();
+    }
+
     #[tokio::test]
     async fn without_auth_configured_transport_stays_open() {
         let mut t = WebSocketTransport::new("/ws", 30);
