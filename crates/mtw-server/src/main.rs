@@ -8,6 +8,7 @@
 //!   mtw-server --config path.toml  # custom config path
 //!   MTW_HOST=0.0.0.0 MTW_PORT=9090 mtw-server  # env overrides
 
+mod access;
 mod rust_services;
 mod whatsapp;
 
@@ -397,6 +398,7 @@ async fn handle_event(
 ) {
     match event {
         TransportEvent::Connected(ref conn_id, ref meta) => {
+            access::register(conn_id, meta);
             tracing::info!(
                 conn_id = %conn_id,
                 addr = ?meta.remote_addr,
@@ -407,9 +409,23 @@ async fn handle_event(
         TransportEvent::Disconnected(ref conn_id, ref reason) => {
             tracing::info!(conn_id = %conn_id, reason = ?reason, "client disconnected");
             router.channels().remove_connection(conn_id);
+            access::forget(conn_id);
         }
 
         TransportEvent::Message(conn_id, msg) => {
+            // Hold the sender to what its role allows, and stamp RPC
+            // requests with who sent them (see access.rs).
+            let msg_id = msg.id.clone();
+            let msg = match access::admit(&access::role_of(&conn_id), &conn_id, msg) {
+                Ok(m) => m,
+                Err(access::Refusal(why)) => {
+                    tracing::debug!(conn_id = %conn_id, why, "message refused");
+                    let _ = transport
+                        .send(&conn_id, MtwMessage::error(403, why).with_ref(&msg_id))
+                        .await;
+                    return;
+                }
+            };
             // Requests can wait on SQLite or on a kernel tool for seconds;
             // run them off the loop. Clients match responses by `ref_id`, so
             // their order does not matter. Everything else (subscribe,
@@ -549,9 +565,15 @@ async fn handle_message(
             transport.close(conn_id).await?;
         }
 
-        // Response/Error: route back to channel subscribers (for RPC correlation via ref_id)
+        // Response/Error: to the one connection that asked, when the kernel
+        // names it (reply_to); otherwise back to the channel's subscribers
+        // (RPC correlation via ref_id).
         MsgType::Response | MsgType::Error => {
-            if let Some(channel_name) = &msg.channel {
+            if let Some(target) = access::reply_target(&access::role_of(conn_id), msg) {
+                if let Err(e) = transport.send(&target, msg.clone()).await {
+                    tracing::debug!(target = %target, error = %e, "reply target gone");
+                }
+            } else if let Some(channel_name) = &msg.channel {
                 if let Some(channel) = router.channels().get(channel_name) {
                     channel.publish(msg.clone(), Some(conn_id)).await?;
                 }
@@ -579,6 +601,17 @@ async fn handle_request(
         .get("action")
         .and_then(|v| v.as_str())
         .unwrap_or("");
+
+    // ── Route: broker.info → what this broker can do ──
+    if action == "broker.info" {
+        return MtwMessage::response(
+            &msg.id,
+            Payload::Json(serde_json::json!({
+                "version": env!("CARGO_PKG_VERSION"),
+                "features": access::FEATURES,
+            })),
+        );
+    }
 
     // ── Route: whatsapp.* → WhatsApp integration ──
     if action.starts_with("whatsapp.") {

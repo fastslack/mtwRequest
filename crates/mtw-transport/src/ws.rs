@@ -26,6 +26,25 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 use crate::auth::{extract_token, AuthDecision, MtwHandshakeAuth};
 use crate::MtwTransport;
 
+/// Role given to the owner's connections.
+pub const ROLE_SUPER_ADMIN: &str = "super_admin";
+/// Role given to a user's connections.
+pub const ROLE_USER: &str = "user";
+
+/// What the server is told about an admitted connection.
+fn auth_info_for(decision: &AuthDecision) -> mtw_protocol::AuthInfo {
+    let (user_id, role) = match decision {
+        AuthDecision::AllowUser(id) => (Some(id.clone()), ROLE_USER),
+        _ => (None, ROLE_SUPER_ADMIN),
+    };
+    mtw_protocol::AuthInfo {
+        user_id,
+        token: None,
+        roles: vec![role.to_string()],
+        claims: Default::default(),
+    }
+}
+
 /// Largest HTTP upgrade request head accepted before the handshake.
 const MAX_HANDSHAKE_HEAD: usize = 16 * 1024;
 /// Time a client has to send its upgrade request and get authorized.
@@ -105,7 +124,7 @@ impl WebSocketTransport {
         mut stream: TcpStream,
         addr: SocketAddr,
         auth: &dyn MtwHandshakeAuth,
-    ) -> Option<(PrefixedStream<TcpStream>, Option<String>)> {
+    ) -> Option<(PrefixedStream<TcpStream>, Option<String>, AuthDecision)> {
         let head =
             match tokio::time::timeout(HANDSHAKE_TIMEOUT, read_request_head(&mut stream)).await {
                 Ok(Ok(head)) => head,
@@ -129,7 +148,7 @@ impl WebSocketTransport {
                 Ok(d) => d,
                 Err(_) => AuthDecision::Unavailable,
             };
-        if decision != AuthDecision::Allow {
+        if !decision.is_allowed() {
             tracing::warn!(
                 addr = %addr,
                 decision = ?decision,
@@ -143,7 +162,7 @@ impl WebSocketTransport {
             .iter()
             .find(|(k, _)| k.eq_ignore_ascii_case("user-agent"))
             .map(|(_, v)| v.clone());
-        Some((PrefixedStream::new(head, stream), user_agent))
+        Some((PrefixedStream::new(head, stream), user_agent, decision))
     }
 
     /// Handle a single WebSocket connection
@@ -163,16 +182,7 @@ impl WebSocketTransport {
         // ── Authorization, before any `101 Switching Protocols` ──
         let (stream, user_agent, auth_info) = match auth {
             Some(auth) => match Self::authorize_handshake(stream, addr, auth.as_ref()).await {
-                Some((s, ua)) => (
-                    s,
-                    ua,
-                    Some(mtw_protocol::AuthInfo {
-                        user_id: None,
-                        token: None,
-                        roles: vec!["super_admin".to_string()],
-                        claims: Default::default(),
-                    }),
-                ),
+                Some((s, ua, decision)) => (s, ua, Some(auth_info_for(&decision))),
                 None => return,
             },
             None => (PrefixedStream::new(Vec::new(), stream), None, None),
@@ -834,6 +844,12 @@ mod tests {
 
     const ADMIN: &str = "super-admin-token";
     const USER: &str = "kul_user_token";
+    /// A user the kernel names (200 `{kind:"user", id:"u1"}`).
+    const USER_OK: &str = "kul_named_user";
+    /// A 200 with no body: not trusted.
+    const USER_BARE: &str = "kul_bare_200";
+    /// A 200 naming a user with a blank id: refused.
+    const USER_NO_ID: &str = "kul_blank_id";
 
     /// Minimal stand-in for Kernl's `GET /api/auth/broker`: 204 for the
     /// super-admin bearer, 403 for a `kul_` user token, 401 otherwise.
@@ -860,13 +876,23 @@ mod tests {
                         .iter()
                         .find(|(k, _)| k.eq_ignore_ascii_case("authorization"))
                         .map(|(_, v)| v.trim_start_matches("Bearer ").to_string());
-                    let status = match bearer.as_deref() {
-                        Some(ADMIN) => "204 No Content",
-                        Some(t) if t.starts_with("kul_") => "403 Forbidden",
-                        _ => "401 Unauthorized",
+                    // The kernel names a user only to a broker that says it
+                    // can hold one to their permissions.
+                    let principals = headers.iter().any(|(k, v)| {
+                        k.eq_ignore_ascii_case(crate::auth::BROKER_FEATURES_HEADER)
+                            && v.split(',').any(|f| f.trim() == "principals")
+                    });
+                    let (status, body) = match bearer.as_deref() {
+                        Some(ADMIN) => ("204 No Content", ""),
+                        Some(USER_OK) if principals => ("200 OK", r#"{"kind":"user","id":"u1"}"#),
+                        Some(USER_BARE) => ("200 OK", ""),
+                        Some(USER_NO_ID) => ("200 OK", r#"{"kind":"user","id":" "}"#),
+                        Some(t) if t.starts_with("kul_") => ("403 Forbidden", ""),
+                        _ => ("401 Unauthorized", ""),
                     };
                     let resp = format!(
-                        "HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                        "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
                     );
                     let _ = s.write_all(resp.as_bytes()).await;
                     let _ = s.shutdown().await;
@@ -887,6 +913,32 @@ mod tests {
         // Keep the transport (and its connection map) alive.
         Box::leak(Box::new(t));
         format!("ws://{addr}/ws")
+    }
+
+    /// Like [`broker`], but hands back the transport's event stream.
+    async fn broker_with_events(
+        kernel_url: &str,
+    ) -> (String, mpsc::UnboundedReceiver<TransportEvent>) {
+        let auth = KernelBrokerAuth::new(kernel_url, Duration::ZERO).unwrap();
+        let mut t = WebSocketTransport::new("/ws", 30).with_auth(Arc::new(auth));
+        let events = t.take_event_receiver().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        t.serve(listener).await.unwrap();
+        Box::leak(Box::new(t));
+        (format!("ws://{addr}/ws"), events)
+    }
+
+    async fn connected_meta(events: &mut mpsc::UnboundedReceiver<TransportEvent>) -> ConnMetadata {
+        loop {
+            let ev = tokio::time::timeout(Duration::from_secs(2), events.recv())
+                .await
+                .expect("no transport event")
+                .expect("event stream closed");
+            if let TransportEvent::Connected(_, meta) = ev {
+                return meta;
+            }
+        }
     }
 
     fn http_status(err: WsError) -> u16 {
@@ -1011,6 +1063,44 @@ mod tests {
         let err = connect(String::new()).await.unwrap_err();
         assert_eq!(http_status(err), 401);
         connect(format!("?token={ADMIN}")).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_user_the_kernel_names_connects_as_that_user() {
+        let (kernel, _) = fake_kernel().await;
+        let (url, mut events) = broker_with_events(&kernel).await;
+        let (_ws, resp) = tokio_tungstenite::connect_async(format!("{url}?token={USER_OK}"))
+            .await
+            .expect("a named user must connect");
+        assert_eq!(resp.status().as_u16(), 101);
+        let auth = connected_meta(&mut events).await.auth.expect("auth info");
+        assert_eq!(auth.roles, vec![ROLE_USER.to_string()]);
+        assert_eq!(auth.user_id.as_deref(), Some("u1"));
+    }
+
+    #[tokio::test]
+    async fn the_owner_connects_as_super_admin() {
+        let (kernel, _) = fake_kernel().await;
+        let (url, mut events) = broker_with_events(&kernel).await;
+        tokio_tungstenite::connect_async(format!("{url}?token={ADMIN}"))
+            .await
+            .unwrap();
+        let auth = connected_meta(&mut events).await.auth.expect("auth info");
+        assert_eq!(auth.roles, vec![ROLE_SUPER_ADMIN.to_string()]);
+    }
+
+    #[tokio::test]
+    async fn a_200_that_names_no_user_is_rejected() {
+        let (kernel, _) = fake_kernel().await;
+        let url = broker(&kernel, Duration::ZERO).await;
+        let err = tokio_tungstenite::connect_async(format!("{url}?token={USER_BARE}"))
+            .await
+            .unwrap_err();
+        assert_eq!(http_status(err), 503);
+        let err = tokio_tungstenite::connect_async(format!("{url}?token={USER_NO_ID}"))
+            .await
+            .unwrap_err();
+        assert_eq!(http_status(err), 403);
     }
 
     #[tokio::test]

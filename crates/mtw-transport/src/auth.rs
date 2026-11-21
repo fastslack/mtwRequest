@@ -9,9 +9,17 @@
 //! the socket is closed; no `101 Switching Protocols` is ever sent.
 //!
 //! [`KernelBrokerAuth`] validates the token against the Kernl kernel's
-//! `GET /api/auth/broker` endpoint (204 = super admin, 403 = user token,
-//! 401 = anything else). It fails closed: if the kernel cannot be reached
-//! or answers anything unexpected, the connection is rejected.
+//! `GET /api/auth/broker` endpoint. The request says the broker can hold
+//! users to their own channels (`X-Mtw-Broker-Features: principals`):
+//!
+//! - 204 = super admin: [`AuthDecision::Allow`]
+//! - 200 `{"kind":"user","id":"…"}` = a user: [`AuthDecision::AllowUser`]
+//!   (a 200 without one is rejected)
+//! - 403 = a user the kernel will not let onto this broker
+//! - 401 = anything else
+//!
+//! It fails closed: if the kernel cannot be reached or answers anything
+//! unexpected, the connection is rejected.
 
 use async_trait::async_trait;
 use dashmap::DashMap;
@@ -21,8 +29,11 @@ use std::time::{Duration, Instant};
 /// Outcome of a handshake authorization check.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuthDecision {
-    /// Credential accepted; the upgrade proceeds.
+    /// The owner (super admin); the upgrade proceeds with full access.
     Allow,
+    /// A user, by id; the upgrade proceeds and the server holds the
+    /// connection to what a user may do (see mtw-server's `access`).
+    AllowUser(String),
     /// No credential, or one the authority does not recognise (HTTP 401).
     Unauthorized,
     /// Valid credential that may not open the broker (HTTP 403).
@@ -32,11 +43,23 @@ pub enum AuthDecision {
     Unavailable,
 }
 
+/// Header the broker sends with every validation request, naming what it
+/// can enforce. A kernel only answers with a user principal (instead of 403)
+/// to a broker that says it holds users to their channels.
+pub const BROKER_FEATURES_HEADER: &str = "X-Mtw-Broker-Features";
+/// The features this broker has.
+pub const BROKER_FEATURES: &str = "principals";
+
 impl AuthDecision {
+    /// Whether the upgrade may proceed.
+    pub fn is_allowed(&self) -> bool {
+        matches!(self, AuthDecision::Allow | AuthDecision::AllowUser(_))
+    }
+
     /// HTTP status line used to reject the handshake.
     pub(crate) fn status_line(&self) -> &'static str {
         match self {
-            AuthDecision::Allow => "200 OK",
+            AuthDecision::Allow | AuthDecision::AllowUser(_) => "200 OK",
             AuthDecision::Unauthorized => "401 Unauthorized",
             AuthDecision::Forbidden => "403 Forbidden",
             AuthDecision::Unavailable => "503 Service Unavailable",
@@ -73,8 +96,9 @@ pub struct KernelBrokerAuth {
     endpoint: String,
     client: reqwest::Client,
     cache_ttl: Duration,
-    /// token -> time it was validated. Only `Allow` results are cached.
-    cache: DashMap<String, Instant>,
+    /// token -> (time it was validated, decision). Only admitted
+    /// decisions are cached.
+    cache: DashMap<String, (Instant, AuthDecision)>,
 }
 
 impl KernelBrokerAuth {
@@ -107,33 +131,34 @@ impl KernelBrokerAuth {
         &self.endpoint
     }
 
-    fn cached(&self, token: &str) -> bool {
+    fn cached(&self, token: &str) -> Option<AuthDecision> {
         if self.cache_ttl.is_zero() {
-            return false;
+            return None;
         }
-        // Copy the timestamp out first: holding the `get` guard while calling
+        // Copy the entry out first: holding the `get` guard while calling
         // `remove` on the same shard deadlocks DashMap, which blocks a runtime
         // worker and, after a few such calls, every handshake on the broker.
-        let validated_at = self.cache.get(token).map(|at| *at);
-        match validated_at {
-            Some(at) if at.elapsed() < self.cache_ttl => true,
+        let entry = self.cache.get(token).map(|e| e.value().clone());
+        match entry {
+            Some((at, decision)) if at.elapsed() < self.cache_ttl => Some(decision),
             Some(_) => {
                 self.cache
-                    .remove_if(token, |_, at| at.elapsed() >= self.cache_ttl);
-                false
+                    .remove_if(token, |_, (at, _)| at.elapsed() >= self.cache_ttl);
+                None
             }
-            None => false,
+            None => None,
         }
     }
 
-    fn remember(&self, token: &str) {
+    fn remember(&self, token: &str, decision: &AuthDecision) {
         if self.cache_ttl.is_zero() {
             return;
         }
         if self.cache.len() >= MAX_CACHE_ENTRIES {
             self.cache.clear();
         }
-        self.cache.insert(token.to_string(), Instant::now());
+        self.cache
+            .insert(token.to_string(), (Instant::now(), decision.clone()));
     }
 }
 
@@ -145,17 +170,21 @@ impl MtwHandshakeAuth for KernelBrokerAuth {
         // auth disabled (no KERNEL_AUTH_TOKEN) answers 204 to everyone,
         // while one with auth enabled answers 401.
         let token = token.unwrap_or("");
-        if self.cached(token) {
-            return AuthDecision::Allow;
+        if let Some(decision) = self.cached(token) {
+            return decision;
         }
-        let mut req = self.client.get(&self.endpoint);
+        let mut req = self
+            .client
+            .get(&self.endpoint)
+            .header(BROKER_FEATURES_HEADER, BROKER_FEATURES);
         if !token.is_empty() {
             req = req.bearer_auth(token);
         }
         let resp = req.send().await;
         let decision = match resp {
             Ok(r) => match r.status().as_u16() {
-                200 | 204 => AuthDecision::Allow,
+                204 => AuthDecision::Allow,
+                200 => user_from_body(r.bytes().await.ok().as_deref()),
                 401 => AuthDecision::Unauthorized,
                 403 => AuthDecision::Forbidden,
                 other => {
@@ -171,10 +200,29 @@ impl MtwHandshakeAuth for KernelBrokerAuth {
                 AuthDecision::Unavailable
             }
         };
-        if decision == AuthDecision::Allow {
-            self.remember(token);
+        if decision.is_allowed() {
+            self.remember(token, &decision);
         }
         decision
+    }
+}
+
+/// A 200 answer must be `{"kind":"user","id":"…"}`. The super admin is
+/// always 204, so a 200 that names no user is not trusted with anything.
+fn user_from_body(body: Option<&[u8]>) -> AuthDecision {
+    let parsed = body.and_then(|b| serde_json::from_slice::<serde_json::Value>(b).ok());
+    let Some(v) = parsed else {
+        tracing::warn!("broker auth: 200 without a user from the kernel — rejecting");
+        return AuthDecision::Unavailable;
+    };
+    if v.get("kind").and_then(|k| k.as_str()) != Some("user") {
+        tracing::warn!("broker auth: 200 that names no user from the kernel — rejecting");
+        return AuthDecision::Unavailable;
+    }
+    match v.get("id").and_then(|i| i.as_str()).map(str::trim) {
+        Some(id) if !id.is_empty() => AuthDecision::AllowUser(id.to_string()),
+        // A user without an id cannot be held to anything: refuse.
+        _ => AuthDecision::Forbidden,
     }
 }
 
