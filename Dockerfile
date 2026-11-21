@@ -11,9 +11,10 @@
 #   RUST_BRIDGE_SOCKET=/tmp/mtw-rust.sock
 
 # --- Builder stage ---
-# rustc >= 1.88 needed for the torrent feature: librqbit's transitive deps
-# (darling 0.23, serde_with 3.19) bumped their MSRV to 1.88.
-FROM rust:1.88-slim AS builder
+# The workspace's rust-version (Cargo.toml) is 1.94. The builder stays on
+# bookworm like the runtime stage below: a binary linked on a newer Debian
+# needs a glibc bookworm does not have (GLIBC_2.38 not found).
+FROM rust:1.94.1-slim-bookworm AS builder
 
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 
@@ -107,8 +108,9 @@ WORKDIR /app
 # Copy binary from builder
 COPY --from=builder /build/target/release/mtw-server /app/mtw-server
 
-# Copy default config
-COPY mtw.toml /app/mtw.toml
+# Default config. mtw.toml itself is gitignored (it is each install's own),
+# so a clean checkout builds from the example; deployments mount theirs over it.
+COPY mtw.toml.example /app/mtw.toml
 
 # WebSocket transport
 EXPOSE 7741
