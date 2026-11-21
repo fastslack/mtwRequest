@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-21
+
+### Fixed
+
+- The broker hung on the first handshake after a cached token expired, and
+  then on every later handshake. The broker auth cache held DashMap's `get`
+  guard across `remove` on the same shard. Every 0.5.0 deployment with auth
+  enabled is affected after `MTW_AUTH_CACHE_SECS` (10 s by default), so
+  upgrade from 0.5.0.
+
 ## [0.5.0] - 2026-11-21
 
 ### Breaking
